@@ -10,7 +10,7 @@ android {
     defaultConfig {
         applicationId = "com.cpipos.pos.next"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 2000000
         versionName = "2.0.0-dev"
 
