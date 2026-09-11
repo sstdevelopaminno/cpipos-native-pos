@@ -1,7 +1,20 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use(::load)
+    }
+}
+
+fun localProperty(name: String): String = localProperties.getProperty(name, "")
+fun quoted(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 android {
     namespace = "com.cpipos.pos.next"
@@ -15,6 +28,17 @@ android {
         versionName = "2.0.0-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField(
+            "String",
+            "SUPABASE_URL",
+            quoted(localProperty("CPIPOS_SUPABASE_URL"))
+        )
+        buildConfigField(
+            "String",
+            "SUPABASE_PUBLISHABLE_KEY",
+            quoted(localProperty("CPIPOS_SUPABASE_PUBLISHABLE_KEY"))
+        )
     }
 
     buildTypes {
@@ -44,6 +68,7 @@ android {
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
+    val supabaseBom = platform("io.github.jan-tennert.supabase:bom:3.5.0")
 
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -53,6 +78,11 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+
+    implementation(supabaseBom)
+    implementation("io.github.jan-tennert.supabase:postgrest-kt")
+    implementation("io.github.jan-tennert.supabase:auth-kt")
+    implementation("io.ktor:ktor-client-android:3.0.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
