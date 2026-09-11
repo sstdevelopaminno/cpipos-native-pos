@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.cpipos.pos.next.core.supabase.SupabaseClientProvider
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -22,7 +23,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    FoundationScreen()
+                    Phase1StatusScreen()
                 }
             }
         }
@@ -30,7 +31,9 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun FoundationScreen() {
+private fun Phase1StatusScreen() {
+    val configured = SupabaseClientProvider.isConfigured
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -44,12 +47,26 @@ private fun FoundationScreen() {
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Native Android foundation",
+            text = "Phase 1 · CpiPOS-001 Read-only",
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(top = 12.dp)
         )
         Text(
-            text = "Development build — production 1.0.23 remains isolated",
+            text = if (configured) {
+                "Supabase local configuration: READY"
+            } else {
+                "Supabase local configuration: NOT SET"
+            },
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(top = 16.dp)
+        )
+        Text(
+            text = "No production write operation is enabled in this build.",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        Text(
+            text = "Android 1.0.23 and the current Web POS remain isolated.",
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(top = 8.dp)
         )
