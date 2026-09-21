@@ -5,7 +5,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="CpIPOS Native 2.0"
+        android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.CpIPOSNative">
 
