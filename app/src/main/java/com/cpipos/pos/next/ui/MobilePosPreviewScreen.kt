@@ -28,7 +28,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.cpipos.pos.next.auth.AuthAttemptResult
 import com.cpipos.pos.next.auth.AuthCredentials
@@ -65,17 +65,17 @@ private data class PreviewProduct(
 )
 
 private val previewBranches = listOf(
-    PreviewBranch("bkk-main", "สาขาหลัก", "พร้อมขาย"),
-    PreviewBranch("counter-2", "เคาน์เตอร์ 2", "จำลองข้อมูล")
+    PreviewBranch("bkk-main", "Main Branch", "Ready for sales"),
+    PreviewBranch("counter-2", "Counter 2", "Mock data")
 )
 
 private val previewProducts = listOf(
-    PreviewProduct("cut-basic", "ตัดผมชาย", "บริการ", 180, Color(0xFF1F7A8C)),
-    PreviewProduct("cut-style", "ตัด+เซ็ต", "บริการ", 250, Color(0xFFBF5B45)),
-    PreviewProduct("wash", "สระไดร์", "บริการ", 120, Color(0xFF5B6C5D)),
-    PreviewProduct("wax", "แว็กซ์ผม", "สินค้า", 220, Color(0xFF7C6A46)),
-    PreviewProduct("pomade", "โพเมด", "สินค้า", 320, Color(0xFF6E557D)),
-    PreviewProduct("voucher", "คูปองบริการ", "โปรโมชั่น", 500, Color(0xFF386641))
+    PreviewProduct("cut-basic", "Men's Haircut", "Service", 180, Color(0xFF1F7A8C)),
+    PreviewProduct("cut-style", "Cut + Style", "Service", 250, Color(0xFFBF5B45)),
+    PreviewProduct("wash", "Wash + Blow Dry", "Service", 120, Color(0xFF5B6C5D)),
+    PreviewProduct("wax", "Hair Wax", "Product", 220, Color(0xFF7C6A46)),
+    PreviewProduct("pomade", "Pomade", "Product", 320, Color(0xFF6E557D)),
+    PreviewProduct("voucher", "Service Voucher", "Promotion", 500, Color(0xFF386641))
 )
 
 @Composable
@@ -89,7 +89,7 @@ fun MobilePosPreviewScreen(
     var isSubmitting by remember { mutableStateOf(false) }
     var branch by remember { mutableStateOf(previewBranches.first()) }
     var message by remember {
-        mutableStateOf("โหมด APK Preview: ทดสอบ UI มือถือด้วย mock data ยังไม่เขียนข้อมูล Production")
+        mutableStateOf("APK Preview mode: test mobile UI with mock data. No production writes.")
     }
     val cart = remember { mutableStateMapOf<String, Int>() }
     val scope = rememberCoroutineScope()
@@ -97,6 +97,85 @@ fun MobilePosPreviewScreen(
     val totalItems = cart.values.sum()
     val totalPrice = previewProducts.sumOf { product -> product.price * (cart[product.id] ?: 0) }
 
+    MobilePosScaffold(
+        step = step,
+        isSupabaseConfigured = isSupabaseConfigured,
+        branchName = branch.name,
+        message = message
+    ) {
+        when (step) {
+            PosPreviewStep.Login -> LoginPanel(
+                storeCode = storeCode,
+                employeePin = employeePin,
+                isSubmitting = isSubmitting,
+                onStoreCodeChange = { storeCode = it.trimStart() },
+                onPinChange = { value -> employeePin = value.filter(Char::isDigit).take(12) },
+                onSubmit = {
+                    isSubmitting = true
+                    message = "Checking Secure Auth Gateway..."
+                    scope.launch {
+                        val result = gateway.authenticate(
+                            AuthCredentials(storeCode = storeCode.trim(), employeePin = employeePin)
+                        )
+                        employeePin = ""
+                        isSubmitting = false
+                        message = when (result) {
+                            is AuthAttemptResult.Success -> "Real session started."
+                            is AuthAttemptResult.Rejected -> result.message
+                            is AuthAttemptResult.BackendUnavailable ->
+                                "Secure gateway is disabled, so the app continues in mobile UI mock mode."
+                        }
+                        step = PosPreviewStep.Branch
+                    }
+                }
+            )
+
+            PosPreviewStep.Branch -> BranchPanel(
+                selectedBranch = branch,
+                onSelect = { selected -> branch = selected },
+                onContinue = {
+                    message = "Select products and test the local mock cart."
+                    step = PosPreviewStep.Sale
+                }
+            )
+
+            PosPreviewStep.Sale -> SalePanel(
+                cart = cart,
+                totalItems = totalItems,
+                totalPrice = totalPrice,
+                onAdd = { product -> cart[product.id] = (cart[product.id] ?: 0) + 1 },
+                onRemove = { product ->
+                    val next = (cart[product.id] ?: 0) - 1
+                    if (next <= 0) cart.remove(product.id) else cart[product.id] = next
+                },
+                onCheckout = {
+                    message = "Checkout is a placeholder. No real order or payment is created."
+                    step = PosPreviewStep.Checkout
+                }
+            )
+
+            PosPreviewStep.Checkout -> CheckoutPanel(
+                totalItems = totalItems,
+                totalPrice = totalPrice,
+                onBack = { step = PosPreviewStep.Sale },
+                onReset = {
+                    cart.clear()
+                    message = "Started a new mock bill."
+                    step = PosPreviewStep.Sale
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MobilePosScaffold(
+    step: PosPreviewStep,
+    isSupabaseConfigured: Boolean,
+    branchName: String,
+    message: String,
+    content: @Composable () -> Unit
+) {
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF6F7F2)) {
         Column(
             modifier = Modifier
@@ -106,7 +185,7 @@ fun MobilePosPreviewScreen(
             AppHeader(
                 step = step,
                 isSupabaseConfigured = isSupabaseConfigured,
-                branchName = branch.name
+                branchName = branchName
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -119,68 +198,7 @@ fun MobilePosPreviewScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            when (step) {
-                PosPreviewStep.Login -> LoginPanel(
-                    storeCode = storeCode,
-                    employeePin = employeePin,
-                    isSubmitting = isSubmitting,
-                    onStoreCodeChange = { storeCode = it.trimStart() },
-                    onPinChange = { value -> employeePin = value.filter(Char::isDigit).take(12) },
-                    onSubmit = {
-                        isSubmitting = true
-                        message = "กำลังตรวจสอบ Secure Auth Gateway..."
-                        scope.launch {
-                            val result = gateway.authenticate(
-                                AuthCredentials(storeCode = storeCode.trim(), employeePin = employeePin)
-                            )
-                            employeePin = ""
-                            isSubmitting = false
-                            message = when (result) {
-                                is AuthAttemptResult.Success -> "เข้าสู่ session จริงสำเร็จ"
-                                is AuthAttemptResult.Rejected -> result.message
-                                is AuthAttemptResult.BackendUnavailable ->
-                                    "Secure gateway ยังปิดไว้ จึงเปิดโหมดจำลองสำหรับทดสอบ UI มือถือ"
-                            }
-                            step = PosPreviewStep.Branch
-                        }
-                    }
-                )
-
-                PosPreviewStep.Branch -> BranchPanel(
-                    selectedBranch = branch,
-                    onSelect = { selected -> branch = selected },
-                    onContinue = {
-                        message = "เลือกสินค้าและทดสอบตะกร้าแบบ local mock"
-                        step = PosPreviewStep.Sale
-                    }
-                )
-
-                PosPreviewStep.Sale -> SalePanel(
-                    cart = cart,
-                    totalItems = totalItems,
-                    totalPrice = totalPrice,
-                    onAdd = { product -> cart[product.id] = (cart[product.id] ?: 0) + 1 },
-                    onRemove = { product ->
-                        val next = (cart[product.id] ?: 0) - 1
-                        if (next <= 0) cart.remove(product.id) else cart[product.id] = next
-                    },
-                    onCheckout = {
-                        message = "ชำระเงินเป็น placeholder ยังไม่สร้างออเดอร์/ชำระเงินจริง"
-                        step = PosPreviewStep.Checkout
-                    }
-                )
-
-                PosPreviewStep.Checkout -> CheckoutPanel(
-                    totalItems = totalItems,
-                    totalPrice = totalPrice,
-                    onBack = { step = PosPreviewStep.Sale },
-                    onReset = {
-                        cart.clear()
-                        message = "เริ่มบิลจำลองใหม่แล้ว"
-                        step = PosPreviewStep.Sale
-                    }
-                )
-            }
+            content()
         }
     }
 }
@@ -243,11 +261,11 @@ private fun LoginPanel(
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("เข้าใช้งาน", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Sign in", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             OutlinedTextField(
                 value = storeCode,
                 onValueChange = onStoreCodeChange,
-                label = { Text("รหัสร้าน") },
+                label = { Text("Store code") },
                 enabled = !isSubmitting,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -255,7 +273,7 @@ private fun LoginPanel(
             OutlinedTextField(
                 value = employeePin,
                 onValueChange = onPinChange,
-                label = { Text("PIN พนักงาน") },
+                label = { Text("Employee PIN") },
                 enabled = !isSubmitting,
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
@@ -266,10 +284,10 @@ private fun LoginPanel(
                 enabled = storeCode.isNotBlank() && employeePin.isNotBlank() && !isSubmitting,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (isSubmitting) "กำลังตรวจสอบ..." else "เปิด POS Preview")
+                Text(if (isSubmitting) "Checking..." else "Open POS Preview")
             }
             Text(
-                text = "PIN จะถูกล้างหลัง attempt และยังไม่มีการส่งข้อมูลไปสร้าง session production",
+                text = "The PIN is cleared after each attempt. This preview does not create a production session.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFF66736A)
             )
@@ -285,7 +303,7 @@ private fun BranchPanel(
 ) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Text("เลือกสาขา", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Select branch", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
         items(previewBranches) { branch ->
             SelectableCard(
@@ -297,7 +315,7 @@ private fun BranchPanel(
         }
         item {
             Button(onClick = onContinue, modifier = Modifier.fillMaxWidth()) {
-                Text("ไปหน้าขาย")
+                Text("Go to sale")
             }
         }
     }
@@ -316,10 +334,10 @@ private fun SalePanel(
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("ขายสินค้า", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text("$totalItems รายการ / ${formatBaht(totalPrice)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Sale", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("$totalItems items / ${formatBaht(totalPrice)}", style = MaterialTheme.typography.bodyMedium)
                 }
-                Button(onClick = onCheckout, enabled = totalItems > 0) { Text("ชำระ") }
+                Button(onClick = onCheckout, enabled = totalItems > 0) { Text("Pay") }
             }
         }
         items(previewProducts) { product ->
@@ -354,7 +372,7 @@ private fun ProductRow(
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("${product.category} • ${formatBaht(product.price)}", style = MaterialTheme.typography.bodySmall)
+                Text("${product.category} - ${formatBaht(product.price)}", style = MaterialTheme.typography.bodySmall)
             }
             if (quantity > 0) {
                 OutlinedButton(onClick = onRemove) { Text("-") }
@@ -374,18 +392,18 @@ private fun CheckoutPanel(
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("สรุปชำระเงิน", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            SummaryLine("จำนวนรายการ", "$totalItems")
-            SummaryLine("ยอดรวม", formatBaht(totalPrice))
+            Text("Checkout", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            SummaryLine("Items", "$totalItems")
+            SummaryLine("Total", formatBaht(totalPrice))
             HorizontalDivider()
             Text(
-                text = "ขั้นนี้เป็น placeholder สำหรับต่อ Sale RPC, Payment, Receipt และ Offline queue ใน phase ถัดไป",
+                text = "Placeholder for the next phase: Sale RPC, payment, receipt, and offline queue.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFF66736A)
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("ย้อนกลับ") }
-                Button(onClick = onReset, modifier = Modifier.weight(1f)) { Text("จบบิลจำลอง") }
+                OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("Back") }
+                Button(onClick = onReset, modifier = Modifier.weight(1f)) { Text("Finish mock bill") }
             }
         }
     }
@@ -406,14 +424,14 @@ private fun SelectableCard(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val borderColor = if (selected) Color(0xFF1F7A8C) else Color.Transparent
+    val markerColor = if (selected) Color(0xFF1F7A8C) else Color.Transparent
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFFE8F2F0) else Color.White),
         shape = RoundedCornerShape(8.dp)
     ) {
         Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(borderColor))
+            Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(markerColor))
             Spacer(modifier = Modifier.width(10.dp))
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -423,4 +441,91 @@ private fun SelectableCard(
     }
 }
 
-private fun formatBaht(value: Int): String = "฿%,d".format(value)
+private fun formatBaht(value: Int): String = "THB %,d".format(value)
+
+private object PreviewNativeAuthGateway : NativeAuthGateway {
+    override suspend fun authenticate(credentials: AuthCredentials): AuthAttemptResult {
+        return AuthAttemptResult.BackendUnavailable(
+            message = "Preview mock gateway only. No production auth request is sent."
+        )
+    }
+}
+
+@Preview(name = "Mobile POS - Login", showBackground = true, widthDp = 390, heightDp = 844)
+@Composable
+private fun MobilePosLoginPreview() {
+    MaterialTheme {
+        MobilePosPreviewScreen(
+            isSupabaseConfigured = false,
+            gateway = PreviewNativeAuthGateway
+        )
+    }
+}
+
+@Preview(name = "Mobile POS - Branch", showBackground = true, widthDp = 390, heightDp = 844)
+@Composable
+private fun MobilePosBranchPreview() {
+    MaterialTheme {
+        MobilePosScaffold(
+            step = PosPreviewStep.Branch,
+            isSupabaseConfigured = true,
+            branchName = previewBranches.first().name,
+            message = "Supabase configuration is present. Real auth remains guarded."
+        ) {
+            BranchPanel(
+                selectedBranch = previewBranches.first(),
+                onSelect = {},
+                onContinue = {}
+            )
+        }
+    }
+}
+
+@Preview(name = "Mobile POS - Sale", showBackground = true, widthDp = 390, heightDp = 844)
+@Composable
+private fun MobilePosSalePreview() {
+    val previewCart = mapOf(
+        "cut-basic" to 1,
+        "pomade" to 2
+    )
+    val totalItems = previewCart.values.sum()
+    val totalPrice = previewProducts.sumOf { product -> product.price * (previewCart[product.id] ?: 0) }
+
+    MaterialTheme {
+        MobilePosScaffold(
+            step = PosPreviewStep.Sale,
+            isSupabaseConfigured = true,
+            branchName = previewBranches.first().name,
+            message = "Mock cart preview for mobile POS layout review."
+        ) {
+            SalePanel(
+                cart = previewCart,
+                totalItems = totalItems,
+                totalPrice = totalPrice,
+                onAdd = {},
+                onRemove = {},
+                onCheckout = {}
+            )
+        }
+    }
+}
+
+@Preview(name = "Mobile POS - Checkout", showBackground = true, widthDp = 390, heightDp = 844)
+@Composable
+private fun MobilePosCheckoutPreview() {
+    MaterialTheme {
+        MobilePosScaffold(
+            step = PosPreviewStep.Checkout,
+            isSupabaseConfigured = true,
+            branchName = previewBranches.first().name,
+            message = "Checkout preview only. No order or payment is created."
+        ) {
+            CheckoutPanel(
+                totalItems = 3,
+                totalPrice = 820,
+                onBack = {},
+                onReset = {}
+            )
+        }
+    }
+}
