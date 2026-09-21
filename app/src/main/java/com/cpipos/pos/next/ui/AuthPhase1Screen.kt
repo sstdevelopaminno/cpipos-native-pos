@@ -152,7 +152,7 @@ fun AuthPhase1Screen(
                 )
 
                 Text(
-                    text = "ลำดับถัดไป: ร้าน → พนักงาน → สาขา → อุปกรณ์ → Session → Package/Feature → Products",
+                    text = "ลำดับถัดไป: ร้าน -> พนักงาน -> สาขา -> อุปกรณ์ -> Session -> Package/Feature -> Products",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 18.dp)
                 )

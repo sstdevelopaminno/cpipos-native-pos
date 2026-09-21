@@ -36,6 +36,6 @@ The production application id `com.cpipos.pos` is reserved for the controlled 2.
 2. Do not store Supabase service-role keys, database passwords, Android signing keys or other secrets in Git.
 3. Do not modify the production `CpIPOS` repository as part of Native 2.0 work unless explicitly planned as a compatibility/release change.
 4. Do not modify production `CpiPOS-001` schema or data from ordinary application development work.
-5. Security boundaries must be enforced by Supabase Auth, RLS and transactional server-side database operations—not only by UI state.
+5. Security boundaries must be enforced by Supabase Auth, RLS and transactional server-side database operations, not only by UI state.
 
-See `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, and `docs/ROADMAP.md` on the development branch for the detailed foundation.
+See `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/ROADMAP.md`, and `docs/DEVELOPMENT_STATUS.md` on the development branch for the detailed foundation.

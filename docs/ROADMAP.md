@@ -1,26 +1,28 @@
 # CpIPOS Native 2.0 Roadmap
 
-## Phase 0 — Foundation
+## Phase 0 - Foundation
 
 - [x] Separate GitHub repository
 - [x] Separate development application id
 - [x] Native Android + Compose baseline
 - [x] Architecture and security boundaries
-- [ ] Generate/commit Gradle wrapper from a verified local JDK 17 + Gradle 9.5 environment
+- [x] Generate/commit Gradle wrapper from a verified local JDK 17 + Gradle 9.5 environment
 - [ ] CI build for debug APK
 
-## Phase 1 — Read-only platform connection
+## Phase 1 - Read-only platform connection
 
-- [ ] Supabase client abstraction for CpiPOS-001
-- [ ] Authentication/session model
-- [ ] Tenant and branch context
-- [ ] Package/feature entitlement read model
-- [ ] Product/category read model
+- [x] Supabase client abstraction for CpiPOS-001
+- [x] Native authentication UI and guarded gateway contract
+- [x] Tenant and branch read model
+- [x] Package/feature entitlement read model
+- [x] Product read model
+- [ ] Trusted authentication RPC/Edge Function contract
+- [ ] Authenticated session model
 - [ ] Device registration/read-only health contract
 
 No sale/payment/stock mutations are enabled in this phase.
 
-## Phase 2 — Offline foundation
+## Phase 2 - Offline foundation
 
 - [ ] Room database
 - [ ] Sync queue
@@ -29,7 +31,7 @@ No sale/payment/stock mutations are enabled in this phase.
 - [ ] Initial product/config sync
 - [ ] Conflict/audit strategy
 
-## Phase 3 — Core POS
+## Phase 3 - Core POS
 
 - [ ] Login and activation
 - [ ] Open shift
@@ -40,7 +42,7 @@ No sale/payment/stock mutations are enabled in this phase.
 - [ ] Receipt rendering and printing
 - [ ] Close shift
 
-## Phase 4 — Business modules
+## Phase 4 - Business modules
 
 - [ ] Inventory
 - [ ] Reports
@@ -49,7 +51,7 @@ No sale/payment/stock mutations are enabled in this phase.
 - [ ] Customer display
 - [ ] Tax invoice workflows
 
-## Phase 5 — Device/IT integration
+## Phase 5 - Device/IT integration
 
 - [ ] Device heartbeat
 - [ ] Diagnostics
@@ -57,7 +59,7 @@ No sale/payment/stock mutations are enabled in this phase.
 - [ ] Managed updater
 - [ ] Android Device Owner/MDM compatibility
 
-## Phase 6 — 2.0 migration
+## Phase 6 - 2.0 migration
 
 - [ ] Pilot stores
 - [ ] Production data compatibility tests

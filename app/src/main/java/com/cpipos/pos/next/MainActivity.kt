@@ -9,7 +9,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.cpipos.pos.next.auth.GuardedNativeAuthGateway
 import com.cpipos.pos.next.core.supabase.SupabaseClientProvider
-import com.cpipos.pos.next.ui.AuthPhase1Screen
+import com.cpipos.pos.next.ui.MobilePosPreviewScreen
 
 class MainActivity : ComponentActivity() {
     private val authGateway = GuardedNativeAuthGateway()
@@ -19,7 +19,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    AuthPhase1Screen(
+                    MobilePosPreviewScreen(
                         isSupabaseConfigured = SupabaseClientProvider.isConfigured,
                         gateway = authGateway
                     )

@@ -1,4 +1,4 @@
-# Phase 1 — CpiPOS-001 Read-only
+# Phase 1 - CpiPOS-001 Read-only
 
 This phase connects CpIPOS Native 2.0 to the existing CpiPOS-001 Supabase project without enabling any production write path.
 
@@ -38,6 +38,6 @@ It intentionally exposes no insert, update, delete, upsert, RPC mutation, order,
 
 ## Authentication sequencing
 
-The repository is not a replacement for authentication. The next step is to map the existing CpIPOS store → employee → device → session flow onto Supabase Auth/RLS without Vercel as the POS runtime intermediary.
+The repository is not a replacement for authentication. The next step is to map the existing CpIPOS store -> employee -> device -> session flow onto Supabase Auth/RLS without Vercel as the POS runtime intermediary.
 
 No catalog query should be connected to production UI until an authenticated session and tenant/branch scope have been validated.
