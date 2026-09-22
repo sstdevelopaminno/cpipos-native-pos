@@ -977,7 +977,7 @@ private fun ModeCard(
  * surface so the bar and the floating button read as one sculpted component.
  */
 @Composable
-private fun HomeBottomMenu(modifier: Modifier = Modifier) {
+internal fun HomeBottomMenu(modifier: Modifier = Modifier) {
     val density = LocalDensity.current
     val flatTopPx = with(density) { 17.dp.toPx() }
     val cornerPx = with(density) { 23.dp.toPx() }
@@ -1135,7 +1135,7 @@ private fun BottomMenuItem(
         )
         Text(
             text = label,
-            fontSize = 10.sp,
+            fontSize = if (label.length > 6) 8.sp else 10.sp,
             lineHeight = 13.sp,
             color = itemColor,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
