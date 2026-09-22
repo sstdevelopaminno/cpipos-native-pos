@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -48,6 +49,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
@@ -944,29 +946,79 @@ private fun ModeCard(iconRes: Int, title: String, subtitle: String) {
  * Five equal columns prevent labels from clipping on narrow Android phones.
  * The centre stock control has its own raised white ring and blue gradient.
  */
+/**
+ * The reference design has a raised, convex centre shoulder behind the product
+ * button, not a concave cut-out. Keep the shoulder as part of the same white
+ * surface so the bar and the floating button read as one sculpted component.
+ */
 @Composable
 private fun HomeBottomMenu(modifier: Modifier = Modifier) {
+    val density = LocalDensity.current
+    val flatTopPx = with(density) { 17.dp.toPx() }
+    val cornerPx = with(density) { 23.dp.toPx() }
+    val shoulderPx = with(density) { 78.dp.toPx() }
+    val crestHalfPx = with(density) { 28.dp.toPx() }
+
+    val raisedBarShape = remember(flatTopPx, cornerPx, shoulderPx, crestHalfPx) {
+        GenericShape { size, _ ->
+            val center = size.width / 2f
+            val flatTop = flatTopPx.coerceAtMost(size.height * 0.3f)
+            val crestTop = with(density) { 1.dp.toPx() }
+            val corner = cornerPx.coerceAtMost(size.width * 0.12f)
+            val shoulder = shoulderPx.coerceAtMost(size.width * 0.23f)
+            val crestHalf = crestHalfPx.coerceAtMost(shoulder * 0.45f)
+
+            moveTo(0f, size.height)
+            lineTo(0f, flatTop + corner)
+            quadraticBezierTo(0f, flatTop, corner, flatTop)
+            lineTo(center - shoulder, flatTop)
+
+            // Gentle upward shoulders join the raised centre without a notch.
+            cubicTo(
+                center - shoulder * 0.70f, flatTop,
+                center - crestHalf * 1.75f, crestTop,
+                center - crestHalf, crestTop
+            )
+            lineTo(center + crestHalf, crestTop)
+            cubicTo(
+                center + crestHalf * 1.75f, crestTop,
+                center + shoulder * 0.70f, flatTop,
+                center + shoulder, flatTop
+            )
+
+            lineTo(size.width - corner, flatTop)
+            quadraticBezierTo(size.width, flatTop, size.width, flatTop + corner)
+            lineTo(size.width, size.height)
+            close()
+        }
+    }
+
     Box(
         modifier = modifier
             .navigationBarsPadding()
             .padding(start = 10.dp, end = 10.dp, bottom = 5.dp)
             .fillMaxWidth()
-            .height(94.dp),
+            .height(104.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
+        // The background and its shadow share one shape: the raised centre
+        // remains visible either side of the circular product button.
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(90.dp)
+                .shadow(elevation = 11.dp, shape = raisedBarShape, clip = false)
+                .clip(raisedBarShape)
+                .background(Color.White)
+        )
+
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(73.dp)
-                .shadow(
-                    elevation = 12.dp,
-                    shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
-                    clip = false
-                )
-                .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-                .background(Color.White)
-                .padding(start = 6.dp, end = 6.dp, top = 17.dp),
+                .height(77.dp)
+                .padding(start = 6.dp, end = 6.dp, top = 15.dp),
             verticalAlignment = Alignment.Top
         ) {
             BottomMenuItem(
@@ -996,23 +1048,23 @@ private fun HomeBottomMenu(modifier: Modifier = Modifier) {
             )
         }
 
+        // White halo + gentle elevation creates the raised central button.
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(y = 2.dp)
-                .size(73.dp)
-                .shadow(12.dp, CircleShape, clip = false)
+                .size(76.dp)
+                .shadow(15.dp, CircleShape, clip = false)
                 .clip(CircleShape)
                 .background(Color.White),
             contentAlignment = Alignment.Center
         ) {
             Box(
                 modifier = Modifier
-                    .size(57.dp)
+                    .size(58.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
-                            listOf(Color(0xFF6CB9FF), Color(0xFF1464EC))
+                            listOf(Color(0xFF69B6FF), Color(0xFF1764ED))
                         )
                     ),
                 contentAlignment = Alignment.Center
@@ -1024,6 +1076,7 @@ private fun HomeBottomMenu(modifier: Modifier = Modifier) {
                 )
             }
         }
+
         Text(
             text = stringResource(R.string.pos_nav_stock),
             fontSize = 11.sp,
