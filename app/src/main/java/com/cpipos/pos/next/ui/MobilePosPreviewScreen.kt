@@ -74,6 +74,7 @@ private enum class PosPreviewStep(val labelRes: Int) {
     EmployeePin(R.string.pos_step_employee_pin),
     Counter(R.string.pos_step_counter),
     Sale(R.string.pos_step_sale),
+    SaleFlow(R.string.pos_step_sale),
     Checkout(R.string.pos_step_checkout)
 }
 
@@ -137,6 +138,7 @@ fun MobilePosPreviewScreen(
     var isSubmitting by remember { mutableStateOf(false) }
     var branch by remember { mutableStateOf(previewBranches.first()) }
     var counter by remember { mutableStateOf(previewCounters.first()) }
+    var saleMode by remember { mutableStateOf(MockSaleMode.Takeaway) }
     val checkingGatewayMessage = stringResource(R.string.pos_message_checking_gateway)
     val realSessionStartedMessage = stringResource(R.string.pos_message_real_session_started)
     val gatewayDisabledMessage = stringResource(R.string.pos_message_gateway_disabled)
@@ -220,7 +222,18 @@ fun MobilePosPreviewScreen(
 
         PosPreviewStep.Sale -> HomeModeScreen(
             branch = branch,
-            counter = counter
+            counter = counter,
+            onSelectMode = { selected ->
+                saleMode = selected
+                step = PosPreviewStep.SaleFlow
+            }
+        )
+
+        PosPreviewStep.SaleFlow -> MobilePosSalePreview(
+            mode = saleMode,
+            branchName = stringResource(branch.nameRes),
+            counterCode = counter.code,
+            onBack = { step = PosPreviewStep.Sale }
         )
 
         PosPreviewStep.Checkout -> MobilePosScaffold(
@@ -773,7 +786,11 @@ private fun cpiposTextFieldColors() = OutlinedTextFieldDefaults.colors(
 )
 
 @Composable
-private fun HomeModeScreen(branch: PreviewBranch, counter: PreviewCounter) {
+private fun HomeModeScreen(
+    branch: PreviewBranch,
+    counter: PreviewCounter,
+    onSelectMode: (MockSaleMode) -> Unit
+) {
     // Keep these values in scope for the later real session/navigation hand-off.
     // The design preview must not create or modify a production POS session.
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFFAFCFF)) {
@@ -816,13 +833,15 @@ private fun HomeModeScreen(branch: PreviewBranch, counter: PreviewCounter) {
                 ModeCard(
                     iconRes = R.drawable.ic_mode_takeaway,
                     title = stringResource(R.string.pos_mode_takeaway),
-                    subtitle = stringResource(R.string.pos_mode_takeaway_subtitle)
+                    subtitle = stringResource(R.string.pos_mode_takeaway_subtitle),
+                    onClick = { onSelectMode(MockSaleMode.Takeaway) }
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 ModeCard(
                     iconRes = R.drawable.ic_mode_table,
                     title = stringResource(R.string.pos_mode_table),
-                    subtitle = stringResource(R.string.pos_mode_table_subtitle)
+                    subtitle = stringResource(R.string.pos_mode_table_subtitle),
+                    onClick = { onSelectMode(MockSaleMode.DineIn) }
                 )
             }
 
@@ -873,12 +892,18 @@ private fun HomeBlueWaveBackground(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ModeCard(iconRes: Int, title: String, subtitle: String) {
+private fun ModeCard(
+    iconRes: Int,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .height(116.dp)
-            .shadow(7.dp, RoundedCornerShape(17.dp)),
+            .shadow(7.dp, RoundedCornerShape(17.dp))
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(17.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
@@ -1376,7 +1401,7 @@ private object PreviewNativeAuthGateway : NativeAuthGateway {
 @Composable
 private fun MobilePosHomeModePreview() {
     MaterialTheme {
-        HomeModeScreen(previewBranches.first(), previewCounters.first())
+        HomeModeScreen(previewBranches.first(), previewCounters.first(), onSelectMode = {})
     }
 }
 
