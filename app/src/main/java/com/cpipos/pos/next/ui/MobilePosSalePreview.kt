@@ -1,5 +1,6 @@
 package com.cpipos.pos.next.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,28 +8,34 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,17 +48,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.cpipos.pos.next.R
 import java.util.Locale
 
 /**
- * Local-only mobile sales UI preview. The menu, cart, checkout and payments
- * are mock data/state; no network calls, POS session, payment or stock writes.
+ * Reference-inspired Takeaway sales UI. Demo products and all transactions
+ * stay entirely in Compose memory; no real sale, banking or stock operations.
  */
 internal enum class MockSaleMode(val title: String) {
     Takeaway("โหมดกลับบ้าน"),
@@ -68,18 +81,17 @@ private data class DemoMenuItem(
 )
 
 private val demoMenu = listOf(
-    DemoMenuItem("basil", "ข้าวกะเพราหมูสับ", "อาหารจานเดียว", 65, "กะ", Color(0xFF288B78)),
-    DemoMenuItem("fried-rice", "ข้าวผัดกุ้ง", "อาหารจานเดียว", 75, "ผัด", Color(0xFFF5A444)),
-    DemoMenuItem("pad-thai", "ผัดไทยกุ้งสด", "อาหารจานเดียว", 80, "ไทย", Color(0xFFDF876E)),
-    DemoMenuItem("tom-yum", "ต้มยำกุ้ง", "อาหารจานเดียว", 120, "ต้ม", Color(0xFFDA6559)),
-    DemoMenuItem("thai-tea", "ชาไทย", "เครื่องดื่ม", 45, "ชา", Color(0xFFD68B31)),
-    DemoMenuItem("americano", "อเมริกาโน่", "เครื่องดื่ม", 60, "กา", Color(0xFF746354)),
-    DemoMenuItem("water", "น้ำเปล่า", "เครื่องดื่ม", 15, "น้ำ", Color(0xFF3986CF)),
-    DemoMenuItem("fries", "เฟรนช์ฟรายส์", "ของทานเล่น", 69, "FF", Color(0xFFE0A13F))
+    DemoMenuItem("thai-tea", "ชาไทย", "เครื่องดื่ม", 50, "🧋", Color(0xFFF3A35A)),
+    DemoMenuItem("americano", "อเมริกาโน่", "เครื่องดื่ม", 55, "🥤", Color(0xFF876552)),
+    DemoMenuItem("fried-rice", "ข้าวผัด", "อาหาร", 80, "🍛", Color(0xFFEAAE5D)),
+    DemoMenuItem("basil", "ผัดกะเพรา", "อาหาร", 75, "🍳", Color(0xFF70A868)),
+    DemoMenuItem("water", "น้ำเปล่า", "เครื่องดื่ม", 20, "💧", Color(0xFF80BDF9)),
+    DemoMenuItem("cake", "เค้กช็อกโกแลต", "ของหวาน", 95, "🍰", Color(0xFF9F735F))
 )
 private val saleBlue = Color(0xFF1879F3)
 private val saleInk = Color(0xFF152544)
 private val saleMuted = Color(0xFF7A8BA3)
+private val saleCategories = listOf("ทั้งหมด", "เครื่องดื่ม", "อาหาร", "ของหวาน", "โปรโมชัน")
 
 private enum class PreviewPayment { Cash, Transfer }
 
@@ -92,6 +104,8 @@ internal fun MobilePosSalePreview(
 ) {
     val cart = remember { mutableStateMapOf<String, Int>() }
     var category by remember { mutableStateOf("ทั้งหมด") }
+    var search by remember { mutableStateOf("") }
+    var showScannerNotice by remember { mutableStateOf(false) }
     var showCart by remember { mutableStateOf(false) }
     var showMethods by remember { mutableStateOf(false) }
     var payment by remember { mutableStateOf<PreviewPayment?>(null) }
@@ -100,8 +114,12 @@ internal fun MobilePosSalePreview(
 
     val quantity = cart.values.sum()
     val total = demoMenu.sumOf { it.price * (cart[it.id] ?: 0) }
+    val visibleProducts = demoMenu.filter { product ->
+        (category == "ทั้งหมด" || product.category == category) &&
+            (search.isBlank() || product.name.contains(search.trim(), ignoreCase = true) || product.id.contains(search.trim(), ignoreCase = true))
+    }
 
-    fun add(id: String) { cart[id] = (cart[id] ?: 0) + 1 }
+    fun add(id: String) { cart[id] = (cart[id] ?: 0) + 1; notice = "" }
     fun remove(id: String) {
         val next = (cart[id] ?: 0) - 1
         if (next <= 0) cart.remove(id) else cart[id] = next
@@ -115,76 +133,226 @@ internal fun MobilePosSalePreview(
         notice = "จบบิลจำลองแล้ว ไม่มีการรับเงินจริงหรือบันทึกยอดขาย"
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF6F9FF)) {
-        Column(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
-                .padding(horizontal = 16.dp)
-        ) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) {
-                    Text("‹ กลับ", color = saleBlue, fontWeight = FontWeight.Bold)
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(horizontal = 14.dp)
+                    .padding(bottom = 179.dp)
+            ) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(76.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.cpipos_logo_symbol),
+                        contentDescription = "CpIPOS",
+                        modifier = Modifier.size(45.dp)
+                    )
+                    Text("CpIPOS", fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, color = saleInk)
+                    Spacer(modifier = Modifier.width(9.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(mode.title, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = saleInk, maxLines = 1)
+                        Text(
+                            if (mode == MockSaleMode.Takeaway) "แคชเชียร์ขายกลับบ้าน" else "แคชเชียร์ขายนั่งโต๊ะ",
+                            fontSize = 12.sp,
+                            color = saleMuted,
+                            maxLines = 1
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(51.dp)
+                            .shadow(2.dp, CircleShape)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .clickable { showCart = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.ic_nav_cart),
+                            contentDescription = "เปิดตะกร้า",
+                            modifier = Modifier.size(31.dp)
+                        )
+                        if (quantity > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(19.dp)
+                                    .clip(CircleShape)
+                                    .background(saleBlue),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    quantity.toString(),
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    lineHeight = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
                 }
-                Spacer(modifier = Modifier.weight(1f))
-                Text("POS PREVIEW", color = saleBlue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+
+                OutlinedTextField(
+                    value = search,
+                    onValueChange = { search = it },
+                    modifier = Modifier.fillMaxWidth().height(57.dp),
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, color = saleInk),
+                    placeholder = {
+                        Text("ค้นหาสินค้า หรือสแกนบาร์โค้ด", color = saleMuted, fontSize = 14.sp, maxLines = 1)
+                    },
+                    leadingIcon = {
+                        Text("⌕", fontSize = 33.sp, color = Color(0xFF587392))
+                    },
+                    trailingIcon = {
+                        Text(
+                            "▥",
+                            fontSize = 28.sp,
+                            color = saleBlue,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(9.dp))
+                                .clickable { showScannerNotice = true }
+                                .padding(horizontal = 7.dp)
+                        )
+                    },
+                    shape = RoundedCornerShape(19.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedBorderColor = Color(0xFFBFD9FA),
+                        unfocusedBorderColor = Color(0xFFE3ECFA)
+                    )
+                )
+                Spacer(modifier = Modifier.height(9.dp))
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    contentPadding = PaddingValues(vertical = 2.dp)
+                ) {
+                    items(saleCategories) { group ->
+                        val selected = category == group
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (selected) Brush.horizontalGradient(
+                                        listOf(Color(0xFF3394FB), Color(0xFF146DED))
+                                    ) else Brush.horizontalGradient(
+                                        listOf(Color(0xFFF6F9FF), Color(0xFFF0F5FE))
+                                    )
+                                )
+                                .clickable { category = group }
+                                .padding(horizontal = 15.dp, vertical = 11.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = group,
+                                color = if (selected) Color.White else Color(0xFF5D728F),
+                                fontSize = 13.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (visibleProducts.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Text("ไม่พบสินค้าที่ค้นหา", color = saleMuted)
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                        contentPadding = PaddingValues(bottom = 8.dp)
+                    ) {
+                        items(visibleProducts, key = { it.id }) { product ->
+                            DemoProductCard(
+                                product = product,
+                                quantity = cart[product.id] ?: 0,
+                                onAdd = { add(product.id) },
+                                onRemove = { remove(product.id) }
+                            )
+                        }
+                    }
+                }
             }
-            Text(mode.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = saleInk)
-            Text(branchName + " · " + counterCode, fontSize = 12.sp, color = saleMuted)
-            Spacer(modifier = Modifier.height(12.dp))
+
+            // Blue cart total remains immediately above the shared raised nav.
             Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFFE5F1FF)).clickable { showCart = true }
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp)
+                    .padding(bottom = 112.dp)
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .clip(RoundedCornerShape(42.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(Color(0xFF3295FD), Color(0xFF0C6BEC))
+                        )
+                    )
+                    .clickable { showCart = true }
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("🛒", fontSize = 22.sp)
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("รายการที่เลือก " + quantity + " ชิ้น", fontWeight = FontWeight.Bold, color = saleInk)
-                    Text("แตะเพื่อดูตะกร้าและปรับจำนวน", fontSize = 11.sp, color = saleMuted)
+                Text("🛒", fontSize = 22.sp, color = Color.White)
+                Spacer(modifier = Modifier.width(7.dp))
+                Text(quantity.toString() + " รายการ", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color(0x99FFFFFF)))
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    "ยอดรวม ฿" + amount(total),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(40.dp))
+                        .background(Color(0xFF0868E9))
+                        .clickable { showCart = true }
+                        .padding(horizontal = 11.dp, vertical = 12.dp)
+                ) {
+                    Text("ดูตะกร้า ›", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
-                Text("฿" + amount(total) + "  ›", fontWeight = FontWeight.Bold, color = saleBlue)
             }
+            HomeBottomMenu(modifier = Modifier.align(Alignment.BottomCenter))
             if (notice.isNotEmpty()) {
-                Text(notice, color = Color(0xFF25834C), fontSize = 11.sp, modifier = Modifier.padding(top = 7.dp))
-            }
-            Spacer(modifier = Modifier.height(15.dp))
-            Text("เมนูอาหารและสินค้า", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = saleInk)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(listOf("ทั้งหมด", "อาหารจานเดียว", "เครื่องดื่ม", "ของทานเล่น")) { group ->
-                    FilterChip(selected = category == group, onClick = { category = group }, label = { Text(group) })
-                }
-            }
-            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                items(demoMenu.filter { category == "ทั้งหมด" || it.category == category }, key = { it.id }) { product ->
-                    DemoProductCard(
-                        product = product,
-                        quantity = cart[product.id] ?: 0,
-                        onAdd = { add(product.id) },
-                        onRemove = { remove(product.id) }
-                    )
-                }
-                item { Spacer(modifier = Modifier.height(8.dp)) }
-            }
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)
-            ) {
-                Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(quantity.toString() + " รายการ", fontSize = 12.sp, color = saleMuted)
-                        Text("฿" + amount(total), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1C995A))
-                    }
-                    Button(
-                        enabled = quantity > 0,
-                        onClick = { showMethods = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = saleBlue)
-                    ) { Text("ชำระเงิน ›") }
-                }
+                Text(
+                    notice,
+                    color = Color(0xFF25834C),
+                    fontSize = 10.sp,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = 178.dp)
+                )
             }
         }
+    }
+    if (showScannerNotice) {
+        AlertDialog(
+            onDismissRequest = { showScannerNotice = false },
+            title = { Text("สแกนบาร์โค้ด") },
+            text = { Text("ฟังก์ชันกล้องสแกนบาร์โค้ดยังไม่ได้เชื่อมในโหมดทดสอบนี้ คุณสามารถค้นหาชื่อสินค้าได้") },
+            confirmButton = { TextButton(onClick = { showScannerNotice = false }) { Text("ตกลง") } }
+        )
     }
 
     if (showCart) {
@@ -315,39 +483,86 @@ internal fun MobilePosSalePreview(
 }
 
 @Composable
-private fun DemoProductCard(product: DemoMenuItem, quantity: Int, onAdd: () -> Unit, onRemove: () -> Unit) {
+private fun DemoProductCard(
+    product: DemoMenuItem,
+    quantity: Int,
+    onAdd: () -> Unit,
+    onRemove: () -> Unit
+) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(15.dp),
+        modifier = Modifier.fillMaxWidth().height(166.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.fillMaxSize().padding(5.dp)) {
             Box(
-                modifier = Modifier.size(58.dp).clip(RoundedCornerShape(14.dp))
-                    .background(product.accent.copy(alpha = 0.15f)),
+                modifier = Modifier.fillMaxWidth().weight(1f)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.White, product.accent.copy(alpha = 0.17f))
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                Text(product.marker, color = product.accent, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                // Illustrative demo thumbnail; replace with product image from catalog.
+                Text(product.marker, fontSize = 57.sp)
+                if (quantity > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(5.dp)
+                            .size(23.dp)
+                            .clip(CircleShape)
+                            .background(saleBlue),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(quantity.toString(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
             }
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(product.name, fontWeight = FontWeight.Bold, color = saleInk, fontSize = 14.sp, maxLines = 1)
-                Text(product.category, color = saleMuted, fontSize = 11.sp)
-                Text("฿" + amount(product.price), color = Color(0xFF168C56), fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        product.name,
+                        color = saleInk,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text("฿" + amount(product.price), color = saleInk, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                }
+                if (quantity > 0) {
+                    TextButton(
+                        onClick = onRemove,
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.size(25.dp)
+                    ) {
+                        Text("−", color = saleBlue, fontSize = 22.sp)
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .padding(end = 2.dp, bottom = 1.dp)
+                        .size(35.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE4F0FF))
+                        .clickable { onAdd() },
+                    contentAlignment = Alignment.Center
+                ) { Text("+", color = saleBlue, fontSize = 28.sp, lineHeight = 29.sp) }
             }
-            if (quantity > 0) {
-                TextButton(onClick = onRemove) { Text("−", fontSize = 19.sp) }
-                Text(quantity.toString(), fontWeight = FontWeight.Bold, color = saleInk)
-            }
-            TextButton(onClick = onAdd) { Text("+", fontSize = 23.sp, color = saleBlue) }
         }
     }
 }
 
 private fun amount(value: Int): String = String.format(Locale.US, "%,d", value)
 
-@Preview(name = "CpIPOS Takeaway Sale Mock", showBackground = true, widthDp = 390, heightDp = 844, locale = "th")
+@Preview(name = "CpIPOS Takeaway Grid", showBackground = true, widthDp = 390, heightDp = 844, locale = "th")
 @Composable
 private fun TakeawaySaleUiPreview() {
     MaterialTheme {
