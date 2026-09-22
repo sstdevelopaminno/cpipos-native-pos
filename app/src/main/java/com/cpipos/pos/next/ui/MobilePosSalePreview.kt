@@ -121,10 +121,11 @@ internal fun MobilePosSalePreview(
     var cashInput by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf("") }
     var pendingAction by remember { mutableStateOf<String?>(null) }
+    var showCancelBillConfirm by remember { mutableStateOf(false) }
 
     val quantity = cart.values.sum()
     val total = demoMenu.sumOf { it.price * (cart[it.id] ?: 0) }
-    BackHandler(enabled = !showCart && !showMethods && payment == null && !showScannerNotice && pendingAction == null) {
+    BackHandler(enabled = !showCart && !showMethods && payment == null && !showScannerNotice && pendingAction == null && !showCancelBillConfirm) {
         onBack()
     }
 
@@ -179,34 +180,44 @@ internal fun MobilePosSalePreview(
                             maxLines = 1
                         )
                     }
+                    // Badge is outside the clipped button so it cannot be cut off.
                     Box(
-                        modifier = Modifier
-                            .size(51.dp)
-                            .shadow(2.dp, CircleShape)
-                            .clip(CircleShape)
-                            .background(Color.White)
-                            .clickable { showCart = true },
+                        modifier = Modifier.size(56.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Image(
-                            painter = painterResource(R.drawable.ic_nav_cart),
-                            contentDescription = "เปิดตะกร้า",
-                            modifier = Modifier.size(31.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .shadow(2.dp, CircleShape)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .clickable { showCart = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_nav_cart),
+                                contentDescription = "เปิดตะกร้า",
+                                modifier = Modifier.size(29.dp)
+                            )
+                        }
                         if (quantity > 0) {
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .size(19.dp)
+                                    .size(20.dp)
                                     .clip(CircleShape)
-                                    .background(saleBlue),
+                                    .background(Color.White)
+                                    .padding(1.5.dp)
+                                    .clip(CircleShape)
+                                    .background(saleBlue)
+                                    .clickable { showCart = true },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    quantity.toString(),
+                                    if (quantity > 99) "99+" else quantity.toString(),
                                     color = Color.White,
-                                    fontSize = 10.sp,
-                                    lineHeight = 12.sp,
+                                    fontSize = if (quantity > 9) 8.sp else 10.sp,
+                                    lineHeight = 10.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -335,6 +346,7 @@ internal fun MobilePosSalePreview(
             onAdd = { add(it) },
             onRemove = { remove(it) },
             onDelete = { cart.remove(it) },
+            onCancelBill = { showCancelBillConfirm = true },
             onCheckout = {
                 if (quantity > 0) {
                     showCart = false
@@ -342,6 +354,35 @@ internal fun MobilePosSalePreview(
                 }
             },
             onFeatureClick = { pendingAction = it }
+        )
+    }
+
+    if (showCancelBillConfirm) {
+        AlertDialog(
+            onDismissRequest = { showCancelBillConfirm = false },
+            title = {
+                Text("ยกเลิกบิล", color = saleInk, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text("ต้องการยกเลิกบิลจำลองนี้และลบรายการสินค้าในตะกร้าทั้งหมดใช่หรือไม่")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        cart.clear()
+                        showCart = false
+                        showCancelBillConfirm = false
+                        notice = "ยกเลิกบิลจำลองแล้ว ไม่ได้บันทึกธุรกรรม"
+                    }
+                ) {
+                    Text("ยืนยันยกเลิกบิล", color = Color(0xFFE34D58), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCancelBillConfirm = false }) {
+                    Text("กลับไปตะกร้า")
+                }
+            }
         )
     }
 
@@ -546,6 +587,7 @@ private fun PreviewCartBottomSheet(
     onAdd: (String) -> Unit,
     onRemove: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onCancelBill: () -> Unit,
     onCheckout: () -> Unit,
     onFeatureClick: (String) -> Unit
 ) {
@@ -577,7 +619,7 @@ private fun PreviewCartBottomSheet(
                 .navigationBarsPadding()
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
                 verticalAlignment = Alignment.Top
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -609,7 +651,7 @@ private fun PreviewCartBottomSheet(
             androidx.compose.foundation.lazy.LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = screenHeight * 0.35f),
+                    .heightIn(max = screenHeight * 0.37f),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(vertical = 6.dp)
             ) {
@@ -627,57 +669,75 @@ private fun PreviewCartBottomSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
+                            .shadow(2.dp, RoundedCornerShape(15.dp))
+                            .clip(RoundedCornerShape(15.dp))
                             .background(Color.White)
-                            .padding(9.dp),
+                            .padding(horizontal = 8.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(53.dp)
-                                .clip(RoundedCornerShape(13.dp))
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(product.accent.copy(alpha = 0.14f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(product.marker, fontSize = 31.sp)
+                            Text(product.marker, fontSize = 30.sp)
                         }
-                        Spacer(modifier = Modifier.width(9.dp))
+                        Spacer(modifier = Modifier.width(7.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 product.name,
                                 fontSize = 13.sp,
+                                lineHeight = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = saleInk,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                "฿" + amount(product.price),
+                                "฿" + amount(product.price) + " / ชิ้น",
                                 color = saleMuted,
-                                fontSize = 12.sp
+                                fontSize = 10.sp,
+                                maxLines = 1
                             )
                             Text(
                                 "฿" + amount(product.price * count),
-                                fontSize = 13.sp,
+                                fontSize = 14.sp,
                                 color = saleInk,
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        CartQuantityButton(label = "−", onClick = { onRemove(product.id) })
-                        Text(
-                            count.toString(),
-                            modifier = Modifier.padding(horizontal = 7.dp),
-                            fontWeight = FontWeight.Bold,
-                            color = saleInk,
-                            fontSize = 13.sp
-                        )
-                        CartQuantityButton(label = "+", onClick = { onAdd(product.id) })
-                        TextButton(
-                            onClick = { onDelete(product.id) },
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.size(35.dp)
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(Color(0xFFF2F7FF))
+                                .padding(horizontal = 3.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("×", color = Color(0xFF7086A5), fontSize = 25.sp)
+                            CartQuantityButton(label = "−", onClick = { onRemove(product.id) })
+                            Text(
+                                count.toString(),
+                                modifier = Modifier.padding(horizontal = 5.dp),
+                                fontWeight = FontWeight.Bold,
+                                color = saleInk,
+                                fontSize = 13.sp
+                            )
+                            CartQuantityButton(label = "+", onClick = { onAdd(product.id) })
+                        }
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(35.dp)
+                                .clip(CircleShape)
+                                .clickable { onDelete(product.id) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_cart_delete_red),
+                                contentDescription = "ลบรายการ " + product.name,
+                                modifier = Modifier.size(21.dp)
+                            )
                         }
                     }
                 }
@@ -733,9 +793,10 @@ private fun PreviewCartBottomSheet(
                     onClick = { onFeatureClick("พิมพ์บิล") }
                 )
                 CartSecondaryButton(
-                    title = "สแกนบาร์โค้ด",
+                    title = "ยกเลิกบิล",
                     modifier = Modifier.weight(1f),
-                    onClick = { onFeatureClick("สแกนบาร์โค้ด") }
+                    onClick = onCancelBill,
+                    destructive = true
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
@@ -759,13 +820,19 @@ private fun PreviewCartBottomSheet(
 private fun CartQuantityButton(label: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(31.dp)
+            .size(27.dp)
             .clip(CircleShape)
-            .background(Color(0xFFE5F1FF))
+            .background(Color(0xFFE1EEFF))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, color = Color(0xFF176DEE), fontSize = 22.sp, lineHeight = 25.sp)
+        Text(
+            label,
+            color = Color(0xFF176DEE),
+            fontSize = 19.sp,
+            lineHeight = 21.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -773,19 +840,20 @@ private fun CartQuantityButton(label: String, onClick: () -> Unit) {
 private fun CartSecondaryButton(
     title: String,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    destructive: Boolean = false
 ) {
     Box(
         modifier = modifier
             .height(47.dp)
-            .clip(RoundedCornerShape(15.dp))
-            .background(Color(0xFFEAF4FF))
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (destructive) Color(0xFFFFEDF0) else Color(0xFFEAF4FF))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
             title,
-            color = saleInk,
+            color = if (destructive) Color(0xFFD43D4C) else saleInk,
             fontWeight = FontWeight.SemiBold,
             fontSize = 13.sp,
             maxLines = 1
