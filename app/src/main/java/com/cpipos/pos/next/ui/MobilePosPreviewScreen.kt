@@ -1,6 +1,8 @@
 package com.cpipos.pos.next.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,6 +12,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -17,13 +21,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,10 +43,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.cpipos.pos.next.R
@@ -51,6 +65,8 @@ import kotlinx.coroutines.launch
 private enum class PosPreviewStep(val labelRes: Int) {
     Login(R.string.pos_step_login),
     Branch(R.string.pos_step_branch),
+    EmployeePin(R.string.pos_step_employee_pin),
+    Counter(R.string.pos_step_counter),
     Sale(R.string.pos_step_sale),
     Checkout(R.string.pos_step_checkout)
 }
@@ -58,7 +74,15 @@ private enum class PosPreviewStep(val labelRes: Int) {
 private data class PreviewBranch(
     val id: String,
     val nameRes: Int,
-    val statusRes: Int
+    val code: String
+)
+
+private data class PreviewCounter(
+    val id: String,
+    val titleRes: Int,
+    val code: String,
+    val operatorName: String,
+    val isReady: Boolean
 )
 
 private data class PreviewProduct(
@@ -71,8 +95,13 @@ private data class PreviewProduct(
 )
 
 private val previewBranches = listOf(
-    PreviewBranch("bkk-main", R.string.pos_branch_main, R.string.pos_branch_main_status),
-    PreviewBranch("counter-2", R.string.pos_branch_counter2, R.string.pos_branch_counter2_status)
+    PreviewBranch("phetchaburi", R.string.pos_branch_phetchaburi, "NDL-PHET-02"),
+    PreviewBranch("onnut", R.string.pos_branch_onnut, "NDL-ONNUT-01")
+)
+
+private val previewCounters = listOf(
+    PreviewCounter("counter-01", R.string.pos_counter_phetchaburi_1, "POS-COUNTER-01", "-", true),
+    PreviewCounter("counter-02", R.string.pos_counter_phetchaburi_2, "002", "POR", true)
 )
 
 private val previewProducts = listOf(
@@ -84,6 +113,11 @@ private val previewProducts = listOf(
     PreviewProduct("voucher", R.string.pos_product_service_voucher, R.string.pos_category_promotion, 500, Color(0xFF386641), "V")
 )
 
+private enum class LoginLanguage {
+    Thai,
+    English
+}
+
 @Composable
 fun MobilePosPreviewScreen(
     isSupabaseConfigured: Boolean,
@@ -92,79 +126,104 @@ fun MobilePosPreviewScreen(
     var step by remember { mutableStateOf(PosPreviewStep.Login) }
     var storeCode by remember { mutableStateOf("") }
     var employeePin by remember { mutableStateOf("") }
+    var isPinVisible by remember { mutableStateOf(false) }
+    var selectedLanguage by remember { mutableStateOf(LoginLanguage.Thai) }
     var isSubmitting by remember { mutableStateOf(false) }
     var branch by remember { mutableStateOf(previewBranches.first()) }
-    val previewModeMessage = stringResource(R.string.pos_message_preview_mode)
+    var counter by remember { mutableStateOf(previewCounters.first()) }
     val checkingGatewayMessage = stringResource(R.string.pos_message_checking_gateway)
     val realSessionStartedMessage = stringResource(R.string.pos_message_real_session_started)
     val gatewayDisabledMessage = stringResource(R.string.pos_message_gateway_disabled)
     val selectProductsMessage = stringResource(R.string.pos_message_select_products)
     val checkoutPlaceholderMessage = stringResource(R.string.pos_message_checkout_placeholder)
     val newMockBillMessage = stringResource(R.string.pos_message_new_mock_bill)
-    var message by remember(previewModeMessage) { mutableStateOf(previewModeMessage) }
+    var message by remember { mutableStateOf(gatewayDisabledMessage) }
     val cart = remember { mutableStateMapOf<String, Int>() }
     val scope = rememberCoroutineScope()
 
     val totalItems = cart.values.sum()
     val totalPrice = previewProducts.sumOf { product -> product.price * (cart[product.id] ?: 0) }
 
-    MobilePosScaffold(
-        step = step,
-        isSupabaseConfigured = isSupabaseConfigured,
-        branchName = stringResource(branch.nameRes),
-        message = message
-    ) {
-        when (step) {
-            PosPreviewStep.Login -> LoginPanel(
-                storeCode = storeCode,
-                employeePin = employeePin,
-                isSubmitting = isSubmitting,
-                onStoreCodeChange = { storeCode = it.trimStart() },
-                onPinChange = { value -> employeePin = value.filter(Char::isDigit).take(12) },
-                onSubmit = {
-                    isSubmitting = true
-                    message = checkingGatewayMessage
-                    scope.launch {
-                        val result = gateway.authenticate(
-                            AuthCredentials(storeCode = storeCode.trim(), employeePin = employeePin)
-                        )
-                        employeePin = ""
-                        isSubmitting = false
-                        message = when (result) {
-                            is AuthAttemptResult.Success -> realSessionStartedMessage
-                            is AuthAttemptResult.Rejected -> result.message
-                            is AuthAttemptResult.BackendUnavailable -> gatewayDisabledMessage
-                        }
-                        step = PosPreviewStep.Branch
+    when (step) {
+        PosPreviewStep.Login -> LoginLandingScreen(
+            storeCode = storeCode,
+            isSubmitting = isSubmitting,
+            selectedLanguage = selectedLanguage,
+            onLanguageSelected = { selectedLanguage = it },
+            onStoreCodeChange = { value -> storeCode = value.trimStart().take(32) },
+            onSubmit = {
+                branch = previewBranches.first()
+                step = PosPreviewStep.Branch
+            }
+        )
+
+        PosPreviewStep.Branch -> BranchSelectionScreen(
+            branches = previewBranches,
+            selectedBranch = branch,
+            onSelect = { selected -> branch = selected },
+            onBack = { step = PosPreviewStep.Login },
+            onNext = {
+                employeePin = ""
+                isPinVisible = false
+                step = PosPreviewStep.EmployeePin
+            }
+        )
+
+        PosPreviewStep.EmployeePin -> EmployeePinScreen(
+            branch = branch,
+            employeePin = employeePin,
+            isPinVisible = isPinVisible,
+            isSubmitting = isSubmitting,
+            selectedLanguage = selectedLanguage,
+            onLanguageSelected = { selectedLanguage = it },
+            onPinChange = { value -> employeePin = value.filter(Char::isDigit).take(12) },
+            onTogglePinVisible = { isPinVisible = !isPinVisible },
+            onBack = { step = PosPreviewStep.Branch },
+            onSubmit = {
+                isSubmitting = true
+                message = checkingGatewayMessage
+                scope.launch {
+                    val result = gateway.authenticate(
+                        AuthCredentials(storeCode = storeCode.trim(), employeePin = employeePin)
+                    )
+                    employeePin = ""
+                    isPinVisible = false
+                    isSubmitting = false
+                    message = when (result) {
+                        is AuthAttemptResult.Success -> realSessionStartedMessage
+                        is AuthAttemptResult.Rejected -> result.message
+                        is AuthAttemptResult.BackendUnavailable -> gatewayDisabledMessage
                     }
+                    counter = previewCounters.first()
+                    step = PosPreviewStep.Counter
                 }
-            )
+            }
+        )
 
-            PosPreviewStep.Branch -> BranchPanel(
-                selectedBranch = branch,
-                onSelect = { selected -> branch = selected },
-                onContinue = {
-                    message = selectProductsMessage
-                    step = PosPreviewStep.Sale
-                }
-            )
+        PosPreviewStep.Counter -> CounterSelectionScreen(
+            branch = branch,
+            counters = previewCounters,
+            selectedCounter = counter,
+            onSelect = { selected -> counter = selected },
+            onBack = { step = PosPreviewStep.EmployeePin },
+            onOpenCounter = {
+                message = selectProductsMessage
+                step = PosPreviewStep.Sale
+            }
+        )
 
-            PosPreviewStep.Sale -> SalePanel(
-                cart = cart,
-                totalItems = totalItems,
-                totalPrice = totalPrice,
-                onAdd = { product -> cart[product.id] = (cart[product.id] ?: 0) + 1 },
-                onRemove = { product ->
-                    val next = (cart[product.id] ?: 0) - 1
-                    if (next <= 0) cart.remove(product.id) else cart[product.id] = next
-                },
-                onCheckout = {
-                    message = checkoutPlaceholderMessage
-                    step = PosPreviewStep.Checkout
-                }
-            )
+        PosPreviewStep.Sale -> HomeModeScreen(
+            branch = branch,
+            counter = counter
+        )
 
-            PosPreviewStep.Checkout -> CheckoutPanel(
+        PosPreviewStep.Checkout -> MobilePosScaffold(
+            step = step,
+            isSupabaseConfigured = isSupabaseConfigured,
+            branchName = stringResource(branch.nameRes),
+            message = message
+        ) {
+            CheckoutPanel(
                 totalItems = totalItems,
                 totalPrice = totalPrice,
                 onBack = { step = PosPreviewStep.Sale },
@@ -176,6 +235,653 @@ fun MobilePosPreviewScreen(
             )
         }
     }
+}
+
+@Composable
+private fun LoginLandingScreen(
+    storeCode: String,
+    isSubmitting: Boolean,
+    selectedLanguage: LoginLanguage,
+    onLanguageSelected: (LoginLanguage) -> Unit,
+    onStoreCodeChange: (String) -> Unit,
+    onSubmit: () -> Unit
+) {
+    val isThai = selectedLanguage == LoginLanguage.Thai
+    val storeCodeLabel = if (isThai) stringResource(R.string.pos_label_store_code_full) else "Store code"
+    val storeCodePlaceholder = if (isThai) stringResource(R.string.pos_placeholder_store_code) else "Enter store code"
+    val checkingText = if (isThai) stringResource(R.string.pos_action_checking) else "Checking..."
+    val loginText = if (isThai) stringResource(R.string.pos_action_login) else "Log in"
+
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF3F7FE)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 22.dp, vertical = 34.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        LanguageToggle(
+                            selectedLanguage = selectedLanguage,
+                            onLanguageSelected = onLanguageSelected
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(26.dp))
+
+                    Image(
+                        painter = painterResource(R.drawable.cpipos_logo_symbol),
+                        contentDescription = stringResource(R.string.pos_logo_content_description),
+                        modifier = Modifier.size(82.dp)
+                    )
+
+                    Text(
+                        text = buildAnnotatedString {
+                            withStyle(SpanStyle(color = Color(0xFF465263))) { append("Cp") }
+                            withStyle(SpanStyle(color = Color(0xFF1682F5))) { append("IPOS") }
+                        },
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = storeCodeLabel,
+                            color = Color(0xFF113C73),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedTextField(
+                            value = storeCode,
+                            onValueChange = onStoreCodeChange,
+                            placeholder = { Text(storeCodePlaceholder) },
+                            leadingIcon = {
+                                Image(
+                                    painter = painterResource(R.drawable.ic_store_front),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            singleLine = true,
+                            enabled = !isSubmitting,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFFBFD5F4),
+                                unfocusedBorderColor = Color(0xFFBFD5F4),
+                                focusedContainerColor = Color(0xFFF8FBFF),
+                                unfocusedContainerColor = Color(0xFFF8FBFF),
+                                cursorColor = Color(0xFF1682F5)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Text(
+                            text = stringResource(R.string.pos_store_code_counter, storeCode.length),
+                            color = Color(0xFF6C7A90),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = onSubmit,
+                            enabled = storeCode.isNotBlank() && !isSubmitting,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1F75D6),
+                                disabledContainerColor = Color(0xFFD8E7F7),
+                                contentColor = Color.White,
+                                disabledContentColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                        ) {
+                            Text(
+                                text = if (isSubmitting) checkingText else loginText,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LanguageToggle(
+    selectedLanguage: LoginLanguage,
+    onLanguageSelected: (LoginLanguage) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color(0xFFF5F9FF))
+            .border(1.dp, Color(0xFFD3E2F5), RoundedCornerShape(22.dp))
+            .padding(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LanguageOption(
+            text = stringResource(R.string.pos_language_th),
+            selected = selectedLanguage == LoginLanguage.Thai,
+            onClick = { onLanguageSelected(LoginLanguage.Thai) }
+        )
+        LanguageOption(
+            text = stringResource(R.string.pos_language_en),
+            selected = selectedLanguage == LoginLanguage.English,
+            onClick = { onLanguageSelected(LoginLanguage.English) }
+        )
+    }
+}
+
+@Composable
+private fun LanguageOption(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Text(
+        text = text,
+        color = if (selected) Color(0xFF0E3C78) else Color(0xFF254B78),
+        fontWeight = FontWeight.Bold,
+        style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (selected) Color.White else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    )
+}
+
+@Composable
+private fun BranchSelectionScreen(
+    branches: List<PreviewBranch>,
+    selectedBranch: PreviewBranch,
+    onSelect: (PreviewBranch) -> Unit,
+    onBack: () -> Unit,
+    onNext: () -> Unit
+) {
+    BrandedAuthSurface {
+        Column(modifier = Modifier.padding(horizontal = 22.dp, vertical = 22.dp)) {
+            BrandLogoBlock()
+            Spacer(modifier = Modifier.height(28.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .border(1.dp, Color(0xFFD4E1F2), RoundedCornerShape(14.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.pos_title_select_branch),
+                        color = Color(0xFF113C73),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    branches.forEach { branch ->
+                        BranchOptionCard(
+                            branch = branch,
+                            selected = branch.id == selectedBranch.id,
+                            onClick = { onSelect(branch) }
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.pos_action_logout))
+                }
+                Button(
+                    onClick = onNext,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F75D6)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(stringResource(R.string.pos_action_next), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmployeePinScreen(
+    branch: PreviewBranch,
+    employeePin: String,
+    isPinVisible: Boolean,
+    isSubmitting: Boolean,
+    selectedLanguage: LoginLanguage,
+    onLanguageSelected: (LoginLanguage) -> Unit,
+    onPinChange: (String) -> Unit,
+    onTogglePinVisible: () -> Unit,
+    onBack: () -> Unit,
+    onSubmit: () -> Unit
+) {
+    val isThai = selectedLanguage == LoginLanguage.Thai
+    val pinLabel = if (isThai) stringResource(R.string.pos_label_employee_code) else "Employee code"
+    val confirmText = if (isThai) stringResource(R.string.pos_action_confirm_employee) else "Confirm employee"
+    val checkingText = if (isThai) stringResource(R.string.pos_action_checking) else "Checking..."
+
+    BrandedAuthSurface {
+        Column(modifier = Modifier.padding(horizontal = 22.dp, vertical = 22.dp)) {
+            BrandLogoBlock()
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                LanguageToggle(
+                    selectedLanguage = selectedLanguage,
+                    onLanguageSelected = onLanguageSelected
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StoreIcon()
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.pos_selected_branch, stringResource(branch.nameRes)),
+                    color = Color(0xFF113C73),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = pinLabel,
+                color = Color(0xFF113C73),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedTextField(
+                value = employeePin,
+                onValueChange = onPinChange,
+                trailingIcon = {
+                    Image(
+                        painter = painterResource(if (isPinVisible) R.drawable.ic_eye_off else R.drawable.ic_eye),
+                        contentDescription = stringResource(R.string.pos_pin_visibility_content_description),
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clickable(onClick = onTogglePinVisible)
+                    )
+                },
+                singleLine = true,
+                enabled = !isSubmitting,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                visualTransformation = if (isPinVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                shape = RoundedCornerShape(12.dp),
+                colors = cpiposTextFieldColors(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            PrimaryActionButton(
+                text = if (isSubmitting) checkingText else confirmText,
+                enabled = employeePin.isNotBlank() && !isSubmitting,
+                onClick = onSubmit
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(onClick = onBack, modifier = Modifier.align(Alignment.End)) {
+                Text(stringResource(R.string.pos_action_back))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CounterSelectionScreen(
+    branch: PreviewBranch,
+    counters: List<PreviewCounter>,
+    selectedCounter: PreviewCounter,
+    onSelect: (PreviewCounter) -> Unit,
+    onBack: () -> Unit,
+    onOpenCounter: () -> Unit
+) {
+    BrandedAuthSurface {
+        Column(modifier = Modifier.padding(horizontal = 22.dp, vertical = 22.dp)) {
+            BrandLogoBlock()
+            Spacer(modifier = Modifier.height(20.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StoreIcon()
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.pos_selected_branch, stringResource(branch.nameRes)),
+                    color = Color(0xFF113C73),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .border(1.dp, Color(0xFFD4E1F2), RoundedCornerShape(14.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.pos_title_select_counter),
+                        color = Color(0xFF113C73),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        counters.forEach { counter ->
+                            CounterOptionCard(
+                                counter = counter,
+                                selected = counter.id == selectedCounter.id,
+                                onClick = { onSelect(counter) }
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.pos_action_back))
+                }
+                Button(
+                    onClick = onOpenCounter,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F75D6)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(stringResource(R.string.pos_action_open_counter), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BranchOptionCard(branch: PreviewBranch, selected: Boolean, onClick: () -> Unit) {
+    val borderColor = if (selected) Color(0xFF2577FF) else Color(0xFFD4E1F2)
+    val backgroundColor = if (selected) Color(0xFFEAF3FF) else Color.White
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(if (selected) 2.dp else 1.dp, borderColor, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor)
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            StoreIcon()
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(stringResource(branch.nameRes), color = Color(0xFF243349), fontWeight = FontWeight.Bold)
+                Text(
+                    text = stringResource(R.string.pos_branch_code, branch.code),
+                    color = Color(0xFF365B86),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CounterOptionCard(
+    counter: PreviewCounter,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val borderColor = if (selected) Color(0xFF2577FF) else Color(0xFFD4E1F2)
+    val backgroundColor = if (selected) Color(0xFFEAF3FF) else Color.White
+    Card(
+        modifier = modifier
+            .border(if (selected) 2.dp else 1.dp, borderColor, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor)
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            TerminalIcon()
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = stringResource(R.string.pos_counter_code, counter.code),
+                color = Color(0xFF243349),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+@Composable
+private fun BrandedAuthSurface(content: @Composable () -> Unit) {
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF3F7FE)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 22.dp, vertical = 34.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun BrandLogoBlock(topPadding: Int = 18) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = topPadding.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Image(
+            painter = painterResource(R.drawable.cpipos_logo_symbol),
+            contentDescription = stringResource(R.string.pos_logo_content_description),
+            modifier = Modifier.size(82.dp)
+        )
+        Text(
+            text = buildAnnotatedString {
+                withStyle(SpanStyle(color = Color(0xFF465263))) { append("Cp") }
+                withStyle(SpanStyle(color = Color(0xFF1682F5))) { append("IPOS") }
+            },
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 6.dp)
+        )
+    }
+}
+
+@Composable
+private fun StoreIcon() {
+    Image(
+        painter = painterResource(R.drawable.ic_store_front),
+        contentDescription = null,
+        modifier = Modifier.size(20.dp)
+    )
+}
+
+
+@Composable
+private fun TerminalIcon() {
+    Image(
+        painter = painterResource(R.drawable.ic_pos_terminal),
+        contentDescription = null,
+        modifier = Modifier.size(26.dp)
+    )
+}
+
+@Composable
+private fun PrimaryActionButton(text: String, enabled: Boolean, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color(0xFF1F75D6),
+            disabledContainerColor = Color(0xFFD8E7F7),
+            contentColor = Color.White,
+            disabledContentColor = Color.White
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+    ) {
+        Text(text = text, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun cpiposTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = Color(0xFFBFD5F4),
+    unfocusedBorderColor = Color(0xFFBFD5F4),
+    focusedContainerColor = Color(0xFFF8FBFF),
+    unfocusedContainerColor = Color(0xFFF8FBFF),
+    cursorColor = Color(0xFF1682F5)
+)
+@Composable
+private fun HomeModeScreen(branch: PreviewBranch, counter: PreviewCounter) {
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF3F7FE)) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(178.dp).background(Color(0xFFE7F6FF)))
+            Box(modifier = Modifier.align(Alignment.BottomStart).offset(x = (-80).dp, y = (-92).dp).width(360.dp).height(96.dp).clip(RoundedCornerShape(100.dp)).background(Color(0xAAD5EBFF)))
+            Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = 72.dp, y = (-74).dp).width(360.dp).height(92.dp).clip(RoundedCornerShape(100.dp)).background(Color(0x99CFE8FF)))
+            Column(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 44.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(26.dp))
+                Image(painter = painterResource(R.drawable.cpipos_logo_symbol), contentDescription = stringResource(R.string.pos_logo_content_description), modifier = Modifier.size(138.dp))
+                Text(stringResource(R.string.pos_home_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color(0xFF0F1F3A))
+                Text(stringResource(R.string.pos_home_subtitle), style = MaterialTheme.typography.bodySmall, color = Color(0xFF78879B))
+                Spacer(modifier = Modifier.height(24.dp))
+                ModeCard(R.drawable.ic_mode_takeaway, stringResource(R.string.pos_mode_takeaway), stringResource(R.string.pos_mode_takeaway_subtitle))
+                Spacer(modifier = Modifier.height(12.dp))
+                ModeCard(R.drawable.ic_mode_table, stringResource(R.string.pos_mode_table), stringResource(R.string.pos_mode_table_subtitle))
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(stringResource(R.string.pos_home_context, stringResource(branch.nameRes), counter.code), style = MaterialTheme.typography.labelSmall, color = Color(0xFF8A98AA))
+            }
+            HomeBottomMenu(modifier = Modifier.align(Alignment.BottomCenter))
+        }
+    }
+}
+
+@Composable
+private fun ModeCard(iconRes: Int, title: String, subtitle: String) {
+    Card(modifier = Modifier.fillMaxWidth().height(104.dp), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+        Row(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(82.dp).clip(CircleShape).background(Color(0xFFEAF4FF)), contentAlignment = Alignment.Center) {
+                Image(painter = painterResource(iconRes), contentDescription = null, modifier = Modifier.size(60.dp))
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF14213D))
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF6F7F94))
+            }
+            Box(modifier = Modifier.size(28.dp).clip(CircleShape).background(Color(0xFFEAF4FF)), contentAlignment = Alignment.Center) {
+                Text(">", color = Color(0xFF1F75D6), fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeBottomMenu(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .navigationBarsPadding()
+            .padding(start = 6.dp, end = 6.dp, bottom = 4.dp)
+            .fillMaxWidth()
+            .height(104.dp),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(76.dp)
+                .shadow(12.dp, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp), clip = false)
+                .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
+                .background(Color.White)
+                .padding(start = 14.dp, end = 14.dp, top = 18.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            BottomMenuItem(R.drawable.ic_nav_cart, stringResource(R.string.pos_nav_sale), true)
+            BottomMenuItem(R.drawable.ic_nav_report, stringResource(R.string.pos_nav_report), false)
+            Spacer(modifier = Modifier.width(62.dp))
+            BottomMenuItem(R.drawable.ic_nav_history, stringResource(R.string.pos_nav_history), false)
+            BottomMenuItem(R.drawable.ic_nav_setting, stringResource(R.string.pos_nav_setting), false)
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = 9.dp)
+                .size(76.dp)
+                .shadow(14.dp, CircleShape, clip = false)
+                .clip(CircleShape)
+                .background(Color.White),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(60.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF1F8CFF)),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(painter = painterResource(R.drawable.ic_nav_stock), contentDescription = null, modifier = Modifier.size(34.dp))
+            }
+        }
+        Text(
+            text = stringResource(R.string.pos_nav_stock),
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFF0F1F3A),
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 5.dp)
+        )
+    }
+}
+
+@Composable
+private fun BottomMenuItem(iconRes: Int, label: String, selected: Boolean) {
+    val color = if (selected) Color(0xFF1F8CFF) else Color(0xFF7890AD)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.width(52.dp)) {
+        Image(painter = painterResource(iconRes), contentDescription = null, modifier = Modifier.size(28.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = color, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+        Box(modifier = Modifier.width(24.dp).height(4.dp).clip(RoundedCornerShape(99.dp)).background(if (selected) color else Color.Transparent))
+    }
+}
+
+@Composable
+private fun CenterBottomMenuItem(iconRes: Int, label: String) {
 }
 
 @Composable
@@ -265,57 +971,6 @@ private fun StatusPill(text: String, color: Color, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun LoginPanel(
-    storeCode: String,
-    employeePin: String,
-    isSubmitting: Boolean,
-    onStoreCodeChange: (String) -> Unit,
-    onPinChange: (String) -> Unit,
-    onSubmit: () -> Unit
-) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stringResource(R.string.pos_title_sign_in), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            OutlinedTextField(
-                value = storeCode,
-                onValueChange = onStoreCodeChange,
-                label = { Text(stringResource(R.string.pos_label_store_code)) },
-                enabled = !isSubmitting,
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = employeePin,
-                onValueChange = onPinChange,
-                label = { Text(stringResource(R.string.pos_label_employee_pin)) },
-                enabled = !isSubmitting,
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Button(
-                onClick = onSubmit,
-                enabled = storeCode.isNotBlank() && employeePin.isNotBlank() && !isSubmitting,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    if (isSubmitting) {
-                        stringResource(R.string.pos_action_checking)
-                    } else {
-                        stringResource(R.string.pos_action_open_preview)
-                    }
-                )
-            }
-            Text(
-                text = stringResource(R.string.pos_hint_pin_cleared),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF66736A)
-            )
-        }
-    }
-}
-
-@Composable
 private fun BranchPanel(
     selectedBranch: PreviewBranch,
     onSelect: (PreviewBranch) -> Unit,
@@ -328,7 +983,7 @@ private fun BranchPanel(
         items(previewBranches) { branch ->
             SelectableCard(
                 title = stringResource(branch.nameRes),
-                subtitle = stringResource(branch.statusRes),
+                subtitle = stringResource(R.string.pos_branch_code, branch.code),
                 selected = branch.id == selectedBranch.id,
                 onClick = { onSelect(branch) }
             )
@@ -457,8 +1112,8 @@ private fun SelectableCard(
             Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(markerColor))
             Spacer(modifier = Modifier.width(10.dp))
             Column {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color(0xFF66736A))
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF66736A))
             }
         }
     }

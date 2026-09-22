@@ -7,7 +7,7 @@
 - [x] Native Android + Compose baseline
 - [x] Architecture and security boundaries
 - [x] Generate/commit Gradle wrapper from a verified local JDK 17 + Gradle 9.5 environment
-- [ ] CI build for debug APK
+- [x] CI build for debug APK
 
 ## Phase 1 - Read-only platform connection
 
