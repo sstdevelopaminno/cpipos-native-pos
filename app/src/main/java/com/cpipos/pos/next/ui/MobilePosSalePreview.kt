@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -26,6 +28,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -34,6 +38,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -50,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -112,10 +120,11 @@ internal fun MobilePosSalePreview(
     var payment by remember { mutableStateOf<PreviewPayment?>(null) }
     var cashInput by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf("") }
+    var pendingAction by remember { mutableStateOf<String?>(null) }
 
     val quantity = cart.values.sum()
     val total = demoMenu.sumOf { it.price * (cart[it.id] ?: 0) }
-    BackHandler(enabled = !showCart && !showMethods && payment == null && !showScannerNotice) {
+    BackHandler(enabled = !showCart && !showMethods && payment == null && !showScannerNotice && pendingAction == null) {
         onBack()
     }
 
@@ -145,7 +154,7 @@ internal fun MobilePosSalePreview(
                     .fillMaxSize()
                     .statusBarsPadding()
                     .padding(horizontal = 14.dp)
-                    .padding(bottom = 179.dp)
+                    .padding(bottom = 112.dp)
             ) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
@@ -286,57 +295,13 @@ internal fun MobilePosSalePreview(
                             DemoProductCard(
                                 product = product,
                                 quantity = cart[product.id] ?: 0,
-                                onAdd = { add(product.id) },
-                                onRemove = { remove(product.id) }
+                                onAdd = { add(product.id) }
                             )
                         }
                     }
                 }
             }
 
-            // Blue cart total remains immediately above the shared raised nav.
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp)
-                    .padding(bottom = 112.dp)
-                    .fillMaxWidth()
-                    .height(60.dp)
-                    .clip(RoundedCornerShape(42.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(Color(0xFF3295FD), Color(0xFF0C6BEC))
-                        )
-                    )
-                    .clickable { showCart = true }
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("🛒", fontSize = 22.sp, color = Color.White)
-                Spacer(modifier = Modifier.width(7.dp))
-                Text(quantity.toString() + " รายการ", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Spacer(modifier = Modifier.width(12.dp))
-                Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color(0x99FFFFFF)))
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    "ยอดรวม ฿" + amount(total),
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f)
-                )
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(40.dp))
-                        .background(Color(0xFF0868E9))
-                        .clickable { showCart = true }
-                        .padding(horizontal = 11.dp, vertical = 12.dp)
-                ) {
-                    Text("ดูตะกร้า ›", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
-            }
             HomeBottomMenu(modifier = Modifier.align(Alignment.BottomCenter))
             if (notice.isNotEmpty()) {
                 Text(
@@ -346,7 +311,7 @@ internal fun MobilePosSalePreview(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
-                        .padding(bottom = 178.dp)
+                        .padding(bottom = 112.dp)
                 )
             }
         }
@@ -361,34 +326,33 @@ internal fun MobilePosSalePreview(
     }
 
     if (showCart) {
-        AlertDialog(
-            onDismissRequest = { showCart = false },
-            title = { Text("ตะกร้าสินค้า (" + quantity + ")", color = saleInk) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    if (quantity == 0) Text("ยังไม่มีสินค้าในตะกร้า", color = saleMuted)
-                    demoMenu.filter { (cart[it.id] ?: 0) > 0 }.forEach { product ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(product.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                Text("฿" + amount(product.price * (cart[product.id] ?: 0)), fontSize = 12.sp, color = saleMuted)
-                            }
-                            TextButton(onClick = { remove(product.id) }) { Text("−") }
-                            Text((cart[product.id] ?: 0).toString(), fontWeight = FontWeight.Bold)
-                            TextButton(onClick = { add(product.id) }) { Text("+") }
-                        }
-                    }
-                    HorizontalDivider()
-                    Text("รวม ฿" + amount(total), fontWeight = FontWeight.Bold, color = Color(0xFF1C995A))
+        PreviewCartBottomSheet(
+            products = demoMenu,
+            cart = cart,
+            quantity = quantity,
+            total = total,
+            onDismiss = { showCart = false },
+            onAdd = { add(it) },
+            onRemove = { remove(it) },
+            onDelete = { cart.remove(it) },
+            onCheckout = {
+                if (quantity > 0) {
+                    showCart = false
+                    showMethods = true
                 }
             },
+            onFeatureClick = { pendingAction = it }
+        )
+    }
+
+    if (pendingAction != null) {
+        AlertDialog(
+            onDismissRequest = { pendingAction = null },
+            title = { Text(pendingAction ?: "") },
+            text = { Text("อยู่ระหว่างพัฒนาใน POS Preview ยังไม่เชื่อมต่อระบบจริง") },
             confirmButton = {
-                TextButton(
-                    enabled = quantity > 0,
-                    onClick = { showCart = false; showMethods = true }
-                ) { Text("ชำระเงิน") }
-            },
-            dismissButton = { TextButton(onClick = { showCart = false }) { Text("ปิด") } }
+                TextButton(onClick = { pendingAction = null }) { Text("ตกลง") }
+            }
         )
     }
 
@@ -487,49 +451,60 @@ internal fun MobilePosSalePreview(
     }
 }
 
+/**
+ * Tap anywhere on a menu card to add one unit; quantity is read-only here.
+ * All decrement and delete actions are contained in the cart sheet.
+ */
 @Composable
 private fun DemoProductCard(
     product: DemoMenuItem,
     quantity: Int,
-    onAdd: () -> Unit,
-    onRemove: () -> Unit
+    onAdd: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().height(166.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(166.dp)
+            .clickable(onClick = onAdd),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize().padding(5.dp)) {
             Box(
-                modifier = Modifier.fillMaxWidth().weight(1f)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
                     .clip(RoundedCornerShape(15.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.White, product.accent.copy(alpha = 0.17f))
-                        )
-                    ),
+                    .background(Brush.verticalGradient(
+                        listOf(Color.White, product.accent.copy(alpha = 0.17f))
+                    )),
                 contentAlignment = Alignment.Center
             ) {
-                // Illustrative demo thumbnail; replace with product image from catalog.
+                // Demo illustration until real catalog product photos are connected.
                 Text(product.marker, fontSize = 57.sp)
                 if (quantity > 0) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(5.dp)
-                            .size(23.dp)
+                            .padding(6.dp)
+                            .size(27.dp)
                             .clip(CircleShape)
                             .background(saleBlue),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(quantity.toString(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(
+                            quantity.toString(),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
                     }
                 }
             }
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp),
-                verticalAlignment = Alignment.Bottom
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 5.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -540,28 +515,281 @@ private fun DemoProductCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Text("฿" + amount(product.price), color = saleInk, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Text(
+                        "฿" + amount(product.price),
+                        color = saleInk,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
                 }
                 if (quantity > 0) {
-                    TextButton(
-                        onClick = onRemove,
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.size(25.dp)
-                    ) {
-                        Text("−", color = saleBlue, fontSize = 22.sp)
-                    }
+                    Text(
+                        "×" + quantity,
+                        color = saleBlue,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PreviewCartBottomSheet(
+    products: List<DemoMenuItem>,
+    cart: Map<String, Int>,
+    quantity: Int,
+    total: Int,
+    onDismiss: () -> Unit,
+    onAdd: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onCheckout: () -> Unit,
+    onFeatureClick: (String) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val cartProducts = products.filter { (cart[it.id] ?: 0) > 0 }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+        containerColor = Color(0xFFFAFCFF),
+        scrimColor = Color(0x990C1B32),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 12.dp, bottom = 7.dp)
+                    .size(width = 42.dp, height = 5.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFB8C8DD))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = screenHeight * 0.86f)
+                .padding(horizontal = 16.dp)
+                .navigationBarsPadding()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "ตะกร้าสินค้า",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = saleInk
+                    )
+                    Text(
+                        quantity.toString() + " รายการ",
+                        color = saleMuted,
+                        fontSize = 16.sp
+                    )
                 }
                 Box(
                     modifier = Modifier
-                        .padding(end = 2.dp, bottom = 1.dp)
-                        .size(35.dp)
+                        .size(39.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFE4F0FF))
-                        .clickable { onAdd() },
+                        .background(Color(0xFFE8F2FF))
+                        .clickable { onDismiss() },
                     contentAlignment = Alignment.Center
-                ) { Text("+", color = saleBlue, fontSize = 28.sp, lineHeight = 29.sp) }
+                ) {
+                    Text("×", color = saleInk, fontSize = 27.sp, lineHeight = 30.sp)
+                }
             }
+
+            // Scroll only the product rows so checkout remains reachable.
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = screenHeight * 0.35f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 6.dp)
+            ) {
+                if (cartProducts.isEmpty()) {
+                    item {
+                        Text(
+                            "ยังไม่มีสินค้าในตะกร้า",
+                            color = saleMuted,
+                            modifier = Modifier.padding(vertical = 26.dp)
+                        )
+                    }
+                }
+                items(cartProducts, key = { it.id }) { product ->
+                    val count = cart[product.id] ?: 0
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.White)
+                            .padding(9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(53.dp)
+                                .clip(RoundedCornerShape(13.dp))
+                                .background(product.accent.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(product.marker, fontSize = 31.sp)
+                        }
+                        Spacer(modifier = Modifier.width(9.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                product.name,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = saleInk,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "฿" + amount(product.price),
+                                color = saleMuted,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                "฿" + amount(product.price * count),
+                                fontSize = 13.sp,
+                                color = saleInk,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        CartQuantityButton(label = "−", onClick = { onRemove(product.id) })
+                        Text(
+                            count.toString(),
+                            modifier = Modifier.padding(horizontal = 7.dp),
+                            fontWeight = FontWeight.Bold,
+                            color = saleInk,
+                            fontSize = 13.sp
+                        )
+                        CartQuantityButton(label = "+", onClick = { onAdd(product.id) })
+                        TextButton(
+                            onClick = { onDelete(product.id) },
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.size(35.dp)
+                        ) {
+                            Text("×", color = Color(0xFF7086A5), fontSize = 25.sp)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(9.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(Color(0xFFEAF4FF))
+                    .clickable { onFeatureClick("ส่วนลด") }
+                    .padding(horizontal = 14.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("◇", color = saleBlue, fontSize = 24.sp)
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    "ส่วนลด",
+                    color = saleInk,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text("›", color = saleMuted, fontSize = 27.sp)
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.White)
+                    .padding(horizontal = 14.dp, vertical = 15.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "ยอดรวม",
+                    color = saleInk,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "฿" + amount(total),
+                    color = Color(0xFF126BE5),
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 23.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                CartSecondaryButton(
+                    title = "พิมพ์บิล",
+                    modifier = Modifier.weight(1f),
+                    onClick = { onFeatureClick("พิมพ์บิล") }
+                )
+                CartSecondaryButton(
+                    title = "สแกนบาร์โค้ด",
+                    modifier = Modifier.weight(1f),
+                    onClick = { onFeatureClick("สแกนบาร์โค้ด") }
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Button(
+                onClick = onCheckout,
+                enabled = quantity > 0,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+                shape = RoundedCornerShape(17.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = saleBlue)
+            ) {
+                Text("▣  ชำระเงิน", fontWeight = FontWeight.Bold, fontSize = 19.sp)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
         }
+    }
+}
+
+@Composable
+private fun CartQuantityButton(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(31.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFE5F1FF))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, color = Color(0xFF176DEE), fontSize = 22.sp, lineHeight = 25.sp)
+    }
+}
+
+@Composable
+private fun CartSecondaryButton(
+    title: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .height(47.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(Color(0xFFEAF4FF))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            title,
+            color = saleInk,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp,
+            maxLines = 1
+        )
     }
 }
 
