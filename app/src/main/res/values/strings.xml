@@ -89,7 +89,7 @@
     <string name="pos_nav_sale">ขาย</string>
     <string name="pos_nav_report">รายงาน</string>
     <string name="pos_nav_stock">สินค้า</string>
-    <string name="pos_nav_history">ประวัติ</string>
+    <string name="pos_nav_history">เปิด-ปิดกะ</string>
     <string name="pos_nav_setting">ตั้งค่า</string>
     <string name="pos_currency_amount">฿%,d</string>
 </resources>
