@@ -88,7 +88,8 @@
     <string name="pos_home_context">%1$s · %2$s</string>
     <string name="pos_nav_sale">ขาย</string>
     <string name="pos_nav_report">รายงาน</string>
-    <string name="pos_nav_stock">สต็อก</string>
+    <string name="pos_nav_stock">สินค้า</string>
     <string name="pos_nav_history">ประวัติ</string>
-    <string name="pos_nav_setting">ตั้งค่า</string>    <string name="pos_currency_amount">฿%,d</string>
+    <string name="pos_nav_setting">ตั้งค่า</string>
+    <string name="pos_currency_amount">฿%,d</string>
 </resources>
