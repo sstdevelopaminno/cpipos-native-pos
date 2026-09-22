@@ -1,5 +1,6 @@
 package com.cpipos.pos.next.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,7 +45,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
@@ -56,6 +59,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.cpipos.pos.next.R
 import com.cpipos.pos.next.auth.AuthAttemptResult
 import com.cpipos.pos.next.auth.AuthCredentials
@@ -765,123 +769,308 @@ private fun cpiposTextFieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedContainerColor = Color(0xFFF8FBFF),
     cursorColor = Color(0xFF1682F5)
 )
+
 @Composable
 private fun HomeModeScreen(branch: PreviewBranch, counter: PreviewCounter) {
-    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF3F7FE)) {
+    // Keep these values in scope for the later real session/navigation hand-off.
+    // The design preview must not create or modify a production POS session.
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFFAFCFF)) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(178.dp).background(Color(0xFFE7F6FF)))
-            Box(modifier = Modifier.align(Alignment.BottomStart).offset(x = (-80).dp, y = (-92).dp).width(360.dp).height(96.dp).clip(RoundedCornerShape(100.dp)).background(Color(0xAAD5EBFF)))
-            Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = 72.dp, y = (-74).dp).width(360.dp).height(92.dp).clip(RoundedCornerShape(100.dp)).background(Color(0x99CFE8FF)))
+            HomeBlueWaveBackground(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(190.dp)
+            )
+
             Column(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 44.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 18.dp)
+                    .padding(top = 32.dp, bottom = 112.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(26.dp))
-                Image(painter = painterResource(R.drawable.cpipos_logo_symbol), contentDescription = stringResource(R.string.pos_logo_content_description), modifier = Modifier.size(138.dp))
-                Text(stringResource(R.string.pos_home_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color(0xFF0F1F3A))
-                Text(stringResource(R.string.pos_home_subtitle), style = MaterialTheme.typography.bodySmall, color = Color(0xFF78879B))
-                Spacer(modifier = Modifier.height(24.dp))
-                ModeCard(R.drawable.ic_mode_takeaway, stringResource(R.string.pos_mode_takeaway), stringResource(R.string.pos_mode_takeaway_subtitle))
-                Spacer(modifier = Modifier.height(12.dp))
-                ModeCard(R.drawable.ic_mode_table, stringResource(R.string.pos_mode_table), stringResource(R.string.pos_mode_table_subtitle))
                 Spacer(modifier = Modifier.height(14.dp))
-                Text(stringResource(R.string.pos_home_context, stringResource(branch.nameRes), counter.code), style = MaterialTheme.typography.labelSmall, color = Color(0xFF8A98AA))
+                Image(
+                    painter = painterResource(R.drawable.cpipos_logo_symbol),
+                    contentDescription = stringResource(R.string.pos_logo_content_description),
+                    modifier = Modifier.size(176.dp)
+                )
+                Text(
+                    text = stringResource(R.string.pos_home_title),
+                    fontSize = 22.sp,
+                    lineHeight = 27.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF14213D)
+                )
+                Text(
+                    text = stringResource(R.string.pos_home_subtitle),
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    color = Color(0xFF8894A7)
+                )
+                Spacer(modifier = Modifier.height(22.dp))
+
+                ModeCard(
+                    iconRes = R.drawable.ic_mode_takeaway,
+                    title = stringResource(R.string.pos_mode_takeaway),
+                    subtitle = stringResource(R.string.pos_mode_takeaway_subtitle)
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                ModeCard(
+                    iconRes = R.drawable.ic_mode_table,
+                    title = stringResource(R.string.pos_mode_table),
+                    subtitle = stringResource(R.string.pos_mode_table_subtitle)
+                )
             }
+
             HomeBottomMenu(modifier = Modifier.align(Alignment.BottomCenter))
         }
     }
 }
 
+/**
+ * Three soft, translucent curved layers rather than the hard blue rectangles
+ * from the initial UI prototype. Drawn behind the floating bottom navigation.
+ */
+@Composable
+private fun HomeBlueWaveBackground(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+
+        val baseWave = Path().apply {
+            moveTo(0f, h * 0.25f)
+            cubicTo(w * 0.20f, h * 0.12f, w * 0.33f, h * 0.52f, w * 0.55f, h * 0.44f)
+            cubicTo(w * 0.76f, h * 0.38f, w * 0.84f, h * 0.20f, w, h * 0.17f)
+            lineTo(w, h)
+            lineTo(0f, h)
+            close()
+        }
+        drawPath(baseWave, Color(0xFFEAF4FF))
+
+        val foregroundWave = Path().apply {
+            moveTo(0f, h * 0.34f)
+            cubicTo(w * 0.19f, h * 0.30f, w * 0.30f, h * 0.55f, w * 0.46f, h * 0.49f)
+            cubicTo(w * 0.68f, h * 0.41f, w * 0.84f, h * 0.47f, w, h * 0.34f)
+            lineTo(w, h)
+            lineTo(0f, h)
+            close()
+        }
+        drawPath(foregroundWave, Color(0x99D5E9FF))
+
+        val highlightWave = Path().apply {
+            moveTo(w * 0.34f, h * 0.45f)
+            cubicTo(w * 0.60f, h * 0.33f, w * 0.78f, h * 0.27f, w, h * 0.24f)
+            lineTo(w, h * 0.65f)
+            cubicTo(w * 0.76f, h * 0.58f, w * 0.54f, h * 0.66f, w * 0.34f, h * 0.45f)
+            close()
+        }
+        drawPath(highlightWave, Color(0x66FFFFFF))
+    }
+}
+
 @Composable
 private fun ModeCard(iconRes: Int, title: String, subtitle: String) {
-    Card(modifier = Modifier.fillMaxWidth().height(104.dp), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-        Row(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(82.dp).clip(CircleShape).background(Color(0xFFEAF4FF)), contentAlignment = Alignment.Center) {
-                Image(painter = painterResource(iconRes), contentDescription = null, modifier = Modifier.size(60.dp))
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(116.dp)
+            .shadow(7.dp, RoundedCornerShape(17.dp)),
+        shape = RoundedCornerShape(17.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(88.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFEAF3FF)),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(iconRes),
+                    contentDescription = null,
+                    modifier = Modifier.size(70.dp)
+                )
             }
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF14213D))
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF6F7F94))
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = title,
+                    fontSize = 17.sp,
+                    lineHeight = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF152037),
+                    maxLines = 1
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    color = Color(0xFF8795A9),
+                    maxLines = 1
+                )
             }
-            Box(modifier = Modifier.size(28.dp).clip(CircleShape).background(Color(0xFFEAF4FF)), contentAlignment = Alignment.Center) {
-                Text(">", color = Color(0xFF1F75D6), fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFF0F5FF)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "›",
+                    color = Color(0xFF347DF4),
+                    fontSize = 24.sp,
+                    lineHeight = 24.sp
+                )
             }
         }
     }
 }
 
+/**
+ * Five equal columns prevent labels from clipping on narrow Android phones.
+ * The centre stock control has its own raised white ring and blue gradient.
+ */
 @Composable
 private fun HomeBottomMenu(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .navigationBarsPadding()
-            .padding(start = 6.dp, end = 6.dp, bottom = 4.dp)
+            .padding(start = 10.dp, end = 10.dp, bottom = 5.dp)
             .fillMaxWidth()
-            .height(104.dp),
+            .height(94.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(76.dp)
-                .shadow(12.dp, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp), clip = false)
+                .height(73.dp)
+                .shadow(
+                    elevation = 12.dp,
+                    shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
+                    clip = false
+                )
                 .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
                 .background(Color.White)
-                .padding(start = 14.dp, end = 14.dp, top = 18.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(start = 6.dp, end = 6.dp, top = 17.dp),
             verticalAlignment = Alignment.Top
         ) {
-            BottomMenuItem(R.drawable.ic_nav_cart, stringResource(R.string.pos_nav_sale), true)
-            BottomMenuItem(R.drawable.ic_nav_report, stringResource(R.string.pos_nav_report), false)
-            Spacer(modifier = Modifier.width(62.dp))
-            BottomMenuItem(R.drawable.ic_nav_history, stringResource(R.string.pos_nav_history), false)
-            BottomMenuItem(R.drawable.ic_nav_setting, stringResource(R.string.pos_nav_setting), false)
+            BottomMenuItem(
+                iconRes = R.drawable.ic_nav_cart,
+                label = stringResource(R.string.pos_nav_sale),
+                selected = true,
+                modifier = Modifier.weight(1f)
+            )
+            BottomMenuItem(
+                iconRes = R.drawable.ic_nav_report,
+                label = stringResource(R.string.pos_nav_report),
+                selected = false,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            BottomMenuItem(
+                iconRes = R.drawable.ic_nav_history,
+                label = stringResource(R.string.pos_nav_history),
+                selected = false,
+                modifier = Modifier.weight(1f)
+            )
+            BottomMenuItem(
+                iconRes = R.drawable.ic_nav_setting,
+                label = stringResource(R.string.pos_nav_setting),
+                selected = false,
+                modifier = Modifier.weight(1f)
+            )
         }
 
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(y = 9.dp)
-                .size(76.dp)
-                .shadow(14.dp, CircleShape, clip = false)
+                .offset(y = 2.dp)
+                .size(73.dp)
+                .shadow(12.dp, CircleShape, clip = false)
                 .clip(CircleShape)
                 .background(Color.White),
             contentAlignment = Alignment.Center
         ) {
             Box(
                 modifier = Modifier
-                    .size(60.dp)
+                    .size(57.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF1F8CFF)),
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFF6CB9FF), Color(0xFF1464EC))
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                Image(painter = painterResource(R.drawable.ic_nav_stock), contentDescription = null, modifier = Modifier.size(34.dp))
+                Image(
+                    painter = painterResource(R.drawable.ic_nav_stock),
+                    contentDescription = stringResource(R.string.pos_nav_stock),
+                    modifier = Modifier.size(32.dp)
+                )
             }
         }
         Text(
             text = stringResource(R.string.pos_nav_stock),
-            style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF0F1F3A),
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 5.dp)
+            fontSize = 11.sp,
+            lineHeight = 13.sp,
+            color = Color(0xFF1B355E),
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 5.dp)
         )
     }
 }
 
 @Composable
-private fun BottomMenuItem(iconRes: Int, label: String, selected: Boolean) {
-    val color = if (selected) Color(0xFF1F8CFF) else Color(0xFF7890AD)
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.width(52.dp)) {
-        Image(painter = painterResource(iconRes), contentDescription = null, modifier = Modifier.size(28.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = color, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-        Box(modifier = Modifier.width(24.dp).height(4.dp).clip(RoundedCornerShape(99.dp)).background(if (selected) color else Color.Transparent))
+private fun BottomMenuItem(
+    iconRes: Int,
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val itemColor = if (selected) Color(0xFF2282F6) else Color(0xFF7890AD)
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Image(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            modifier = Modifier.size(25.dp)
+        )
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            lineHeight = 13.sp,
+            color = itemColor,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            maxLines = 1
+        )
+        Box(
+            modifier = Modifier
+                .width(24.dp)
+                .height(3.dp)
+                .clip(RoundedCornerShape(100.dp))
+                .background(if (selected) itemColor else Color.Transparent)
+        )
     }
-}
-
-@Composable
-private fun CenterBottomMenuItem(iconRes: Int, label: String) {
 }
 
 @Composable
@@ -1127,6 +1316,14 @@ private object PreviewNativeAuthGateway : NativeAuthGateway {
         return AuthAttemptResult.BackendUnavailable(
             message = "Preview mock gateway only. No production auth request is sent."
         )
+    }
+}
+
+@Preview(name = "Mobile POS - Home Modes", showBackground = true, widthDp = 390, heightDp = 844, locale = "th")
+@Composable
+private fun MobilePosHomeModePreview() {
+    MaterialTheme {
+        HomeModeScreen(previewBranches.first(), previewCounters.first())
     }
 }
 
