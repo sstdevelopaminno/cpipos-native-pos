@@ -1,5 +1,6 @@
 package com.cpipos.pos.next.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -114,6 +115,10 @@ internal fun MobilePosSalePreview(
 
     val quantity = cart.values.sum()
     val total = demoMenu.sumOf { it.price * (cart[it.id] ?: 0) }
+    BackHandler(enabled = !showCart && !showMethods && payment == null && !showScannerNotice) {
+        onBack()
+    }
+
     val visibleProducts = demoMenu.filter { product ->
         (category == "ทั้งหมด" || product.category == category) &&
             (search.isBlank() || product.name.contains(search.trim(), ignoreCase = true) || product.id.contains(search.trim(), ignoreCase = true))
@@ -151,8 +156,8 @@ internal fun MobilePosSalePreview(
                 ) {
                     Image(
                         painter = painterResource(R.drawable.cpipos_logo_symbol),
-                        contentDescription = "CpIPOS",
-                        modifier = Modifier.size(45.dp)
+                        contentDescription = "กลับหน้าเลือกโหมด",
+                        modifier = Modifier.size(45.dp).clickable { onBack() }
                     )
                     Text("CpIPOS", fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, color = saleInk)
                     Spacer(modifier = Modifier.width(9.dp))
