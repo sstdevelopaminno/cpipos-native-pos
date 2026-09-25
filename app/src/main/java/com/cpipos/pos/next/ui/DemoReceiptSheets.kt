@@ -1,0 +1,229 @@
+package com.cpipos.pos.next.ui
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.cpipos.pos.next.core.offline.DemoSaleReceipt
+import com.cpipos.pos.next.core.offline.DemoReceiptLine
+import com.cpipos.pos.next.core.pos.Satang
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+
+private val receiptBlue = Color(0xFF176DED)
+private val receiptInk = Color(0xFF142545)
+private val receiptGreen = Color(0xFF208A49)
+private val receiptMoney = DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.US))
+private fun baht(s: Satang): String =
+    receiptMoney.format(s.value.toBigDecimal().movePointLeft(2))
+private fun paidDate(time: Long): String =
+    SimpleDateFormat("dd MMM yyyy HH:mm", Locale("th", "TH"))
+        .apply { timeZone = TimeZone.getTimeZone("Asia/Bangkok") }.format(Date(time))
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun SavedDemoReceiptSheet(
+    receipt: DemoSaleReceipt,
+    onPrint: () -> Unit,
+    onDone: () -> Unit
+) {
+    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val h = LocalConfiguration.current.screenHeightDp.dp
+    ModalBottomSheet(
+        onDismissRequest = onDone,
+        sheetState = state,
+        containerColor = Color(0xFFF8FAFF),
+        shape = RoundedCornerShape(topStart = 27.dp, topEnd = 27.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .heightIn(max = h * .86f)
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Text("บันทึกบิลทดสอบเรียบร้อย", fontSize = 21.sp,
+                fontWeight = FontWeight.ExtraBold, color = receiptGreen)
+            Text("ตะกร้าเคลียร์แล้ว • บันทึกอยู่ในเครื่องนี้เท่านั้น", fontSize = 11.sp,
+                color = Color(0xFF76839A), modifier = Modifier.padding(bottom = 8.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                shape = RoundedCornerShape(17.dp),
+                color = Color.White,
+                border = BorderStroke(1.dp, Color(0xFFE0E8F6))
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    item {
+                        Text("CpIPOS", modifier = Modifier.fillMaxWidth(),
+                            fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = receiptInk)
+                        Text("ตัวอย่าง / PREVIEW ONLY", color = Color(0xFFBD4C41),
+                            fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text(receipt.branchName, fontWeight = FontWeight.Bold, color = receiptInk)
+                        Text("ผู้ขาย: ทดลอง UI  •  กะ: ${receipt.counterCode}",
+                            color = Color(0xFF6C7B92), fontSize = 11.sp)
+                        Text("โหมด: ${receipt.modeLabel}", fontSize = 11.sp, color = receiptInk)
+                        Text("บิล: ${receipt.billNo}", fontSize = 11.sp, color = receiptInk)
+                        Text("วันที่: ${paidDate(receipt.createdAtMs)}",
+                            fontSize = 11.sp, color = receiptInk)
+                        Text("--------------------------------------------------", color = receiptInk, maxLines = 1)
+                    }
+                    items(receipt.lines, key = { it.productId }) { item ->
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.name, fontSize = 13.sp, color = receiptInk,
+                                    fontWeight = FontWeight.Bold)
+                                Text("${item.quantity} × ${baht(item.unitPrice)}", fontSize = 11.sp,
+                                    color = Color(0xFF697A90))
+                            }
+                            Text("฿${baht(item.amount)}", fontSize = 13.sp,
+                                color = receiptInk, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    item {
+                        Text("--------------------------------------------------", color = receiptInk, maxLines = 1)
+                        ReceiptTotalRow("ชำระเงิน", "เงินสด")
+                        ReceiptTotalRow("ส่วนลด", "฿0.00")
+                        ReceiptTotalRow("ยอดที่ต้องชำระ", "฿${baht(receipt.total)}", bold = true)
+                        ReceiptTotalRow("รับเงินจากลูกค้า", "฿${baht(receipt.received)}")
+                        ReceiptTotalRow("เงินทอน", "฿${baht(receipt.change)}", bold = true)
+                        Spacer(Modifier.height(5.dp))
+                        Text("ไม่ใช่ใบเสร็จรับเงินจริง • ไม่ได้บันทึกเข้าระบบร้านค้า",
+                            color = Color(0xFFB04740), fontSize = 10.sp)
+                    }
+                }
+            }
+            Spacer(Modifier.height(11.dp))
+            Button(
+                onClick = onPrint,
+                modifier = Modifier.fillMaxWidth().height(49.dp),
+                shape = RoundedCornerShape(15.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = receiptBlue)
+            ) { Text("▣  พิมพ์ใบเสร็จ / บันทึก PDF", fontWeight = FontWeight.Bold, fontSize = 15.sp) }
+            Spacer(Modifier.height(7.dp))
+            OutlinedButton(
+                onClick = onDone,
+                modifier = Modifier.fillMaxWidth().height(47.dp),
+                shape = RoundedCornerShape(15.dp)
+            ) { Text("เสร็จสิ้น • กลับหน้าขาย", color = receiptInk) }
+        }
+    }
+}
+
+@Composable
+private fun ReceiptTotalRow(label: String, value: String, bold: Boolean = false) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(label, modifier = Modifier.weight(1f),
+            fontWeight = if (bold) FontWeight.ExtraBold else FontWeight.Medium,
+            color = receiptInk, fontSize = 12.sp)
+        Text(value, color = receiptInk,
+            fontWeight = if (bold) FontWeight.ExtraBold else FontWeight.SemiBold,
+            fontSize = if (bold) 15.sp else 12.sp)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun DemoDailySalesSheet(
+    receipts: List<DemoSaleReceipt>,
+    onOpenReceipt: (DemoSaleReceipt) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sum = receipts.fold(Satang.ZERO) { total, bill -> total + bill.total }
+    val h = LocalConfiguration.current.screenHeightDp.dp
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = state,
+        containerColor = Color(0xFFF7FAFF),
+        shape = RoundedCornerShape(topStart = 27.dp, topEnd = 27.dp)
+    ) {
+        Column(modifier = Modifier
+            .fillMaxWidth().heightIn(max = h * .82f)
+            .navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            Text("ยอดขายทดสอบวันนี้", fontSize = 21.sp,
+                fontWeight = FontWeight.Bold, color = receiptInk)
+            Text("เฉพาะสาขาและเคาน์เตอร์ที่เลือก • ไม่รวมยอดจริง",
+                fontSize = 11.sp, color = Color(0xFF70829C))
+            Spacer(Modifier.height(8.dp))
+            Surface(color = Color(0xFFE8F2FF), shape = RoundedCornerShape(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("${receipts.size} บิล", color = receiptInk,
+                        modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                    Text("฿${baht(sum)}", color = receiptBlue,
+                        fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            if (receipts.isEmpty()) {
+                Text("ยังไม่มีบิลทดสอบที่บันทึกวันนี้",
+                    color = Color(0xFF647B99), modifier = Modifier.padding(20.dp))
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                    items(receipts, key = { it.id }) { receipt ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { onOpenReceipt(receipt) }
+                                .padding(vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(receipt.billNo, color = receiptInk,
+                                    fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(paidDate(receipt.createdAtMs),
+                                    color = Color(0xFF7A8AA2), fontSize = 11.sp)
+                            }
+                            Text("฿${baht(receipt.total)}", color = receiptGreen,
+                                fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(" ›", fontSize = 19.sp, color = receiptBlue)
+                        }
+                    }
+                }
+            }
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Text("ปิด", color = receiptInk)
+            }
+        }
+    }
+}

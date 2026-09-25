@@ -50,6 +50,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -71,6 +73,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.cpipos.pos.next.R
+import com.cpipos.pos.next.core.offline.DemoSaleLedger
+import com.cpipos.pos.next.core.offline.DemoSaleReceipt
+import com.cpipos.pos.next.core.offline.DemoReceiptLine
+import com.cpipos.pos.next.core.pos.CashTenderInput
+import com.cpipos.pos.next.core.pos.Satang
+import com.cpipos.pos.next.printing.DemoReceiptPrinter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.UUID
 import java.util.Locale
 
 /**
@@ -125,6 +137,16 @@ internal fun MobilePosSalePreview(
     var notice by remember { mutableStateOf("") }
     var pendingAction by remember { mutableStateOf<String?>(null) }
     var showCancelBillConfirm by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val demoLedger = remember(context.applicationContext) { DemoSaleLedger(context.applicationContext) }
+    var receipt by remember { mutableStateOf<DemoSaleReceipt?>(null) }
+    var dailyReceipts by remember { mutableStateOf<List<DemoSaleReceipt>>(emptyList()) }
+    var showHistory by remember { mutableStateOf(false) }
+    var activeBillId by remember { mutableStateOf(UUID.randomUUID().toString()) }
+    var saving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
+
 
     val quantity = cart.values.sum()
     val total = demoMenu.sumOf { it.price * (cart[it.id] ?: 0) }
@@ -142,13 +164,66 @@ internal fun MobilePosSalePreview(
         val next = (cart[id] ?: 0) - 1
         if (next <= 0) cart.remove(id) else cart[id] = next
     }
-    fun clearDemo() {
-        cart.clear()
-        showCart = false
-        showMethods = false
-        payment = null
-        cashInput = ""
-        notice = "จบบิลจำลองแล้ว ไม่มีการรับเงินจริงหรือบันทึกยอดขาย"
+    fun openPreviewSalesHistory() {
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { demoLedger.today(branchName, counterCode) }
+            }.onSuccess { dailyReceipts = it; showHistory = true }
+                .onFailure { notice = "เปิดรายการขายทดลองไม่ได้ กรุณาลองอีกครั้ง" }
+        }
+    }
+
+    if (payment == PreviewPayment.Cash) {
+        CashCheckoutScreen(
+            due = Satang.of(total.toLong() * 100L),
+            cashInput = cashInput,
+            saving = saving,
+            error = saveError,
+            onInputChange = { cashInput = it; saveError = null },
+            onCancel = { if (!saving) { payment = null; showCart = true; saveError = null } },
+            onConfirm = {
+                if (!saving && quantity > 0 && total > 0 &&
+                    CashTenderInput.isSufficient(cashInput, Satang.of(total.toLong() * 100L))
+                ) {
+                    saving = true
+                    saveError = null
+                    val snapshot = demoMenu.mapNotNull { item ->
+                        val count = cart[item.id] ?: 0
+                        if (count > 0) DemoReceiptLine(
+                            item.id, item.name, count, Satang.of(item.price.toLong() * 100L)
+                        ) else null
+                    }
+                    val billId = activeBillId
+                    val paid = CashTenderInput.money(cashInput)
+                    scope.launch {
+                        try {
+                            val saved = withContext(Dispatchers.IO) {
+                                demoLedger.saveCash(
+                                    branchName = branchName, counterCode = counterCode,
+                                    modeLabel = mode.title, lines = snapshot,
+                                    received = paid, id = billId
+                                )
+                            }
+                            // Clear ONLY after SQLite commits the immutable receipt.
+                            cart.clear()
+                            activeBillId = UUID.randomUUID().toString()
+                            showCart = false
+                            showMethods = false
+                            payment = null
+                            cashInput = ""
+                            receipt = saved
+                            notice = "บันทึกบิลทดลองในเครื่องแล้ว: ${saved.billNo}"
+                        } catch (error: Exception) {
+                            saveError = "บันทึกไม่สำเร็จ ตะกร้ายังอยู่ครบ: " +
+                                (error.localizedMessage ?: "กรุณาลองอีกครั้ง").take(80)
+                        } finally {
+                            saving = false
+                        }
+                    }
+                }
+            }
+        )
+        return
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
@@ -228,7 +303,20 @@ internal fun MobilePosSalePreview(
                     }
                 }
 
-                Text("พรีวิว UI • ไม่มีการตัดสต๊อกหรือรับเงินจริง", color = saleMuted, fontSize = 11.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("พรีวิว UI • ไม่ใช่ยอดขายจริง", color = saleMuted, fontSize = 11.sp)
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        "ดูยอดขายทดลอง ›",
+                        modifier = Modifier.clickable { openPreviewSalesHistory() },
+                        color = saleBlue,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                }
                 OutlinedTextField(
                     value = search,
                     onValueChange = { search = it },
@@ -354,6 +442,7 @@ internal fun MobilePosSalePreview(
             onCheckout = {
                 if (quantity > 0) {
                     selectedMethod = PreviewPayment.Cash
+                    showCart = false
                     showMethods = true
                 }
             },
@@ -376,7 +465,8 @@ internal fun MobilePosSalePreview(
                         cart.clear()
                         showCart = false
                         showCancelBillConfirm = false
-                        notice = "ยกเลิกบิลจำลองแล้ว ไม่ได้บันทึกธุรกรรม"
+                        activeBillId = UUID.randomUUID().toString()
+                        notice = "ยกเลิกตะกร้าทดลองแล้ว ไม่ได้บันทึกธุรกรรม"
                     }
                 ) {
                     Text("ยืนยันยกเลิกบิล", color = Color(0xFFE34D58), fontWeight = FontWeight.Bold)
@@ -406,7 +496,7 @@ internal fun MobilePosSalePreview(
             total = total,
             selectedMethod = selectedMethod,
             onSelectMethod = { selectedMethod = it },
-            onDismiss = { showMethods = false },
+            onDismiss = { showMethods = false; showCart = true },
             onConfirm = {
                 if (total > 0) {
                     showMethods = false
@@ -418,59 +508,6 @@ internal fun MobilePosSalePreview(
         )
     }
 
-    if (payment == PreviewPayment.Cash) {
-        val received = cashInput.toIntOrNull() ?: 0
-        Dialog(onDismissRequest = { payment = null }) {
-            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), color = Color.White) {
-                Column(modifier = Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("รับชำระเงินสด", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = saleInk)
-                    Text("ยอดที่ต้องชำระ", fontSize = 12.sp, color = saleMuted)
-                    Text("฿" + amount(total), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1C995A))
-                    Spacer(modifier = Modifier.height(9.dp))
-                    Text("รับเงิน ฿" + amount(received), fontSize = 19.sp, color = saleInk)
-                    Text(
-                        if (received >= total) "เงินทอน ฿" + amount(received - total)
-                        else "เงินไม่พอ ฿" + amount(total - received),
-                        color = if (received >= total) Color(0xFF1C995A) else Color(0xFFA8753C),
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    listOf(
-                        listOf("1", "2", "3"), listOf("4", "5", "6"),
-                        listOf("7", "8", "9"), listOf("ลบ", "0", "⌫")
-                    ).forEach { digitRow ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            digitRow.forEach { key ->
-                                OutlinedButton(
-                                    onClick = {
-                                        cashInput = when (key) {
-                                            "ลบ" -> ""
-                                            "⌫" -> cashInput.dropLast(1)
-                                            else -> (cashInput + key).trimStart('0').take(7)
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f).height(43.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
-                                ) { Text(key, fontSize = 17.sp, fontWeight = FontWeight.Bold) }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(7.dp))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        OutlinedButton(onClick = { payment = null }, modifier = Modifier.weight(1f)) {
-                            Text("ยกเลิก")
-                        }
-                        Button(
-                            onClick = { clearDemo() },
-                            enabled = received >= total && total > 0,
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C995A))
-                        ) { Text("จบบิลจำลอง", fontSize = 12.sp) }
-                    }
-                }
-            }
-        }
-    }
 
     if (payment == PreviewPayment.Transfer) {
         AlertDialog(
@@ -483,10 +520,28 @@ internal fun MobilePosSalePreview(
                     Text("ปุ่มด้านล่างจำลองการจบบิลบนหน้าจอเท่านั้น", fontSize = 12.sp, color = saleMuted)
                 }
             },
-            confirmButton = { TextButton(onClick = { clearDemo() }) { Text("จบบิลจำลอง") } },
+            confirmButton = { TextButton(onClick = { payment = null; showCart = true }) { Text("กลับตะกร้า") } },
             dismissButton = { TextButton(onClick = { payment = null }) { Text("ยกเลิก") } }
         )
     }
+    if (showHistory) {
+        DemoDailySalesSheet(
+            receipts = dailyReceipts,
+            onOpenReceipt = { selected -> showHistory = false; receipt = selected },
+            onDismiss = { showHistory = false }
+        )
+    }
+    receipt?.let { saved ->
+        SavedDemoReceiptSheet(
+            receipt = saved,
+            onPrint = {
+                runCatching { DemoReceiptPrinter.print(context, saved) }
+                    .onFailure { notice = "เปิดระบบพิมพ์ไม่ได้ กรุณาติดตั้งบริการเครื่องพิมพ์ Android" }
+            },
+            onDone = { receipt = null }
+        )
+    }
+
 }
 
 /**
