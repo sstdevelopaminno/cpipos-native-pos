@@ -203,6 +203,7 @@ internal fun MobilePosSalePreview(
             cashInput = cashInput,
             saving = saving,
             error = saveError,
+            isLiveSale = liveSession != null,
             onInputChange = { cashInput = it; saveError = null },
             onCancel = { if (!saving) { payment = null; showCart = true; saveError = null } },
             onConfirm = {

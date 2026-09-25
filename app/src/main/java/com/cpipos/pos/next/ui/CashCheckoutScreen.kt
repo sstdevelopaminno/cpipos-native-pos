@@ -61,6 +61,7 @@ internal fun CashCheckoutScreen(
     cashInput: String,
     saving: Boolean,
     error: String?,
+    isLiveSale: Boolean = false,
     onInputChange: (String) -> Unit,
     onCancel: () -> Unit,
     onConfirm: () -> Unit
@@ -281,7 +282,9 @@ internal fun CashCheckoutScreen(
                     Text(error, color = Color(0xFFBB2B32), fontSize = 12.sp)
                 }
                 Text(
-                    "โหมดทดลอง • บิลและเงินสดที่บันทึกจะอยู่ในเครื่องทดสอบเท่านั้น",
+                    if (isLiveSale)
+                        "ยอดขายจะบันทึกเข้าระบบร้านค้าเมื่อเซิร์ฟเวอร์ยืนยันการรับเงินสำเร็จ"
+                    else "ตัวอย่าง UI • รายการนี้ไม่ใช่ยอดขายจริง",
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     fontSize = 10.sp,
                     color = Color(0xFF7184A2)

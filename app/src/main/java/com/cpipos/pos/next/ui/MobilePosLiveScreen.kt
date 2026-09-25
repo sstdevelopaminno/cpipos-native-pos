@@ -89,8 +89,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         step = "store"
     }
 
-    fun refreshCatalog(verified: WebPosSession) {
-        scope.launch {
+    suspend fun refreshCatalog(verified: WebPosSession) {
             busy = true
             error = null
             try {
@@ -126,7 +125,6 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             } finally {
                 busy = false
             }
-        }
     }
 
     when (step) {
@@ -336,13 +334,18 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                         }
                     }
                 },
-                onRefresh = { refreshCatalog(verified) },
+                onRefresh = {
+                    if (!busy) scope.launch { refreshCatalog(verified) }
+                },
                 onBack = { goToStore() }
             )
         }
         "review" -> LiveReviewScreen(
             message = unresolved,
-            onRefresh = { session?.let { refreshCatalog(it) } },
+            onRefresh = {
+                val verified = session
+                if (verified != null && !busy) scope.launch { refreshCatalog(verified) }
+            },
             onBack = { goToStore() }
         )
         "mode" -> HomeModeScreen(
