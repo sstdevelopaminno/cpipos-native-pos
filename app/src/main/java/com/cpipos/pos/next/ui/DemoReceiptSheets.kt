@@ -56,9 +56,15 @@ private val receiptGreen = Color(0xFF208A49)
 private val receiptMoney = DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.US))
 private fun baht(s: Satang): String =
     receiptMoney.format(s.value.toBigDecimal().movePointLeft(2))
-private fun paidDate(time: Long): String =
-    SimpleDateFormat("dd MMM yyyy HH:mm", Locale("th", "TH"))
-        .apply { timeZone = TimeZone.getTimeZone("Asia/Bangkok") }.format(Date(time))
+private fun paidDate(time: Long): String {
+    val tz = TimeZone.getTimeZone("Asia/Bangkok")
+    val y = java.util.GregorianCalendar(tz, Locale.US).apply {
+        timeInMillis = time
+    }.get(java.util.Calendar.YEAR) + 543
+    val day = SimpleDateFormat("d MMM", Locale("th", "TH")).apply { timeZone = tz }.format(Date(time))
+    val clock = SimpleDateFormat("HH:mm", Locale.US).apply { timeZone = tz }.format(Date(time))
+    return "$day $y $clock"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -141,7 +147,6 @@ internal fun SavedDemoReceiptSheet(
                         ReceiptTotalRow("กะ", receipt.shiftLabel ?: receipt.counterCode)
                         ReceiptTotalRow("โหมด", receipt.modeLabel)
                         ReceiptTotalRow("เลขที่บิล", receipt.billNo)
-                        ReceiptTotalRow("สมาชิก", "0 คะแนน / 0 แต้ม")
                         ReceiptTotalRow("วันที่", paidDate(receipt.createdAtMs))
                         ReceiptDashedDivider()
                     }
@@ -238,13 +243,23 @@ private fun ReceiptDashedDivider() {
 
 @Composable
 private fun ReceiptTotalRow(label: String, value: String, bold: Boolean = false) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Text(label, modifier = Modifier.weight(1f),
-            fontWeight = if (bold) FontWeight.ExtraBold else FontWeight.Medium,
-            color = receiptInk, fontSize = 12.sp)
-        Text(value, color = receiptInk,
-            fontWeight = if (bold) FontWeight.ExtraBold else FontWeight.SemiBold,
-            fontSize = if (bold) 15.sp else 12.sp)
+    if (value.length > 22) {
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+            Text(label, color = receiptInk,
+                fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(value, modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.End, color = receiptInk, fontSize = 10.sp,
+                fontWeight = if (bold) FontWeight.ExtraBold else FontWeight.Medium)
+        }
+    } else {
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+            Text(label, modifier = Modifier.weight(1f),
+                fontWeight = if (bold) FontWeight.ExtraBold else FontWeight.Medium,
+                color = receiptInk, fontSize = 12.sp)
+            Text(value, color = receiptInk,
+                fontWeight = if (bold) FontWeight.ExtraBold else FontWeight.SemiBold,
+                fontSize = if (bold) 15.sp else 12.sp)
+        }
     }
 }
 

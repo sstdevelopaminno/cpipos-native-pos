@@ -250,7 +250,7 @@ class WebPosClient(baseUrl: String) {
                 storeAddress = store?.optString("company_address"),
                 storePhone = store?.optString("contact_phone"),
                 cashierName = session.cashierName,
-                shiftLabel = session.shiftId
+                shiftLabel = "open"
             )
         )
     }

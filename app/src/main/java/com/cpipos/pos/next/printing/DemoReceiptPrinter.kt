@@ -203,9 +203,17 @@ object DemoReceiptPrinter {
         y = meta("กะ", receipt.shiftLabel ?: receipt.counterCode, y)
         y = meta("โหมด", receipt.modeLabel, y)
         y = meta("เลขที่บิล", receipt.billNo, y)
-        val date = SimpleDateFormat("dd MMM yyyy HH:mm", Locale("th", "TH")).apply {
-            timeZone = TimeZone.getTimeZone("Asia/Bangkok")
+        val tz = TimeZone.getTimeZone("Asia/Bangkok")
+        val buddhistYear = java.util.GregorianCalendar(tz, Locale.US).apply {
+            timeInMillis = receipt.createdAtMs
+        }.get(java.util.Calendar.YEAR) + 543
+        val thaiDay = SimpleDateFormat("d MMM", Locale("th", "TH")).apply {
+            timeZone = tz
         }.format(Date(receipt.createdAtMs))
+        val clock = SimpleDateFormat("HH:mm", Locale.US).apply {
+            timeZone = tz
+        }.format(Date(receipt.createdAtMs))
+        val date = "$thaiDay $buddhistYear $clock"
         y = meta("วันที่", date, y)
         hr(y)
         y += 14f
