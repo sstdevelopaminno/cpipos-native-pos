@@ -1,7 +1,9 @@
 package com.cpipos.pos.next.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -117,6 +119,7 @@ internal fun MobilePosSalePreview(
     var showScannerNotice by remember { mutableStateOf(false) }
     var showCart by remember { mutableStateOf(false) }
     var showMethods by remember { mutableStateOf(false) }
+    var selectedMethod by remember { mutableStateOf(PreviewPayment.Cash) }
     var payment by remember { mutableStateOf<PreviewPayment?>(null) }
     var cashInput by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf("") }
@@ -350,7 +353,7 @@ internal fun MobilePosSalePreview(
             onCancelBill = { showCancelBillConfirm = true },
             onCheckout = {
                 if (quantity > 0) {
-                    showCart = false
+                    selectedMethod = PreviewPayment.Cash
                     showMethods = true
                 }
             },
@@ -399,26 +402,19 @@ internal fun MobilePosSalePreview(
     }
 
     if (showMethods) {
-        AlertDialog(
-            onDismissRequest = { showMethods = false },
-            title = { Text("เลือกวิธีชำระเงิน", color = saleInk) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("ยอดชำระ ฿" + amount(total), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1C995A))
-                    Text("ทดสอบ UI เท่านั้น ไม่ได้สร้างธุรกรรม", fontSize = 12.sp, color = saleMuted)
-                    Button(
-                        onClick = { showMethods = false; cashInput = ""; payment = PreviewPayment.Cash },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = saleBlue)
-                    ) { Text("เงินสด") }
-                    OutlinedButton(
-                        onClick = { showMethods = false; payment = PreviewPayment.Transfer },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("โอนเงิน") }
+        PreviewPaymentMethodSheet(
+            total = total,
+            selectedMethod = selectedMethod,
+            onSelectMethod = { selectedMethod = it },
+            onDismiss = { showMethods = false },
+            onConfirm = {
+                if (total > 0) {
+                    showMethods = false
+                    showCart = false
+                    cashInput = ""
+                    payment = selectedMethod
                 }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { showMethods = false }) { Text("ยกเลิก") } }
+            }
         )
     }
 
@@ -492,6 +488,213 @@ internal fun MobilePosSalePreview(
         )
     }
 }
+
+/**
+ * Payment selection follows the approved second reference: cart remains visible
+ * beneath a full-width sheet, large two-column tender cards and a prominent CTA.
+ * This remains UI-only; confirming a method opens the existing mock cash/transfer flow.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PreviewPaymentMethodSheet(
+    total: Int,
+    selectedMethod: PreviewPayment,
+    onSelectMethod: (PreviewPayment) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+        containerColor = Color.White,
+        scrimColor = Color(0x990C1B32),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 13.dp, bottom = 7.dp)
+                    .size(width = 42.dp, height = 5.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFAEBED3))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = screenHeight * 0.87f)
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(horizontal = 17.dp)
+                .padding(bottom = 20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 15.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "ชำระเงิน",
+                    modifier = Modifier.weight(1f),
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = saleInk
+                )
+                Box(
+                    modifier = Modifier
+                        .size(43.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE8F2FF))
+                        .clickable(onClick = onDismiss),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("×", fontSize = 29.sp, lineHeight = 30.sp, color = Color(0xFF1C477F))
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(21.dp))
+                    .background(Color(0xFFEEF5FF))
+                    .padding(horizontal = 15.dp, vertical = 20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "ยอดชำระ",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF536783),
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    amount(total) + " บาท",
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF1260DF),
+                    maxLines = 1
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                PaymentMethodTile(
+                    title = "เงินสด",
+                    iconRes = R.drawable.ic_payment_cash,
+                    selected = selectedMethod == PreviewPayment.Cash,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onSelectMethod(PreviewPayment.Cash) }
+                )
+                PaymentMethodTile(
+                    title = "โอนเงิน",
+                    iconRes = R.drawable.ic_payment_transfer,
+                    selected = selectedMethod == PreviewPayment.Transfer,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onSelectMethod(PreviewPayment.Transfer) }
+                )
+            }
+            Spacer(modifier = Modifier.height(15.dp))
+            Button(
+                onClick = onConfirm,
+                enabled = total > 0,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(19.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = saleBlue),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.ic_payment_card),
+                    contentDescription = null,
+                    modifier = Modifier.size(23.dp)
+                )
+                Spacer(modifier = Modifier.width(9.dp))
+                Text("ยืนยันการชำระเงิน", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(19.dp),
+                border = BorderStroke(1.3.dp, Color(0xFFCCDEF8)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1F4E92))
+            ) {
+                Text("ยกเลิก", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                "โหมดทดลอง UI เท่านั้น • ไม่มีการรับเงินจริง",
+                color = saleMuted,
+                fontSize = 10.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PaymentMethodTile(
+    title: String,
+    iconRes: Int,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(19.dp)
+    Box(
+        modifier = modifier
+            .height(148.dp)
+            .clip(shape)
+            .background(if (selected) Color(0xFFEDF5FF) else Color.White)
+            .border(
+                if (selected) 2.dp else 1.dp,
+                if (selected) saleBlue else Color(0xFFDCE8F9),
+                shape
+            )
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(11.dp)
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(if (selected) Color(0xFF176EF1) else Color.White)
+                .border(
+                    if (selected) 0.dp else 2.dp,
+                    if (selected) Color.Transparent else Color(0xFFCADAF1),
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) {
+                Text("✓", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(top = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Image(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                modifier = Modifier.size(69.dp)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                title,
+                fontSize = 21.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = saleInk
+            )
+        }
+    }
+}
+
 
 /**
  * Tap anywhere on a menu card to add one unit; quantity is read-only here.
