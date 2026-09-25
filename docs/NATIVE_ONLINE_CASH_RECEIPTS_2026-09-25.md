@@ -85,3 +85,22 @@ PREVIEW ONLY labels; real receipts do not.
 Validation: GitHub Actions :app:testDebugUnitTest and :app:assembleDebug;
 test physically with registered device and check the same order/payment
 against POS Web. No seeded production sale was created by automated tests.
+
+## 2026-09-25 UI regression correction (same approved login UI)
+
+The first live-integrated APK accidentally replaced the original, centered
+CpIPOS login card with an unrelated vertical live-login layout. Android now
+reuses the exact original `LoginLandingScreen` for both flows: original symbol,
+CpIPOS brand, TH/EN language control, outlined Store Code input and blue action.
+On the same card a clearly labeled **UI test** action opens the already-built
+mode picker / products / cart / payment / receipt directly, with no fake PIN and
+without writing to the production store. Android Back from the test mode picker
+returns to the real login; actual login still requires server-resolved branch,
+registered terminal, authenticated employee and open shift.
+
+Web POS public Store Code resolver accepts numeric customer access codes of
+**six digits**, as well as existing legacy codes. A five-digit numeric test
+value is not a guarantee that a merchant exists: the UI translates the server's
+`store_not_found` (404) into an actionable Thai message rather than displaying
+raw `POS API: store_not_found`. No client-side auto-padding or fake tenant was
+introduced. Confirm the actual merchant Store Code in Web POS before a real test.

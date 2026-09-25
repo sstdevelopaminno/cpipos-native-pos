@@ -1,5 +1,6 @@
 package com.cpipos.pos.next.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -120,7 +121,7 @@ private val previewProducts = listOf(
     PreviewProduct("voucher", R.string.pos_product_service_voucher, R.string.pos_category_promotion, 500, Color(0xFF386641), "V")
 )
 
-private enum class LoginLanguage {
+internal enum class LoginLanguage {
     Thai,
     English
 }
@@ -128,9 +129,16 @@ private enum class LoginLanguage {
 @Composable
 fun MobilePosPreviewScreen(
     isSupabaseConfigured: Boolean,
-    gateway: NativeAuthGateway
+    gateway: NativeAuthGateway,
+    startAtModeSelector: Boolean = false,
+    onReturnToLive: (() -> Unit)? = null
 ) {
-    var step by remember { mutableStateOf(PosPreviewStep.Login) }
+    var step by remember {
+        mutableStateOf(if (startAtModeSelector) PosPreviewStep.Sale else PosPreviewStep.Login)
+    }
+    BackHandler(enabled = startAtModeSelector && step == PosPreviewStep.Sale && onReturnToLive != null) {
+        onReturnToLive?.invoke()
+    }
     var storeCode by remember { mutableStateOf("") }
     var employeePin by remember { mutableStateOf("") }
     var isPinVisible by remember { mutableStateOf(false) }
@@ -258,13 +266,15 @@ fun MobilePosPreviewScreen(
 }
 
 @Composable
-private fun LoginLandingScreen(
+internal fun LoginLandingScreen(
     storeCode: String,
     isSubmitting: Boolean,
     selectedLanguage: LoginLanguage,
     onLanguageSelected: (LoginLanguage) -> Unit,
     onStoreCodeChange: (String) -> Unit,
-    onSubmit: () -> Unit
+    onSubmit: () -> Unit,
+    errorText: String? = null,
+    onPreview: (() -> Unit)? = null
 ) {
     val isThai = selectedLanguage == LoginLanguage.Thai
     val storeCodeLabel = if (isThai) stringResource(R.string.pos_label_store_code_full) else "Store code"
@@ -377,6 +387,34 @@ private fun LoginLandingScreen(
                                 text = if (isSubmitting) checkingText else loginText,
                                 fontWeight = FontWeight.Bold
                             )
+                        }
+                        if (!errorText.isNullOrBlank()) {
+                            Text(
+                                text = errorText,
+                                color = Color(0xFFAE2F38),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 10.dp)
+                            )
+                        }
+                        if (onPreview != null) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedButton(
+                                onClick = onPreview,
+                                enabled = !isSubmitting,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth().height(43.dp),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp, Color(0xFFCDDEF5)
+                                )
+                            ) {
+                                Text(
+                                    if (isThai) "ทดลอง UI ที่พัฒนาแล้ว (ไม่บันทึกยอดจริง)"
+                                    else "Test the UI (no real sales)",
+                                    color = Color(0xFF33639A),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }

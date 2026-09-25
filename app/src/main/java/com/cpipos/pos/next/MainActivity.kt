@@ -31,7 +31,9 @@ class MainActivity : ComponentActivity() {
                     if (demo) {
                         MobilePosPreviewScreen(
                             isSupabaseConfigured = SupabaseClientProvider.isConfigured,
-                            gateway = previewGateway
+                            gateway = previewGateway,
+                            startAtModeSelector = true,
+                            onReturnToLive = { demo = false }
                         )
                     } else {
                         MobilePosLiveScreen(

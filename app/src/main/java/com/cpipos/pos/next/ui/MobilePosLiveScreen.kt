@@ -45,6 +45,7 @@ import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.core.webpos.WebPosProduct
 import com.cpipos.pos.next.core.webpos.WebPosSession
 import com.cpipos.pos.next.core.webpos.WebStore
+import com.cpipos.pos.next.core.webpos.WebPosApiException
 import kotlinx.coroutines.launch
 
 private val liveBlue = Color(0xFF176DED)
@@ -57,6 +58,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient, onPreview: () -> Unit) {
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf("store") }
     var storeCode by remember { mutableStateOf("") }
+    var selectedLanguage by remember { mutableStateOf(LoginLanguage.Thai) }
     var store by remember { mutableStateOf<WebStore?>(null) }
     var branch by remember { mutableStateOf<WebBranch?>(null) }
     var deviceCode by remember { mutableStateOf("") }
@@ -98,6 +100,51 @@ internal fun MobilePosLiveScreen(client: WebPosClient, onPreview: () -> Unit) {
                 step = "shift"
             } finally { busy = false }
         }
+    }
+
+    // Reuse the original approved CpIPOS login composable for live and preview.
+    // Store Code / language toggle / logo stay identical; only behavior differs.
+    if (step == "store") {
+        LoginLandingScreen(
+            storeCode = storeCode,
+            isSubmitting = busy,
+            selectedLanguage = selectedLanguage,
+            onLanguageSelected = { selectedLanguage = it },
+            onStoreCodeChange = { storeCode = it.trimStart().uppercase().take(32); error = null },
+            onSubmit = {
+                scope.launch {
+                    busy = true
+                    error = null
+                    try {
+                        val resolved = client.resolveStore(storeCode.trim())
+                        store = resolved
+                        if (resolved.branches.isEmpty()) {
+                            error = "ร้านนี้ยังไม่มีสาขาที่เปิดใช้งานในระบบจริง"
+                        } else {
+                            branch = null
+                            step = "branch"
+                        }
+                    } catch (e: WebPosApiException) {
+                        error = when (e.code) {
+                            "store_not_found" ->
+                                "ไม่พบรหัสร้านในระบบจริง หากเป็นรหัสตัวเลขลูกค้า กรุณาตรวจสอบให้ครบ 6 หลัก"
+                            "rate_limited" ->
+                                "ตรวจสอบรหัสร้านบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่"
+                            "non_json_response", "missing_data" ->
+                                "เซิร์ฟเวอร์ยังไม่ตอบข้อมูล POS ที่ถูกต้อง กรุณาตรวจสอบการเชื่อมต่อ"
+                            else -> "ตรวจสอบรหัสร้านไม่สำเร็จ: ${e.code} (${e.status})"
+                        }
+                    } catch (e: Exception) {
+                        error = "เชื่อมต่อระบบร้านค้าไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตและลองใหม่"
+                    } finally {
+                        busy = false
+                    }
+                }
+            },
+            errorText = error,
+            onPreview = onPreview
+        )
+        return
     }
 
     if (step == "sale" && session != null) {
@@ -142,34 +189,6 @@ internal fun MobilePosLiveScreen(client: WebPosClient, onPreview: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(11.dp)
                 ) {
                     when(step) {
-                        "store" -> {
-                            Text("เข้าสู่ระบบร้านค้า", fontWeight = FontWeight.Bold, color = liveInk, fontSize = 20.sp)
-                            Text("ใช้รหัสร้านจาก CpIPOS หลังบ้าน", color = Color.Gray, fontSize = 12.sp)
-                            OutlinedTextField(
-                                value = storeCode,
-                                onValueChange = { storeCode = it.uppercase().take(32); error = null },
-                                label = { Text("รหัสร้านค้า (Store Code)") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Button(
-                                enabled = storeCode.length >= 3 && !busy,
-                                onClick = {
-                                    scope.launch {
-                                        busy = true; error = null
-                                        try {
-                                            store = client.resolveStore(storeCode)
-                                            if (store!!.branches.isEmpty()) error = "ร้านค้านี้ยังไม่มีสาขาที่เปิดใช้งาน"
-                                            else step = "branch"
-                                        } catch (e: Exception) {
-                                            error = "ตรวจสอบรหัสร้านไม่สำเร็จ: ${e.message?.take(75)}"
-                                        } finally { busy = false }
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = liveBlue)
-                            ) { Text(if(busy) "กำลังตรวจสอบ..." else "เลือกสาขา") }
-                        }
                         "branch" -> {
                             Text("เลือกสาขา • ${store?.name.orEmpty()}", color = liveInk,
                                 fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -305,12 +324,6 @@ internal fun MobilePosLiveScreen(client: WebPosClient, onPreview: () -> Unit) {
                     }
                     if(error!=null) Text(error.orEmpty(),color=Color(0xFFBA353D),fontSize=12.sp)
                 }
-            }
-            if (step == "store") {
-                OutlinedButton(
-                    onClick = onPreview,
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("เปิด UI โหมดทดลอง (ไม่บันทึกยอดจริง)") }
             }
             Text(
                 "ไม่มีการใช้ PIN จำลอง • ระบบตรวจสิทธิ์ผ่าน POS Web",
