@@ -225,6 +225,7 @@ internal fun MobilePosSalePreview(
                     }
                 }
 
+                Text("พรีวิว UI • ไม่มีการตัดสต๊อกหรือรับเงินจริง", color = saleMuted, fontSize = 11.sp)
                 OutlinedTextField(
                     value = search,
                     onValueChange = { search = it },
