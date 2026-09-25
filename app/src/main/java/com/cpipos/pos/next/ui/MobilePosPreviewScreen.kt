@@ -209,6 +209,7 @@ fun MobilePosPreviewScreen(
         )
 
         PosPreviewStep.Counter -> CounterSelectionScreen(
+            message = message,
             branch = branch,
             counters = previewCounters,
             selectedCounter = counter,
@@ -567,6 +568,7 @@ private fun EmployeePinScreen(
 
 @Composable
 private fun CounterSelectionScreen(
+    message: String,
     branch: PreviewBranch,
     counters: List<PreviewCounter>,
     selectedCounter: PreviewCounter,
@@ -589,6 +591,9 @@ private fun CounterSelectionScreen(
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
+            Text("โหมดทดลอง UI • ไม่ได้เข้าสู่ระบบหรือขายจริง", color = Color(0xFF9A611B), style = MaterialTheme.typography.labelMedium)
+            Text(message, color = Color(0xFF806B54), style = MaterialTheme.typography.labelSmall)
+            Spacer(modifier = Modifier.height(9.dp))
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -1208,12 +1213,8 @@ private fun AppHeader(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             StatusPill(text = stepLabel, color = Color(0xFF1F7A8C), modifier = Modifier.weight(1f))
             StatusPill(
-                text = if (isSupabaseConfigured) {
-                    stringResource(R.string.pos_status_supabase_ready)
-                } else {
-                    stringResource(R.string.pos_status_mock_mode)
-                },
-                color = if (isSupabaseConfigured) Color(0xFF386641) else Color(0xFF7C6A46),
+                text = stringResource(R.string.pos_status_mock_mode),
+                color = Color(0xFF7C6A46),
                 modifier = Modifier.weight(1f)
             )
         }

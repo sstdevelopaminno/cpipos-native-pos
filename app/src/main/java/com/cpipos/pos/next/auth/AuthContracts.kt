@@ -6,10 +6,12 @@ package com.cpipos.pos.next.auth
  * The PIN must never be logged, persisted, returned in analytics, or copied into
  * a long-lived session object.
  */
-data class AuthCredentials(
+class AuthCredentials(
     val storeCode: String,
     val employeePin: String
-)
+) {
+    override fun toString(): String = "AuthCredentials(storeCode=[redacted], employeePin=[redacted])"
+}
 
 data class AuthSessionContext(
     val tenantId: String,

@@ -39,6 +39,10 @@ opens scrcpy. Use `feature/native-auth-phase1`, **not** the default `main`
 handoff branch. The preview is mock-only; trusted production PIN login and actual
 sales/payment/shift writes are not enabled. Vercel is not used to build APKs.
 
+## Next implementation checkpoint
+
+See [Native Phase 2 checkout, outbox and backend gates](docs/NATIVE_PHASE2_IMPLEMENTATION_2026-09-25.md). The debug UI is still mock-only; do not treat a configured Supabase client as an authenticated cashier or completed payment.
+
 ## Safety rules
 
 1. Do not copy the legacy WebView POS runtime into this repository.
