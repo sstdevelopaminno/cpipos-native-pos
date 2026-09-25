@@ -16,6 +16,22 @@ import java.util.UUID
 
 data class WebBranch(val id: String, val name: String, val code: String)
 data class WebStore(val tenantId: String, val name: String, val branches: List<WebBranch>)
+data class WebEmployee(val id: String, val name: String, val code: String)
+data class WebCashierDevice(
+    val id: String,
+    val code: String,
+    val name: String,
+    val counterName: String,
+    val status: String,
+    val currentUserName: String?
+)
+data class WebCashierDevices(
+    val branchId: String,
+    val branchName: String,
+    val employeeName: String,
+    val canOverrideInUse: Boolean,
+    val devices: List<WebCashierDevice>
+)
 data class WebPosProduct(
     val id: String, val name: String, val sku: String, val category: String, val price: Satang
 )
@@ -29,7 +45,7 @@ data class WebPaidBill(val orderId: String, val receipt: DemoSaleReceipt)
 class WebPosApiException(val code: String, val status: Int) : Exception("POS API: $code ($status)")
 
 /**
- * Existing CpIPOS Web backend is the server authority for Store Code+PIN,
+ * Existing CpIPOS Web backend is the server authority for Store Code, employee code,
  * device policy, active shift, server-side product prices, sale/payment RPC,
  * RLS, stock and receipt profile. Android holds only HTTP-only opaque cookies
  * in volatile memory (re-login required after process restart). No service role
@@ -91,40 +107,91 @@ class WebPosClient(baseUrl: String) {
         }
     }
 
-    suspend fun resolveStore(storeCode: String): WebStore {
-        require(storeCode.matches(Regex("[A-Za-z0-9._:-]{3,64}")))
-        val data = call("POST", "/api/pos/auth/store/resolve",
-            JSONObject().put("store_code", storeCode.uppercase()))
+    /**
+     * Canonical browser/POS pre-entry flow. Employee code is verified BEFORE
+     * fetching scoped cashier devices; only device selection issues a POS session.
+     * No native pretend PIN session, no unscoped public device directory.
+     */
+    suspend fun startStoreEntry(storeCode: String): WebStore {
+        require(storeCode.trim().matches(Regex("[A-Za-z0-9._:-]{3,64}")))
+        val data = call("POST", "/api/auth/store-code/verify",
+            JSONObject().put("store_code", storeCode.trim().uppercase()))
         val tenant = data.getJSONObject("tenant")
         val branches = data.optJSONArray("branches") ?: JSONArray()
-        return WebStore(tenant.getString("id"), tenant.optString("name"),
-            (0 until branches.length()).map { idx ->
-                val row = branches.getJSONObject(idx)
-                WebBranch(row.getString("id"), row.optString("name"), row.optString("code"))
-            })
+        return WebStore(
+            tenantId = tenant.optString("id"),
+            name = tenant.optString("name"),
+            branches = (0 until branches.length()).map { i ->
+                val row = branches.getJSONObject(i)
+                WebBranch(
+                    id = row.getString("id"),
+                    name = row.optString("name"),
+                    code = row.optString("code")
+                )
+            }
+        )
     }
 
-    suspend fun verifyPin(
-        storeCode: String, branchId: String, deviceCode: String, pin: String
-    ): WebPosSession {
-        require(pin.matches(Regex("[0-9]{4,12}")))
-        require(deviceCode.matches(Regex("[A-Za-z0-9._:-]{3,64}")))
+    suspend fun selectEntryBranch(branchId: String) {
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
-        val context = call("POST", "/api/pos/auth/store/login-context",
-            JSONObject().put("store_code", storeCode.uppercase())
-                .put("branch_id", branchId)
-                .put("device_code", deviceCode.uppercase()))
-        val ctx = context.getString("login_context_id")
-        val verified = call("POST", "/api/pos/auth/verify",
-            JSONObject().put("method", "pin").put("ctx", ctx).put("pin", pin))
-        val sessionId = verified.getString("session_id")
-        val session = getSession()
-        if (session.id != sessionId || session.branchId != branchId) {
-            throw WebPosApiException("session_scope_mismatch", 403)
+        val data = call("POST", "/api/auth/branches/select",
+            JSONObject().put("branch_id", branchId))
+        require(data.getJSONObject("selected_branch").getString("id") == branchId) {
+            "Backend branch did not match the requested branch"
         }
-        if (session.deviceCode.isBlank() ||
-            session.deviceCode != deviceCode.uppercase()) {
-            throw WebPosApiException("registered_device_mismatch", 403)
+    }
+
+    suspend fun verifyEmployeeCode(employeeCode: String): WebEmployee {
+        // This is the back-office employee code, not a cashier device code.
+        require(employeeCode.matches(Regex("[0-9]{1,32}")))
+        val data = call("POST", "/api/auth/employee/verify-code",
+            JSONObject().put("employee_code", employeeCode))
+        val employee = data.getJSONObject("employee")
+        val id = employee.getString("id")
+        require(runCatching { UUID.fromString(id) }.isSuccess)
+        return WebEmployee(id, employee.optString("name"), employee.optString("code"))
+    }
+
+    suspend fun listEntryDevices(): WebCashierDevices {
+        val data = call("GET", "/api/auth/devices")
+        val branch = data.getJSONObject("branch")
+        val employee = data.getJSONObject("employee")
+        val rows = data.optJSONArray("devices") ?: JSONArray()
+        return WebCashierDevices(
+            branchId = branch.getString("id"),
+            branchName = branch.optString("name"),
+            employeeName = employee.optString("name"),
+            canOverrideInUse = data.optBoolean("can_override_in_use", false),
+            devices = (0 until rows.length()).map { i ->
+                val row = rows.getJSONObject(i)
+                WebCashierDevice(
+                    id = row.getString("deviceId"),
+                    code = row.getString("deviceCode"),
+                    name = row.optString("deviceName"),
+                    counterName = row.optString("counterName"),
+                    status = row.optString("status"),
+                    currentUserName = row.optJSONObject("currentUser")
+                        ?.optString("name")?.takeIf { it.isNotBlank() }
+                )
+            }
+        )
+    }
+
+    suspend fun selectEntryDevice(
+        branchId: String, employeeId: String, selected: WebCashierDevice
+    ): WebPosSession {
+        require(runCatching { UUID.fromString(branchId) }.isSuccess)
+        require(runCatching { UUID.fromString(employeeId) }.isSuccess)
+        require(selected.status == "ready" || selected.status == "in_use") {
+            "Device is not selectable"
+        }
+        val data = call("POST", "/api/auth/devices/select",
+            JSONObject().put("device_code", selected.code))
+        val sessionId = data.getString("session_id")
+        val session = getSession()
+        if (session.id != sessionId || session.branchId != branchId ||
+            session.employeeId != employeeId || session.deviceCode != selected.code) {
+            throw WebPosApiException("selected_device_session_scope_mismatch", 403)
         }
         return session
     }

@@ -37,7 +37,7 @@ The checked-in `scripts/android-device-preview.ps1` builds a debug APK with Grad
 installs the separate `com.cpipos.pos.next.dev` app through ADB and optionally
 opens scrcpy. Use `feature/native-auth-phase1`, **not** the default `main`
 handoff branch. The **live** entry flow now invokes the existing server-verified CpIPOS Web POS
-Store Code/PIN, registered device, active shift, scoped products, order and
+Store Code → branch → verified employee code → cashier selection → active shift, scoped products, order and
 cash-payment APIs. The live flow now uses the previously approved unified CpIPOS UI
 for branch, employee PIN, counter, sale mode and payment. No demo entry is shown.
 Vercel is not used to build APKs. Live writes occur only after a real backend
@@ -48,7 +48,7 @@ can be submitted as real sales.
 
 See [online POS cash/receipt integration, limitations and device prerequisites](docs/NATIVE_ONLINE_CASH_RECEIPTS_2026-09-25.md)
 and [earlier offline/outbox foundation](docs/NATIVE_PHASE2_IMPLEMENTATION_2026-09-25.md).
-Live checkout uses the existing Web cookie session; a Supabase publishable key
+Live checkout uses the existing Web pre-entry employee and device-selection session; a Supabase publishable key
 alone is not a POS login. Merchant and printer smoke tests are still required
 before declaring the native path field-ready.
 

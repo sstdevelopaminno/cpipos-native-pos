@@ -101,7 +101,9 @@ internal fun LiveBranchChoiceScreen(
     selected: WebBranch?,
     onSelect: (WebBranch) -> Unit,
     onNext: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    busy: Boolean = false,
+    error: String? = null
 ) {
     LiveAuthCard {
         Text(
@@ -121,7 +123,7 @@ internal fun LiveBranchChoiceScreen(
                         if (isSelected) Color(0xFF2577FF) else brandBorder,
                         RoundedCornerShape(12.dp)
                     )
-                    .clickable { onSelect(branch) },
+                    .clickable(enabled = !busy) { onSelect(branch) },
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = if (isSelected) Color(0xFFEAF3FF) else Color.White
@@ -148,7 +150,12 @@ internal fun LiveBranchChoiceScreen(
             }
         }
         Spacer(modifier = Modifier.height(7.dp))
-        LiveAction("ถัดไป", enabled = selected != null, onClick = onNext)
+        LiveError(error)
+        LiveAction(
+            if (busy) "กำลังเลือกสาขา..." else "ถัดไป",
+            enabled = selected != null && !busy,
+            onClick = onNext
+        )
         Spacer(modifier = Modifier.height(8.dp))
         LiveBack("กลับหน้าเข้าสู่ระบบ", onClick = onBack)
     }
@@ -157,73 +164,76 @@ internal fun LiveBranchChoiceScreen(
 @Composable
 internal fun LiveEmployeeLoginScreen(
     branchName: String,
-    deviceCode: String,
-    employeePin: String,
-    showPin: Boolean,
+    employeeCode: String,
+    showCode: Boolean,
+    selectedLanguage: LoginLanguage,
     busy: Boolean,
     error: String?,
-    onDeviceCode: (String) -> Unit,
-    onEmployeePin: (String) -> Unit,
-    onTogglePin: () -> Unit,
-    onLogin: () -> Unit,
+    onLanguageSelected: (LoginLanguage) -> Unit,
+    onEmployeeCode: (String) -> Unit,
+    onToggleCode: () -> Unit,
+    onVerify: () -> Unit,
     onBack: () -> Unit
 ) {
     LiveAuthCard {
-        Text(
-            "ยืนยันพนักงาน • $branchName",
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            color = brandInk, style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(7.dp))
-        Text(
-            "ใช้รหัสเครื่อง POS และ PIN ที่ลงทะเบียนไว้ในระบบร้านค้า",
-            modifier = Modifier.fillMaxWidth(),
-            fontSize = 11.sp, lineHeight = 16.sp, color = Color(0xFF718198)
-        )
+            horizontalArrangement = Arrangement.End
+        ) {
+            LanguageToggle(
+                selectedLanguage = selectedLanguage,
+                onLanguageSelected = onLanguageSelected
+            )
+        }
         Spacer(modifier = Modifier.height(13.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_store_front),
+                contentDescription = null, modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(7.dp))
+            Text(
+                text = if (selectedLanguage == LoginLanguage.Thai)
+                    "สาขา: $branchName" else "Branch: $branchName",
+                color = brandInk, fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
         Text(
-            "รหัสเครื่อง POS", modifier = Modifier.fillMaxWidth(),
-            color = brandInk, fontWeight = FontWeight.SemiBold,
+            text = if (selectedLanguage == LoginLanguage.Thai)
+                "รหัสพนักงาน" else "Employee code",
+            modifier = Modifier.fillMaxWidth(),
+            color = brandInk,
+            fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.labelLarge
         )
         Spacer(modifier = Modifier.height(7.dp))
         OutlinedTextField(
-            value = deviceCode, onValueChange = onDeviceCode,
-            placeholder = { Text("รหัสเครื่องที่ลงทะเบียน") },
-            leadingIcon = {
-                Image(
-                    painter = painterResource(R.drawable.ic_pos_terminal),
-                    contentDescription = null,
-                    modifier = Modifier.size(23.dp)
+            value = employeeCode, onValueChange = onEmployeeCode,
+            placeholder = {
+                Text(
+                    if (selectedLanguage == LoginLanguage.Thai)
+                        "รหัสพนักงานที่กำหนดจากระบบหลังบ้าน"
+                    else "Employee code from back office",
+                    fontSize = 13.sp
                 )
             },
-            singleLine = true, enabled = !busy,
-            shape = RoundedCornerShape(12.dp),
-            colors = brandedTextFieldColors(),
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(13.dp))
-        Text(
-            "PIN พนักงาน", modifier = Modifier.fillMaxWidth(),
-            color = brandInk, fontWeight = FontWeight.SemiBold,
-            style = MaterialTheme.typography.labelLarge
-        )
-        Spacer(modifier = Modifier.height(7.dp))
-        OutlinedTextField(
-            value = employeePin, onValueChange = onEmployeePin,
-            placeholder = { Text("กรอก PIN พนักงาน") },
-            singleLine = true, enabled = !busy,
-            visualTransformation = if (showPin) VisualTransformation.None
-                else PasswordVisualTransformation(),
+            singleLine = true,
+            enabled = !busy,
+            visualTransformation = if (showCode)
+                VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             trailingIcon = {
                 Image(
                     painter = painterResource(
-                        if (showPin) R.drawable.ic_eye_off else R.drawable.ic_eye
+                        if (showCode) R.drawable.ic_eye_off else R.drawable.ic_eye
                     ),
-                    contentDescription = "แสดงหรือซ่อน PIN",
-                    modifier = Modifier.size(21.dp).clickable { onTogglePin() }
+                    contentDescription = "แสดงหรือซ่อนรหัสพนักงาน",
+                    modifier = Modifier.size(21.dp).clickable(enabled = !busy) { onToggleCode() }
                 )
             },
             shape = RoundedCornerShape(12.dp),
@@ -231,14 +241,183 @@ internal fun LiveEmployeeLoginScreen(
             modifier = Modifier.fillMaxWidth()
         )
         LiveError(error)
-        Spacer(modifier = Modifier.height(11.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         LiveAction(
-            if (busy) "กำลังตรวจสอบ..." else "เข้าสู่ระบบ",
-            enabled = !busy && employeePin.length in 4..12 && deviceCode.length >= 3,
-            onClick = onLogin
+            if (busy) "กำลังตรวจสอบ..."
+            else if (selectedLanguage == LoginLanguage.Thai) "ยืนยันพนักงาน"
+            else "Verify employee",
+            enabled = !busy && employeeCode.isNotBlank(),
+            onClick = onVerify
         )
         Spacer(modifier = Modifier.height(9.dp))
-        LiveBack("ย้อนกลับเลือกสาขา", onClick = onBack)
+        LiveBack(
+            if (selectedLanguage == LoginLanguage.Thai) "ย้อนกลับ" else "Back",
+            onClick = onBack
+        )
+    }
+}
+
+@Composable
+internal fun LiveDeviceChoiceScreen(
+    branchName: String,
+    employeeName: String,
+    devices: List<com.cpipos.pos.next.core.webpos.WebCashierDevice>,
+    canOverrideInUse: Boolean,
+    selected: com.cpipos.pos.next.core.webpos.WebCashierDevice?,
+    busy: Boolean,
+    error: String?,
+    onSelect: (com.cpipos.pos.next.core.webpos.WebCashierDevice) -> Unit,
+    onOpen: () -> Unit,
+    onBack: () -> Unit
+) {
+    val twoColumns = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 530
+    LiveAuthCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_store_front),
+                contentDescription = null, modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(7.dp))
+            Text("สาขา: $branchName", color = brandInk, fontSize = 13.sp)
+        }
+        Spacer(modifier = Modifier.height(13.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, brandBorder),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "เลือกเครื่องแคชเชียร์",
+                    color = brandInk, fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    "พนักงาน: $employeeName",
+                    color = Color(0xFF667991), fontSize = 11.sp
+                )
+                if (devices.isEmpty()) {
+                    Text(
+                        "สาขานี้ยังไม่มีเครื่องที่ลงทะเบียน กรุณาเพิ่มเครื่องจากระบบหลังบ้าน",
+                        color = Color(0xFFB13F43), fontSize = 12.sp
+                    )
+                }
+                if (twoColumns) {
+                    devices.chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            pair.forEach { device ->
+                                LiveDeviceOption(
+                                    device = device,
+                                    selected = device.id == selected?.id,
+                                    enabled = !busy &&
+                                        (device.status == "ready" ||
+                                            (device.status == "in_use" && canOverrideInUse)),
+                                    onClick = { onSelect(device) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (pair.size == 1) Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                } else {
+                    devices.forEach { device ->
+                        LiveDeviceOption(
+                            device = device,
+                            selected = device.id == selected?.id,
+                            enabled = !busy &&
+                                (device.status == "ready" ||
+                                    (device.status == "in_use" && canOverrideInUse)),
+                            onClick = { onSelect(device) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+        LiveError(error)
+        Spacer(modifier = Modifier.height(9.dp))
+        LiveAction(
+            if (busy) "กำลังเปิดเครื่อง..." else "เปิดเคาน์เตอร์",
+            enabled = !busy && selected != null,
+            onClick = onOpen
+        )
+        Spacer(modifier = Modifier.height(9.dp))
+        LiveBack(onClick = onBack)
+    }
+}
+
+@Composable
+private fun LiveDeviceOption(
+    device: com.cpipos.pos.next.core.webpos.WebCashierDevice,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(12.dp)
+    val statusText = when (device.status) {
+        "ready" -> "พร้อมใช้งาน"
+        "in_use" -> "กำลังใช้งาน"
+        "offline" -> "ออฟไลน์"
+        "disabled" -> "ปิดใช้งาน"
+        else -> "ไม่พร้อมใช้งาน"
+    }
+    Card(
+        modifier = modifier
+            .border(
+                if (selected) 2.dp else 1.dp,
+                if (selected) Color(0xFF2577FF) else brandBorder,
+                shape
+            )
+            .clickable(enabled = enabled, onClick = onClick),
+        shape = shape,
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) Color(0xFFF0F7FF)
+            else if (enabled) Color.White else Color(0xFFF6F7FA)
+        )
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                device.name.ifBlank { device.code },
+                fontWeight = FontWeight.SemiBold, color = brandInk,
+                fontSize = 13.sp, lineHeight = 18.sp
+            )
+            Text(
+                "รหัสเครื่อง " + device.code,
+                fontWeight = FontWeight.Bold, color = brandInk,
+                fontSize = 12.sp
+            )
+            if (device.counterName.isNotBlank() && device.counterName != "-") {
+                Text(device.counterName, fontSize = 11.sp, color = Color(0xFF66809F))
+            }
+            if (!device.currentUserName.isNullOrBlank()) {
+                Text(
+                    "ใช้งานโดย " + device.currentUserName,
+                    fontSize = 11.sp, color = Color(0xFF9E6543)
+                )
+            }
+            Text(
+                statusText,
+                fontSize = 11.sp,
+                color = if (enabled) Color(0xFF16814B) else Color(0xFF986653),
+                modifier = Modifier
+                    .background(
+                        if (enabled) Color(0xFFE8F9EF) else Color(0xFFF8EDEB),
+                        RoundedCornerShape(25.dp)
+                    )
+                    .padding(horizontal = 9.dp, vertical = 5.dp)
+            )
+        }
     }
 }
 

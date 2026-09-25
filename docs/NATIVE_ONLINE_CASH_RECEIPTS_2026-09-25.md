@@ -4,7 +4,7 @@ Date: 2026-09-25
 ## Scope/behavior
 
 Android now starts on the **live** Store Code → actual backend branch selection →
-registered terminal code + employee PIN → verified POS Web cookie session →
+back-office employee code → authorized cashier device selection → verified POS Web cookie session →
 active shift or explicit opening shift → real branch products → takeaway cash sale.
 The separate labeled UI preview remains available from the Store Code screen.
 No demo tenant/branch/product IDs may be used by the live sale path.
@@ -16,7 +16,7 @@ contains NO service_role/secret key. Configurable local.properties key:
 `CPIPOS_WEB_POS_API_URL` (defaults to `https://cp-ipos-web.vercel.app`).
 
 Trusted routes used:
-- POST /api/pos/auth/store/resolve — actual active branch list/rate limiting.
+- POST /api/auth/store-code/verify — actual active branch list/rate limiting.
 - POST /api/pos/auth/store/login-context — checked terminal context/cookie.
 - POST /api/pos/auth/verify — real PIN and branch policy; returns POS session cookie.
 - GET /api/pos/session/current — server-confirmed session, device, permission, shift.
@@ -126,3 +126,30 @@ The public Store Code is still authenticated by the live resolver: an unknown
 identifier is never auto-created or padded into a valid store. Any live cash
 settlement remains the existing Web POS/ CpiPOS-001 server-authoritative
 transaction, with the unresolved-sale journal preventing silent double bills.
+
+## 2026-09-25 canonical main-POS employee / cashier order (owner screenshots)
+
+Correct order is **Store Code → select branch → employee CODE → choose real
+cashier device → authenticate POS session → shift → mode → sale**. The previous
+mobile implementation put the terminal code field BEFORE employee verification
+and reused a low-level /api/pos/auth/verify PIN endpoint, unlike the actual
+Web POS entry UI.
+
+The mobile UI now uses exactly the Web POS existing pre-entry endpoints:
+
+1. POST /api/auth/store-code/verify (sets short-lived pre-entry cookie).
+2. POST /api/auth/branches/select (server validates active tenant/branch).
+3. POST /api/auth/employee/verify-code with `employee_code` (digits, back-office
+   employee identifier, not a machine code; returns verified employee stage).
+4. GET /api/auth/devices (only authorized employee-stage session may retrieve
+   scoped real branch_devices, occupancy and server-derived ready/in_use/offline
+   states). Never invent terminal IDs or query privileged device table from APK.
+5. POST /api/auth/devices/select using the selected `device_code`. The server
+   checks package, device occupancy, role and scope before issuing pos_sessions
+   cookies. Android then calls GET /api/pos/session/current and compares
+   session, employee, branch, device to selections.
+
+No fake PIN, hard-coded POS-COUNTER-01, or "enter terminal code" field in the
+employee login card. It is the real back-office employee CODE shown on the
+original Web POS reference screen, not an unregistered device credential.
+This change does NOT alter production Web/IT/Supabase or deploy Vercel.

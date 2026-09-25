@@ -422,7 +422,7 @@ internal fun LoginLandingScreen(
 }
 
 @Composable
-private fun LanguageToggle(
+internal fun LanguageToggle(
     selectedLanguage: LoginLanguage,
     onLanguageSelected: (LoginLanguage) -> Unit
 ) {
