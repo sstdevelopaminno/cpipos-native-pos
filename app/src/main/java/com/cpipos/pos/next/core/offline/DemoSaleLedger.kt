@@ -29,7 +29,13 @@ data class DemoSaleReceipt(
     val id: String, val billNo: String, val createdAtMs: Long,
     val branchName: String, val counterCode: String, val modeLabel: String,
     val lines: List<DemoReceiptLine>,
-    val total: Satang, val received: Satang, val change: Satang
+    val total: Satang, val received: Satang, val change: Satang,
+    val isDemo: Boolean = true,
+    val storeName: String = "CpIPOS",
+    val storeAddress: String? = null,
+    val storePhone: String? = null,
+    val cashierName: String = "ทดลอง UI",
+    val shiftLabel: String? = null
 )
 
 data class DemoDailyTotal(val billCount: Int, val sales: Satang)

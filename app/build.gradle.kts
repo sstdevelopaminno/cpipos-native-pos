@@ -29,6 +29,13 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        // Public CpIPOS Web API host only. No admin keys are stored in the APK.
+        buildConfigField(
+            "String",
+            "WEB_POS_API_URL",
+            quoted(localProperty("CPIPOS_WEB_POS_API_URL")
+                .ifBlank { "https://cp-ipos-web.vercel.app" })
+        )
         buildConfigField(
             "String",
             "SUPABASE_URL",

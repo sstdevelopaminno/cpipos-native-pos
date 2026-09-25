@@ -78,12 +78,18 @@ import com.cpipos.pos.next.core.offline.DemoSaleReceipt
 import com.cpipos.pos.next.core.offline.DemoReceiptLine
 import com.cpipos.pos.next.core.pos.CashTenderInput
 import com.cpipos.pos.next.core.pos.Satang
+import com.cpipos.pos.next.core.webpos.LiveSaleJournal
+import com.cpipos.pos.next.core.webpos.WebPosClient
+import com.cpipos.pos.next.core.webpos.WebPosProduct
+import com.cpipos.pos.next.core.webpos.WebPosSession
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.Locale
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
 
 /**
  * Reference-inspired Takeaway sales UI. Demo products and all transactions
@@ -98,18 +104,18 @@ private data class DemoMenuItem(
     val id: String,
     val name: String,
     val category: String,
-    val price: Int,
+    val price: Long,
     val marker: String,
     val accent: Color
 )
 
 private val demoMenu = listOf(
-    DemoMenuItem("thai-tea", "ชาไทย", "เครื่องดื่ม", 50, "🧋", Color(0xFFF3A35A)),
-    DemoMenuItem("americano", "อเมริกาโน่", "เครื่องดื่ม", 55, "🥤", Color(0xFF876552)),
-    DemoMenuItem("fried-rice", "ข้าวผัด", "อาหาร", 80, "🍛", Color(0xFFEAAE5D)),
-    DemoMenuItem("basil", "ผัดกะเพรา", "อาหาร", 75, "🍳", Color(0xFF70A868)),
-    DemoMenuItem("water", "น้ำเปล่า", "เครื่องดื่ม", 20, "💧", Color(0xFF80BDF9)),
-    DemoMenuItem("cake", "เค้กช็อกโกแลต", "ของหวาน", 95, "🍰", Color(0xFF9F735F))
+    DemoMenuItem("thai-tea", "ชาไทย", "เครื่องดื่ม", 5000L, "🧋", Color(0xFFF3A35A)),
+    DemoMenuItem("americano", "อเมริกาโน่", "เครื่องดื่ม", 5500L, "🥤", Color(0xFF876552)),
+    DemoMenuItem("fried-rice", "ข้าวผัด", "อาหาร", 8000L, "🍛", Color(0xFFEAAE5D)),
+    DemoMenuItem("basil", "ผัดกะเพรา", "อาหาร", 7500L, "🍳", Color(0xFF70A868)),
+    DemoMenuItem("water", "น้ำเปล่า", "เครื่องดื่ม", 2000L, "💧", Color(0xFF80BDF9)),
+    DemoMenuItem("cake", "เค้กช็อกโกแลต", "ของหวาน", 9500L, "🍰", Color(0xFF9F735F))
 )
 private val saleBlue = Color(0xFF1879F3)
 private val saleInk = Color(0xFF152544)
@@ -123,7 +129,11 @@ internal fun MobilePosSalePreview(
     mode: MockSaleMode,
     branchName: String,
     counterCode: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    liveClient: WebPosClient? = null,
+    liveSession: WebPosSession? = null,
+    liveProducts: List<WebPosProduct>? = null,
+    liveJournal: LiveSaleJournal? = null
 ) {
     val cart = remember { mutableStateMapOf<String, Int>() }
     var category by remember { mutableStateOf("ทั้งหมด") }
@@ -148,13 +158,23 @@ internal fun MobilePosSalePreview(
     var saveError by remember { mutableStateOf<String?>(null) }
 
 
+    val products = if (liveSession != null) {
+        (liveProducts ?: emptyList()).map {
+            DemoMenuItem(
+                id = it.id, name = it.name, category = it.category.ifBlank { "อื่น ๆ" },
+                price = it.price.value, marker = "▣", accent = Color(0xFF79B6EE)
+            )
+        }
+    } else demoMenu
+    val categories = if (liveSession == null) saleCategories
+        else listOf("ทั้งหมด") + products.map { it.category }.distinct()
     val quantity = cart.values.sum()
-    val total = demoMenu.sumOf { it.price * (cart[it.id] ?: 0) }
+    val total = products.sumOf { it.price * (cart[it.id] ?: 0) }
     BackHandler(enabled = !showCart && !showMethods && payment == null && !showScannerNotice && pendingAction == null && !showCancelBillConfirm) {
         onBack()
     }
 
-    val visibleProducts = demoMenu.filter { product ->
+    val visibleProducts = products.filter { product ->
         (category == "ทั้งหมด" || product.category == category) &&
             (search.isBlank() || product.name.contains(search.trim(), ignoreCase = true) || product.id.contains(search.trim(), ignoreCase = true))
     }
@@ -165,6 +185,10 @@ internal fun MobilePosSalePreview(
         if (next <= 0) cart.remove(id) else cart[id] = next
     }
     fun openPreviewSalesHistory() {
+        if (liveSession != null) {
+            notice = "ยอดขายจริงบันทึกใน CpIPOS Web • เปิดหน้ารายงาน/ใบเสร็จใน POS Web"
+            return
+        }
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) { demoLedger.today(branchName, counterCode) }
@@ -175,29 +199,52 @@ internal fun MobilePosSalePreview(
 
     if (payment == PreviewPayment.Cash) {
         CashCheckoutScreen(
-            due = Satang.of(total.toLong() * 100L),
+            due = Satang.of(total),
             cashInput = cashInput,
             saving = saving,
             error = saveError,
             onInputChange = { cashInput = it; saveError = null },
             onCancel = { if (!saving) { payment = null; showCart = true; saveError = null } },
             onConfirm = {
-                if (!saving && quantity > 0 && total > 0 &&
-                    CashTenderInput.isSufficient(cashInput, Satang.of(total.toLong() * 100L))
+                if (!saving && quantity > 0 && total > 0L &&
+                    CashTenderInput.isSufficient(cashInput, Satang.of(total))
                 ) {
                     saving = true
                     saveError = null
-                    val snapshot = demoMenu.mapNotNull { item ->
+                    val snapshot = products.mapNotNull { item ->
                         val count = cart[item.id] ?: 0
                         if (count > 0) DemoReceiptLine(
-                            item.id, item.name, count, Satang.of(item.price.toLong() * 100L)
+                            item.id, item.name, count, Satang.of(item.price)
                         ) else null
                     }
                     val billId = activeBillId
                     val paid = CashTenderInput.money(cashInput)
                     scope.launch {
                         try {
-                            val saved = withContext(Dispatchers.IO) {
+                            val saved = if (
+                                liveSession != null && liveClient != null && liveJournal != null
+                            ) {
+                                withContext(Dispatchers.IO) {
+                                    check(liveJournal.prepare(liveSession, billId)) {
+                                        "บิลนี้เคยส่งแล้ว ตรวจสอบสถานะใน POS Web ก่อน"
+                                    }
+                                }
+                                val paidBill = liveClient.payCash(
+                                    session = liveSession,
+                                    lines = snapshot,
+                                    received = paid,
+                                    saleId = billId,
+                                    onOrderCreated = { orderId ->
+                                        withContext(Dispatchers.IO) {
+                                            liveJournal.orderCreated(liveSession, billId, orderId)
+                                        }
+                                    }
+                                )
+                                withContext(Dispatchers.IO) {
+                                    liveJournal.confirmed(liveSession, billId)
+                                }
+                                paidBill.receipt
+                            } else withContext(Dispatchers.IO) {
                                 demoLedger.saveCash(
                                     branchName = branchName, counterCode = counterCode,
                                     modeLabel = mode.title, lines = snapshot,
@@ -212,9 +259,21 @@ internal fun MobilePosSalePreview(
                             payment = null
                             cashInput = ""
                             receipt = saved
-                            notice = "บันทึกบิลทดลองในเครื่องแล้ว: ${saved.billNo}"
+                            notice = if (saved.isDemo) "บันทึกบิลทดลองในเครื่องแล้ว: ${saved.billNo}" else "บันทึกยอดขายจริงแล้ว: ${saved.billNo}"
                         } catch (error: Exception) {
-                            saveError = "บันทึกไม่สำเร็จ ตะกร้ายังอยู่ครบ: " +
+                            if (liveSession != null && liveJournal != null) {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        if (liveJournal.unresolved(liveSession).any { it.id == billId }) {
+                                            liveJournal.review(liveSession, billId)
+                                        }
+                                    }
+                                }
+                            }
+                            saveError = if (liveSession != null)
+                                "ยังไม่ยืนยันจบบิลจริง ห้ามขายซ้ำจนกว่าจะตรวจสอบบิลใน POS Web: " +
+                                (error.localizedMessage ?: "เครือข่ายขัดข้อง").take(64)
+                            else "บันทึกไม่สำเร็จ ตะกร้ายังอยู่ครบ: " +
                                 (error.localizedMessage ?: "กรุณาลองอีกครั้ง").take(80)
                         } finally {
                             saving = false
@@ -307,10 +366,15 @@ internal fun MobilePosSalePreview(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("พรีวิว UI • ไม่ใช่ยอดขายจริง", color = saleMuted, fontSize = 11.sp)
+                    Text(
+                        if (liveSession == null) "พรีวิว UI • ไม่ใช่ยอดขายจริง"
+                        else "เชื่อมต่อ POS จริง • ${liveSession.cashierName}",
+                        color = if (liveSession == null) saleMuted else Color(0xFF16824D),
+                        fontSize = 11.sp
+                    )
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
-                        "ดูยอดขายทดลอง ›",
+                        if (liveSession == null) "ดูยอดขายทดลอง ›" else "ยอดขายใน POS Web ›",
                         modifier = Modifier.clickable { openPreviewSalesHistory() },
                         color = saleBlue,
                         fontWeight = FontWeight.Bold,
@@ -354,7 +418,7 @@ internal fun MobilePosSalePreview(
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                     contentPadding = PaddingValues(vertical = 2.dp)
                 ) {
-                    items(saleCategories) { group ->
+                    items(categories) { group ->
                         val selected = category == group
                         Box(
                             modifier = Modifier
@@ -430,7 +494,7 @@ internal fun MobilePosSalePreview(
 
     if (showCart) {
         PreviewCartBottomSheet(
-            products = demoMenu,
+            products = products,
             cart = cart,
             quantity = quantity,
             total = total,
@@ -498,7 +562,7 @@ internal fun MobilePosSalePreview(
             onSelectMethod = { selectedMethod = it },
             onDismiss = { showMethods = false; showCart = true },
             onConfirm = {
-                if (total > 0) {
+                if (total > 0L) {
                     showMethods = false
                     showCart = false
                     cashInput = ""
@@ -512,12 +576,12 @@ internal fun MobilePosSalePreview(
     if (payment == PreviewPayment.Transfer) {
         AlertDialog(
             onDismissRequest = { payment = null },
-            title = { Text("โอนเงิน (พรีวิว)", color = saleInk) },
+            title = { Text("โอนเงิน (รอตรวจสอบยอด)", color = saleInk) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("ยอดชำระ ฿" + amount(total), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1C995A))
-                    Text("ยังไม่มี QR รับเงินจริงหรือการตรวจสอบยอดโอนจากธนาคาร", color = saleMuted)
-                    Text("ปุ่มด้านล่างจำลองการจบบิลบนหน้าจอเท่านั้น", fontSize = 12.sp, color = saleMuted)
+                    Text("ยังไม่มีการตรวจสอบยอดโอนจากธนาคารใน Native POS จึงยังไม่สามารถจบบิลด้วยวิธีนี้ได้", color = saleMuted)
+                    Text("เลือกกลับไปตะกร้า หรือเปลี่ยนเป็นเงินสดเพื่อทำรายการต่อ", fontSize = 12.sp, color = saleMuted)
                 }
             },
             confirmButton = { TextButton(onClick = { payment = null; showCart = true }) { Text("กลับตะกร้า") } },
@@ -552,7 +616,7 @@ internal fun MobilePosSalePreview(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PreviewPaymentMethodSheet(
-    total: Int,
+    total: Long,
     selectedMethod: PreviewPayment,
     onSelectMethod: (PreviewPayment) -> Unit,
     onDismiss: () -> Unit,
@@ -654,7 +718,7 @@ private fun PreviewPaymentMethodSheet(
             Spacer(modifier = Modifier.height(15.dp))
             Button(
                 onClick = onConfirm,
-                enabled = total > 0,
+                enabled = total > 0L,
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 shape = RoundedCornerShape(19.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = saleBlue),
@@ -841,7 +905,7 @@ private fun PreviewCartBottomSheet(
     products: List<DemoMenuItem>,
     cart: Map<String, Int>,
     quantity: Int,
-    total: Int,
+    total: Long,
     onDismiss: () -> Unit,
     onAdd: (String) -> Unit,
     onRemove: (String) -> Unit,
@@ -1120,7 +1184,9 @@ private fun CartSecondaryButton(
     }
 }
 
-private fun amount(value: Int): String = String.format(Locale.US, "%,d", value)
+private fun amount(value: Long): String = DecimalFormat("#,##0.##",
+    DecimalFormatSymbols(Locale.US)
+).format(value.toBigDecimal().movePointLeft(2))
 
 @Preview(name = "CpIPOS Takeaway Grid", showBackground = true, widthDp = 390, heightDp = 844, locale = "th")
 @Composable
