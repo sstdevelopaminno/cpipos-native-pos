@@ -13,6 +13,7 @@ This change is a concrete safe foundation, **not a claim that the production cas
 - `NativeSaleOutbox` persists authenticated-session-scoped draft receipts locally
   in SQLite without PINs, JWTs or banking credentials. Duplicate IDs are rejected.
   Claim/confirm/retry/review use scoped compare-and-swap operations.
+- `AuthenticatedCatalogBootstrap` checks a real Supabase Auth user against the verified employee before tenant/branch-scoped SELECTs. Product prices retain exact Postgres numeric text; the session is not enabled until trusted native login exists.
 - `NativeSyncBoundary` validates session expiration and scope and defines a
   server-acknowledged sync contract. There is intentionally no production backend
   implementation or UI invocation while auth and transactional operations are absent.
