@@ -30,6 +30,15 @@ Development builds use a separate application id so they can coexist with the pr
 
 The production application id `com.cpipos.pos` is reserved for the controlled 2.0 production migration and must not be used by development builds.
 
+## VS Code + Android handset preview (Windows)
+
+Start at [Windows VS Code / USB Android setup](docs/WINDOWS_VSCODE_ANDROID_DEVICE.md).
+The checked-in `scripts/android-device-preview.ps1` builds a debug APK with Gradle,
+installs the separate `com.cpipos.pos.next.dev` app through ADB and optionally
+opens scrcpy. Use `feature/native-auth-phase1`, **not** the default `main`
+handoff branch. The preview is mock-only; trusted production PIN login and actual
+sales/payment/shift writes are not enabled. Vercel is not used to build APKs.
+
 ## Safety rules
 
 1. Do not copy the legacy WebView POS runtime into this repository.
