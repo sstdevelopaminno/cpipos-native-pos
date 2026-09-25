@@ -522,7 +522,7 @@ internal fun MobilePosSalePreview(
                 Text("ยกเลิกบิล", color = saleInk, fontWeight = FontWeight.Bold)
             },
             text = {
-                Text("ต้องการยกเลิกบิลจำลองนี้และลบรายการสินค้าในตะกร้าทั้งหมดใช่หรือไม่")
+                Text("ต้องการยกเลิกบิลนี้และลบรายการสินค้าในตะกร้าทั้งหมดใช่หรือไม่")
             },
             confirmButton = {
                 TextButton(
@@ -531,7 +531,7 @@ internal fun MobilePosSalePreview(
                         showCart = false
                         showCancelBillConfirm = false
                         activeBillId = UUID.randomUUID().toString()
-                        notice = "ยกเลิกตะกร้าทดลองแล้ว ไม่ได้บันทึกธุรกรรม"
+                        notice = "ล้างตะกร้าแล้ว ยังไม่ได้สร้างรายการขาย"
                     }
                 ) {
                     Text("ยืนยันยกเลิกบิล", color = Color(0xFFE34D58), fontWeight = FontWeight.Bold)
@@ -559,6 +559,7 @@ internal fun MobilePosSalePreview(
     if (showMethods) {
         PreviewPaymentMethodSheet(
             total = total,
+            isLiveSale = liveSession != null,
             selectedMethod = selectedMethod,
             onSelectMethod = { selectedMethod = it },
             onDismiss = { showMethods = false; showCart = true },
@@ -618,6 +619,7 @@ internal fun MobilePosSalePreview(
 @Composable
 private fun PreviewPaymentMethodSheet(
     total: Long,
+    isLiveSale: Boolean,
     selectedMethod: PreviewPayment,
     onSelectMethod: (PreviewPayment) -> Unit,
     onDismiss: () -> Unit,
@@ -745,7 +747,8 @@ private fun PreviewPaymentMethodSheet(
             }
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                "โหมดทดลอง UI เท่านั้น • ไม่มีการรับเงินจริง",
+                if (isLiveSale) "ชำระเงินสดจะบันทึกยอดหลังระบบร้านค้ายืนยันสำเร็จ"
+                else "ตัวอย่าง UI เท่านั้น • ไม่ใช่ยอดขายจริง",
                 color = saleMuted,
                 fontSize = 10.sp,
                 modifier = Modifier.align(Alignment.CenterHorizontally)
