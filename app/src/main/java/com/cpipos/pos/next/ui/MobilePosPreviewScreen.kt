@@ -230,8 +230,6 @@ fun MobilePosPreviewScreen(
         )
 
         PosPreviewStep.Sale -> HomeModeScreen(
-            branch = branch,
-            counter = counter,
             onSelectMode = { selected ->
                 saleMode = selected
                 step = PosPreviewStep.SaleFlow
@@ -735,7 +733,7 @@ private fun CounterOptionCard(
     }
 }
 @Composable
-private fun BrandedAuthSurface(content: @Composable () -> Unit) {
+internal fun BrandedAuthSurface(content: @Composable () -> Unit) {
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF3F7FE)) {
         Box(
             modifier = Modifier
@@ -756,7 +754,7 @@ private fun BrandedAuthSurface(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun BrandLogoBlock(topPadding: Int = 18) {
+internal fun BrandLogoBlock(topPadding: Int = 18) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -829,13 +827,11 @@ private fun cpiposTextFieldColors() = OutlinedTextFieldDefaults.colors(
 )
 
 @Composable
-private fun HomeModeScreen(
-    branch: PreviewBranch,
-    counter: PreviewCounter,
-    onSelectMode: (MockSaleMode) -> Unit
+internal fun HomeModeScreen(
+    onSelectMode: (MockSaleMode) -> Unit,
+    allowDineIn: Boolean = true,
+    onBack: (() -> Unit)? = null
 ) {
-    // Keep these values in scope for the later real session/navigation hand-off.
-    // The design preview must not create or modify a production POS session.
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFFAFCFF)) {
         Box(modifier = Modifier.fillMaxSize()) {
             HomeBlueWaveBackground(
@@ -852,6 +848,16 @@ private fun HomeModeScreen(
                     .padding(top = 32.dp, bottom = 112.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                if (onBack != null) {
+                    Text(
+                        text = "‹ กลับ",
+                        modifier = Modifier.fillMaxWidth()
+                            .clickable(onClick = onBack)
+                            .padding(vertical = 5.dp),
+                        color = Color(0xFF1F75D6),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 Spacer(modifier = Modifier.height(14.dp))
                 Image(
                     painter = painterResource(R.drawable.cpipos_logo_symbol),
@@ -883,8 +889,10 @@ private fun HomeModeScreen(
                 ModeCard(
                     iconRes = R.drawable.ic_mode_table,
                     title = stringResource(R.string.pos_mode_table),
-                    subtitle = stringResource(R.string.pos_mode_table_subtitle),
-                    onClick = { onSelectMode(MockSaleMode.DineIn) }
+                    subtitle = if (allowDineIn) stringResource(R.string.pos_mode_table_subtitle)
+                    else "รอเชื่อมระบบโต๊ะและบิลจริง",
+                    onClick = { onSelectMode(MockSaleMode.DineIn) },
+                    enabled = allowDineIn
                 )
             }
 
@@ -939,14 +947,15 @@ private fun ModeCard(
     iconRes: Int,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .height(116.dp)
             .shadow(7.dp, RoundedCornerShape(17.dp))
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         shape = RoundedCornerShape(17.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
@@ -1440,7 +1449,7 @@ private object PreviewNativeAuthGateway : NativeAuthGateway {
 @Composable
 private fun MobilePosHomeModePreview() {
     MaterialTheme {
-        HomeModeScreen(previewBranches.first(), previewCounters.first(), onSelectMode = {})
+        HomeModeScreen(onSelectMode = {})
     }
 }
 

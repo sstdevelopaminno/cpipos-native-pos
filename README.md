@@ -38,7 +38,8 @@ installs the separate `com.cpipos.pos.next.dev` app through ADB and optionally
 opens scrcpy. Use `feature/native-auth-phase1`, **not** the default `main`
 handoff branch. The **live** entry flow now invokes the existing server-verified CpIPOS Web POS
 Store Code/PIN, registered device, active shift, scoped products, order and
-cash-payment APIs. A separately labeled UI-only preview remains available.
+cash-payment APIs. The live flow now uses the previously approved unified CpIPOS UI
+for branch, employee PIN, counter, sale mode and payment. No demo entry is shown.
 Vercel is not used to build APKs. Live writes occur only after a real backend
 session/shift and explicit cashier confirmation; no demo tenant or products
 can be submitted as real sales.

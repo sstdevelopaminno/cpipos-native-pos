@@ -6,41 +6,21 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.cpipos.pos.next.auth.GuardedNativeAuthGateway
-import com.cpipos.pos.next.core.supabase.SupabaseClientProvider
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.ui.MobilePosLiveScreen
-import com.cpipos.pos.next.ui.MobilePosPreviewScreen
 
 class MainActivity : ComponentActivity() {
-    private val previewGateway = GuardedNativeAuthGateway()
-    // Only public HTTPS POS API endpoint; server holds administrative database keys.
+    // Android uses the existing public HTTPS POS API; privileged credentials remain server-side.
     private val webPosClient by lazy { WebPosClient(BuildConfig.WEB_POS_API_URL) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            var demo by remember { mutableStateOf(false) }
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    if (demo) {
-                        MobilePosPreviewScreen(
-                            isSupabaseConfigured = SupabaseClientProvider.isConfigured,
-                            gateway = previewGateway,
-                            startAtModeSelector = true,
-                            onReturnToLive = { demo = false }
-                        )
-                    } else {
-                        MobilePosLiveScreen(
-                            client = webPosClient,
-                            onPreview = { demo = true }
-                        )
-                    }
+                    // One UI and one real auth/sales path; no second demo login or demo button.
+                    MobilePosLiveScreen(client = webPosClient)
                 }
             }
         }

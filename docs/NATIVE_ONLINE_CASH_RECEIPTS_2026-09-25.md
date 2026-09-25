@@ -104,3 +104,25 @@ value is not a guarantee that a merchant exists: the UI translates the server's
 `store_not_found` (404) into an actionable Thai message rather than displaying
 raw `POS API: store_not_found`. No client-side auto-padding or fake tenant was
 introduced. Confirm the actual merchant Store Code in Web POS before a real test.
+
+## UI consolidation — owner screenshots, 2026-09-25
+
+The owner rejected the extra "ทดลอง UI" action, generic branch/PIN cards and
+preview labels. Native now has ONE visible customer-facing route on startup:
+original branded Store Code -> live branch selector with the original styling ->
+original-style employee PIN + registered terminal -> active shift ->
+validated terminal -> branded takeaway/dine-in mode chooser -> actual catalog,
+cash checkout and server-acknowledged receipt. Dine-in is visible but disabled
+until actual Table Bill is integrated; it MUST NOT simulate a paid order.
+
+The prior sample merchant branches, demo mode selector, demo receipts and
+isolated preview ledger remain internal source/testing scaffolds and ARE NOT
+exposed by MainActivity. No user-facing demo button, fake login or demo invoice
+is available in the live APK. A live receipt gets isDemo=false ONLY after
+the Web POS pay endpoint confirms the actual order as completed. A false
+PREVIEW label is not stripped from an unverified local transaction.
+
+The public Store Code is still authenticated by the live resolver: an unknown
+identifier is never auto-created or padded into a valid store. Any live cash
+settlement remains the existing Web POS/ CpiPOS-001 server-authoritative
+transaction, with the unresolved-sale journal preventing silent double bills.
