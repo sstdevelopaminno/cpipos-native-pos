@@ -1,5 +1,6 @@
 package com.cpipos.pos.next.core.webpos
 
+import com.cpipos.pos.next.BuildConfig
 import com.cpipos.pos.next.core.offline.DemoReceiptLine
 import com.cpipos.pos.next.core.offline.DemoSaleReceipt
 import com.cpipos.pos.next.core.pos.Satang
@@ -33,7 +34,12 @@ data class WebCashierDevices(
     val devices: List<WebCashierDevice>
 )
 data class WebPosProduct(
-    val id: String, val name: String, val sku: String, val category: String, val price: Satang
+    val id: String,
+    val name: String,
+    val sku: String,
+    val category: String,
+    val price: Satang,
+    val imageUrl: String? = null
 )
 data class WebPosSession(
     val id: String, val tenantId: String, val branchId: String,
@@ -43,6 +49,74 @@ data class WebPosSession(
 )
 data class WebPaidBill(val orderId: String, val receipt: DemoSaleReceipt)
 class WebPosApiException(val code: String, val status: Int) : Exception("POS API: $code ($status)")
+
+internal fun productImageUrlFrom(
+    item: JSONObject,
+    supabaseUrl: String = BuildConfig.SUPABASE_URL
+): String? {
+    directProductImageUrl(item)?.let { return it }
+    return publicProductMediaUrl(productMediaObjectPath(item), supabaseUrl)
+}
+
+internal fun publicProductMediaUrl(objectPath: String?, supabaseUrl: String): String? {
+    val path = objectPath?.trim()?.trimStart('/')?.takeIf { it.isNotBlank() } ?: return null
+    val base = supabaseUrl.trim().trimEnd('/')
+    return if (base.startsWith("https://")) {
+        "$base/storage/v1/object/public/product-media/$path"
+    } else null
+}
+
+private fun directProductImageUrl(item: JSONObject): String? {
+    val directKeys = listOf(
+        "image_url", "imageUrl", "photo_url", "photoUrl",
+        "thumbnail_url", "thumbnailUrl", "display_url", "displayUrl"
+    )
+    directKeys.firstNotNullOfOrNull { item.optHttpsUrl(it) }?.let { return it }
+
+    val nestedKeys = listOf("media", "media_asset", "mediaAsset", "product_media_asset", "productMediaAsset")
+    nestedKeys.mapNotNull { item.optJSONObject(it) }.forEach { media ->
+        directKeys.firstNotNullOfOrNull { media.optHttpsUrl(it) }?.let { return it }
+    }
+
+    val nestedArrays = listOf("media_assets", "mediaAssets", "product_media_assets", "productMediaAssets")
+    nestedArrays.mapNotNull { item.optJSONArray(it) }.forEach { assets ->
+        for (i in 0 until assets.length()) {
+            val media = assets.optJSONObject(i) ?: continue
+            directKeys.firstNotNullOfOrNull { media.optHttpsUrl(it) }?.let { return it }
+        }
+    }
+    return null
+}
+
+private fun productMediaObjectPath(item: JSONObject): String? {
+    val pathKeys = listOf(
+        "thumbnail_object_path", "thumbnailObjectPath",
+        "display_object_path", "displayObjectPath"
+    )
+    pathKeys.firstNotNullOfOrNull { item.optPath(it) }?.let { return it }
+
+    val nestedKeys = listOf("media", "media_asset", "mediaAsset", "product_media_asset", "productMediaAsset")
+    nestedKeys.mapNotNull { item.optJSONObject(it) }.forEach { media ->
+        pathKeys.firstNotNullOfOrNull { media.optPath(it) }?.let { return it }
+    }
+
+    val nestedArrays = listOf("media_assets", "mediaAssets", "product_media_assets", "productMediaAssets")
+    nestedArrays.mapNotNull { item.optJSONArray(it) }.forEach { assets ->
+        for (i in 0 until assets.length()) {
+            val media = assets.optJSONObject(i) ?: continue
+            pathKeys.firstNotNullOfOrNull { media.optPath(it) }?.let { return it }
+        }
+    }
+    return null
+}
+
+private fun JSONObject.optHttpsUrl(key: String): String? =
+    optString(key).trim().takeIf { it.startsWith("https://") }
+
+private fun JSONObject.optPath(key: String): String? =
+    optString(key).trim().takeIf { value ->
+        value.isNotBlank() && !value.startsWith("http://") && !value.startsWith("https://")
+    }
 
 /**
  * Existing CpIPOS Web backend is the server authority for Store Code, employee code,
@@ -221,7 +295,7 @@ class WebPosClient(baseUrl: String) {
             employeeId = user.getString("id"),
             deviceCode = device.getString("code"),
             shiftId = if (shift?.optString("status") == "open")
-                shift.optString("id").takeIf { it?.isNotBlank() == true } else null,
+                shift.optString("id").takeIf { it.isNotBlank() } else null,
             canOpenShift = "shift:open" in values,
             canSell = "sale:create" in values && "sales:enter" in values
         )
@@ -244,8 +318,14 @@ class WebPosClient(baseUrl: String) {
             val item = rows.getJSONObject(i)
             val amount = Satang.fromBaht(item.get("price").toString())
             require(amount >= Satang.ZERO)
-            WebPosProduct(item.getString("id"), item.getString("name"),
-                item.optString("sku"), item.optString("category"), amount)
+            WebPosProduct(
+                id = item.getString("id"),
+                name = item.getString("name"),
+                sku = item.optString("sku"),
+                category = item.optString("category"),
+                price = amount,
+                imageUrl = productImageUrlFrom(item)
+            )
         }
     }
 

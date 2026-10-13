@@ -1,5 +1,7 @@
 package com.cpipos.pos.next.ui
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -49,6 +51,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
@@ -64,6 +67,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -71,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.window.Dialog
 import com.cpipos.pos.next.R
 import com.cpipos.pos.next.core.offline.DemoSaleLedger
@@ -90,6 +96,8 @@ import java.util.UUID
 import java.util.Locale
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Reference-inspired Takeaway sales UI. Demo products and all transactions
@@ -106,7 +114,8 @@ private data class DemoMenuItem(
     val category: String,
     val price: Long,
     val marker: String,
-    val accent: Color
+    val accent: Color,
+    val imageUrl: String? = null
 )
 
 private val demoMenu = listOf(
@@ -160,9 +169,12 @@ internal fun MobilePosSalePreview(
 
     val products = if (liveSession != null) {
         (liveProducts ?: emptyList()).map {
+            val marker = it.name.trim().firstOrNull()?.toString()
+                ?.uppercase(Locale.forLanguageTag("th-TH")) ?: "?"
             DemoMenuItem(
                 id = it.id, name = it.name, category = it.category.ifBlank { "อื่น ๆ" },
-                price = it.price.value, marker = "▣", accent = Color(0xFF79B6EE)
+                price = it.price.value, marker = marker, accent = Color(0xFF79B6EE),
+                imageUrl = it.imageUrl
             )
         }
     } else demoMenu
@@ -849,8 +861,11 @@ private fun DemoProductCard(
                     )),
                 contentAlignment = Alignment.Center
             ) {
-                // Demo illustration until real catalog product photos are connected.
-                Text(product.marker, fontSize = 57.sp)
+                ProductArtwork(
+                    product = product,
+                    markerFontSize = 48.sp,
+                    modifier = Modifier.fillMaxSize()
+                )
                 if (quantity > 0) {
                     Box(
                         modifier = Modifier
@@ -1009,7 +1024,11 @@ private fun PreviewCartBottomSheet(
                                 .background(product.accent.copy(alpha = 0.14f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(product.marker, fontSize = 30.sp)
+                            ProductArtwork(
+                                product = product,
+                                markerFontSize = 24.sp,
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
                         Spacer(modifier = Modifier.width(7.dp))
                         Column(modifier = Modifier.weight(1f)) {
@@ -1185,6 +1204,61 @@ private fun CartSecondaryButton(
             fontSize = 13.sp,
             maxLines = 1
         )
+    }
+}
+
+@Composable
+private fun ProductArtwork(
+    product: DemoMenuItem,
+    markerFontSize: TextUnit,
+    modifier: Modifier = Modifier
+) {
+    val imageUrl = product.imageUrl?.takeIf { it.startsWith("https://") }
+    var bitmap by remember(imageUrl) { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(imageUrl) {
+        bitmap = null
+        if (imageUrl != null) {
+            bitmap = withContext(Dispatchers.IO) { loadProductBitmap(imageUrl) }
+        }
+    }
+
+    val loaded = bitmap
+    if (loaded != null) {
+        Image(
+            bitmap = loaded.asImageBitmap(),
+            contentDescription = product.name,
+            modifier = modifier,
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            Text(
+                product.marker,
+                fontSize = markerFontSize,
+                fontWeight = FontWeight.ExtraBold,
+                color = product.accent
+            )
+        }
+    }
+}
+
+private fun loadProductBitmap(imageUrl: String): Bitmap? {
+    val connection = (URL(imageUrl).openConnection() as HttpURLConnection).apply {
+        instanceFollowRedirects = true
+        connectTimeout = 5000
+        readTimeout = 8000
+        setRequestProperty("Accept", "image/*")
+        setRequestProperty("User-Agent", "CpIPOS-Native-Android/2")
+    }
+    return try {
+        if (connection.responseCode in 200..299) {
+            connection.inputStream.use(BitmapFactory::decodeStream)
+        } else null
+    } catch (_: Exception) {
+        null
+    } finally {
+        connection.disconnect()
     }
 }
 
