@@ -41,6 +41,24 @@ data class WebPosProduct(
     val price: Satang,
     val imageUrl: String? = null
 )
+/**
+ * POS Web keeps product photos in /api/pos/product-media, not in /api/pos/products.
+ * Use only the product IDs from the authenticated, branch-scoped catalog.
+ * Do not need a Supabase key or infer public storage paths in the Android build.
+ */
+internal fun mergeCanonicalProductMedia(
+    products: List<WebPosProduct>, images: JSONObject
+): List<WebPosProduct> = products.map { product ->
+    val image = images.optJSONObject(product.id)
+    val bestUrl = sequenceOf(
+        image?.optString("thumbnail_url"),
+        image?.optString("image_url"),
+        product.imageUrl
+    ).mapNotNull { it?.trim()?.takeIf { url -> url.startsWith("https://") } }
+        .firstOrNull()
+    product.copy(imageUrl = bestUrl)
+}
+
 data class WebPosSession(
     val id: String, val tenantId: String, val branchId: String,
     val branchName: String, val storeName: String, val cashierName: String,
@@ -327,6 +345,18 @@ class WebPosClient(baseUrl: String) {
                 imageUrl = productImageUrlFrom(item)
             )
         }
+    }
+
+    /** Retrieve the canonical image map using the SAME verified POS Web cookie session.
+     * The server scopes assets to the current tenant and branch. Images are optional;
+     * callers should keep the catalog usable on media service failure.
+     */
+    suspend fun productsWithMedia(products: List<WebPosProduct>): List<WebPosProduct> {
+        if (products.isEmpty()) return products
+        val data = call("GET", "/api/pos/product-media")
+        val images = data.optJSONObject("images")
+            ?: throw WebPosApiException("missing_product_media_map", 200)
+        return mergeCanonicalProductMedia(products, images)
     }
 
     /** Online only: server creates scoped idempotent order and separately settles payment.
