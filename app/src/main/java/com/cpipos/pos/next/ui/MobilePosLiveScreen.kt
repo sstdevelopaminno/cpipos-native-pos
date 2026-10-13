@@ -1,5 +1,6 @@
 package com.cpipos.pos.next.ui
 
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +47,7 @@ import com.cpipos.pos.next.core.webpos.WebPosProduct
 import com.cpipos.pos.next.core.webpos.WebPosSession
 import com.cpipos.pos.next.core.webpos.WebStore
 import com.cpipos.pos.next.core.webpos.WebPosApiException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 private val liveBlue = Color(0xFF176DED)
@@ -114,8 +116,29 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                                 "ตรวจสอบการชำระเงินที่ CpIPOS Web ก่อนขายอีกครั้ง"
                             step = "review"
                         } else {
-                            catalog = client.products(current)
+                            val loadedProducts = client.products(current)
+                            catalog = loadedProducts
                             step = "mode"
+                            // Images come from the same authenticated POS Web media API.
+                            // Optional media must never delay cashier entry or a sale.
+                            scope.launch {
+                                try {
+                                    val withImages = client.productsWithMedia(loadedProducts)
+                                    if (session?.id == current.id &&
+                                        session?.branchId == current.branchId &&
+                                        (step == "mode" || step == "sale")
+                                    ) {
+                                        catalog = withImages
+                                    }
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (failure: Exception) {
+                                    Log.w(
+                                        "CpIPOSMedia",
+                                        "Product media unavailable (" + failure.javaClass.simpleName + "); keeping sale catalog"
+                                    )
+                                }
+                            }
                         }
                     }
                 }
