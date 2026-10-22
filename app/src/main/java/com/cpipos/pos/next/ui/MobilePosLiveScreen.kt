@@ -502,7 +502,11 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                         }
                     }
                 ) {
-                    Text(if (hasPending) "ไปตรวจสอบบิล" else "ยืนยันออกจากระบบ")
+                    Text(when {
+                        pendingCount < 0 -> "ปิด"
+                        pendingCount > 0 -> "ไปตรวจสอบบิล"
+                        else -> "ยืนยันออกจากระบบ"
+                    })
                 }
             },
             dismissButton = {
