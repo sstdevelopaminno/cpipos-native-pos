@@ -77,4 +77,32 @@ class WebPosReceiptHistoryTest {
         assertEquals(13000L, receipt.received.value)
         assertEquals(0L, receipt.change.value)
     }
+    @Test
+    fun bankTransferHistoryShowsTransferNotCashInReceipt() {
+        val data = JSONObject(
+            """{
+              "branch":{"id":"branch-1","name":"ถนนเพชรบุรี","store_profile":{}},
+              "records":[{
+                "id":"44444444-4444-4444-4444-444444444444",
+                "orderNo":"TKO-QR-001",
+                "orderType":"takeaway",
+                "status":"completed",
+                "createdAt":"2026-10-22T10:00:00.000Z",
+                "totalAmount":245,
+                "paidTotal":245,
+                "cashReceived":0,
+                "changeAmount":0,
+                "paymentMethods":["bank_transfer"],
+                "items":[]
+              }],
+              "pagination":{"page":1,"page_size":40,"total":1,"total_pages":1}
+            }"""
+        )
+        val receipt = parseHistory(data, session).records.single().receipt
+        assertEquals("bank_transfer", receipt.paymentMethod)
+        assertEquals(24500L, receipt.total.value)
+        assertEquals(24500L, receipt.received.value)
+        assertEquals(0L, receipt.change.value)
+    }
+
 }
