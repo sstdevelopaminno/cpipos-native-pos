@@ -349,7 +349,9 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             val cookies = conn.headerFields.filterKeys { it?.equals("Set-Cookie", true) == true }
             if (cookies.isNotEmpty()) {
                 cookieManager.put(url.toURI(), cookies)
-                secureSessionStore?.save(cookies.values.flatten())
+                // Persistence is best-effort: a locked/unavailable Keystore
+                // must never turn an otherwise successful real payment ambiguous.
+                runCatching { secureSessionStore?.save(cookies.values.flatten()) }
             }
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
             val response = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
