@@ -11,7 +11,7 @@ import java.util.UUID
  * Pairing changes server-side branch_devices metadata. It must be disabled on
  * ordinary preview builds and enabled only for an approved dedicated QA terminal.
  */
-internal data class NativeAndroidPairing(
+data class NativeAndroidPairing(
     val installId: String,
     val appVersion: String
 ) {
