@@ -316,6 +316,12 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                                     "พนักงานไม่ได้รับสิทธิ์ใช้งานเครื่องนี้"
                                 "device_disabled", "device_offline" ->
                                     "เครื่องแคชเชียร์ไม่พร้อมใช้งาน"
+                                "android_install_id_conflict" ->
+                                    "อุปกรณ์ Android นี้ผูกกับเครื่องแคชเชียร์อื่นอยู่แล้ว กรุณาให้ฝ่าย IT ยกเลิกการผูกเดิมก่อน"
+                                "android_pairing_failed", "android_pairing_not_confirmed" ->
+                                    "ยังยืนยันการผูกอุปกรณ์ Android ไม่สำเร็จ กรุณาตรวจสอบกับฝ่าย IT ก่อนเริ่มขาย"
+                                "android_install_id_invalid", "android_pos_required" ->
+                                    "ข้อมูลระบุตัวติดตั้ง Android ไม่ถูกต้อง กรุณาติดตั้งแอปทดสอบใหม่และติดต่อฝ่าย IT"
                                 else ->
                                     "เปิดเครื่องไม่สำเร็จ: ${e.code} (${e.status})"
                             }
