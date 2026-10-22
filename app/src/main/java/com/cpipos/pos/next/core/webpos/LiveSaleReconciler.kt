@@ -278,7 +278,8 @@ class LiveSaleReconciler(
             isDemo = false,
             storeName = session.storeName,
             cashierName = session.cashierName,
-            shiftLabel = null
+            shiftLabel = null,
+            paymentMethod = attempt.paymentMethod
         )
     }
 
