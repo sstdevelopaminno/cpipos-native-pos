@@ -168,7 +168,16 @@ private fun fetchConfiguredQr(rawUrl: String): Bitmap? {
     }
     return try {
         require(conn.responseCode == 200 && conn.contentType.orEmpty().startsWith("image/"))
-        val bytes = conn.inputStream.use { it.readNBytes(900_001) }
+        val bytes = conn.inputStream.use { stream ->
+            val out = java.io.ByteArrayOutputStream()
+            val chunk = ByteArray(8192)
+            while (out.size() <= 900_000) {
+                val count = stream.read(chunk)
+                if (count < 0) break
+                out.write(chunk, 0, count)
+            }
+            out.toByteArray()
+        }
         require(bytes.isNotEmpty() && bytes.size <= 900_000)
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     } finally {
