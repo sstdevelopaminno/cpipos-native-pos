@@ -2,6 +2,7 @@ package com.cpipos.pos.next.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -77,12 +78,12 @@ internal fun TransferQrCheckoutScreen(
             val selected = client.activePaymentAccounts(session).firstOrNull()
                 ?: throw IllegalStateException("ร้านนี้ยังไม่ได้ตั้งค่าบัญชีรับโอนที่ใช้งานอยู่ใน POS")
             account = selected
-            val bitmap = if (selected.qrMode == "qr_image" && selected.qrImageUrl.startsWith("https://")) {
+            val bitmap = if (selected.qrMode == "qr_image" && selected.qrImageUrl.isNotBlank()) {
                 withContext(Dispatchers.IO) { fetchConfiguredQr(selected.qrImageUrl) }
             } else if (selected.promptPayPhone.filter(Char::isDigit).length in 9..15) {
                 val image = client.promptPayQrImage(selected.promptPayPhone, due)
                 withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(image, 0, image.size) }
-            } else if (selected.qrImageUrl.startsWith("https://")) {
+            } else if (selected.qrImageUrl.isNotBlank()) {
                 withContext(Dispatchers.IO) { fetchConfiguredQr(selected.qrImageUrl) }
             } else null
             qrImage = bitmap ?: throw IllegalStateException("บัญชีนี้ยังไม่มี PromptPay หรือรูป QR ที่ใช้ได้")
@@ -158,6 +159,14 @@ internal fun TransferQrCheckoutScreen(
 }
 
 private fun fetchConfiguredQr(rawUrl: String): Bitmap? {
+    if (rawUrl.startsWith("data:image/")) {
+        require(rawUrl.length <= 1_250_000 && Regex(
+            "^data:image/(png|jpeg|jpg|webp);base64,", RegexOption.IGNORE_CASE
+        ).containsMatchIn(rawUrl))
+        val bytes = Base64.decode(rawUrl.substringAfter(','), Base64.DEFAULT)
+        require(bytes.isNotEmpty() && bytes.size <= 900_000)
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }
     val url = URL(rawUrl)
     require(url.protocol == "https" && url.userInfo == null)
     val conn = (url.openConnection() as HttpURLConnection).apply {
