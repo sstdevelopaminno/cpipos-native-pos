@@ -572,7 +572,14 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                     throw WebPosApiException("promptpay_qr_unavailable", status)
                 }
                 val bytes = connection.inputStream.use { stream ->
-                    stream.readNBytes(900_001)
+                    val out = java.io.ByteArrayOutputStream()
+                    val chunk = ByteArray(8192)
+                    while (out.size() <= 900_000) {
+                        val count = stream.read(chunk)
+                        if (count < 0) break
+                        out.write(chunk, 0, count)
+                    }
+                    out.toByteArray()
                 }
                 if (bytes.isEmpty() || bytes.size > 900_000) {
                     throw WebPosApiException("promptpay_qr_invalid_image", 502)
