@@ -78,36 +78,56 @@ internal fun SavedDemoReceiptSheet(
     ModalBottomSheet(
         onDismissRequest = onDone,
         sheetState = state,
-        containerColor = Color(0xFFF7FAFF),
-        shape = RoundedCornerShape(topStart = 27.dp, topEnd = 27.dp)
+        containerColor = Color(0xFFF3F7FE),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth()
                 .heightIn(max = h * .92f)
                 .navigationBarsPadding()
-                .padding(horizontal = 11.dp, vertical = 4.dp)
+                .padding(horizontal = 16.dp, vertical = 9.dp)
         ) {
-            Text(
-                if (receipt.isDemo) "บันทึกบิลทดสอบเรียบร้อย" else "บันทึกยอดขายเรียบร้อย",
-                modifier = Modifier.padding(horizontal = 7.dp),
-                fontSize = 18.sp, fontWeight = FontWeight.ExtraBold,
-                color = receiptGreen
-            )
-            Text(
-                if (receipt.isDemo) "ตะกร้าเคลียร์แล้ว • บันทึกอยู่ในเครื่องนี้เท่านั้น"
-                else "ระบบยืนยันรับเงินแล้ว • บันทึกบิลเข้าระบบร้านค้า",
-                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                fontSize = 10.sp, color = Color(0xFF71829B)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.size(45.dp).background(Color(0xFFE5F8ED), CircleShape),
+                    contentAlignment = Alignment.Center) {
+                    Text("✓", color = receiptGreen, fontSize = 24.sp,
+                        fontWeight = FontWeight.ExtraBold)
+                }
+                Spacer(Modifier.width(11.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(if (receipt.isDemo) "บันทึกบิลทดลองแล้ว" else "ชำระเงินสำเร็จ",
+                        fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = receiptInk)
+                    Text(if (receipt.isDemo) "ข้อมูลบิลทดลองอยู่เฉพาะในเครื่องนี้"
+                        else "บันทึกบิลกับระบบร้านค้าเรียบร้อยแล้ว",
+                        fontSize = 11.sp, color = Color(0xFF72829B))
+                }
+            }
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                color = Color(0xFFEAF5FF), shape = RoundedCornerShape(18.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("ยอดชำระสำเร็จ", fontSize = 12.sp, color = Color(0xFF61758D))
+                    Text("฿" + baht(receipt.total), fontSize = 27.sp,
+                        color = receiptBlue, fontWeight = FontWeight.ExtraBold)
+                    Text(if (receipt.paymentMethod == "bank_transfer") "โอนเงินเข้าบัญชีร้าน"
+                        else "ชำระด้วยเงินสด", fontSize = 12.sp, color = Color(0xFF3E698E))
+                }
+            }
             Surface(
                 modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
-                shape = RoundedCornerShape(13.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = Color.White,
-                border = BorderStroke(1.dp, Color(0xFFDDE5F2))
+                border = BorderStroke(1.dp, Color(0xFFE1E9F5)),
+                shadowElevation = 2.dp
             ) {
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 11.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item {
                         Column(
@@ -181,14 +201,22 @@ internal fun SavedDemoReceiptSheet(
                     }
                     item {
                         ReceiptDashedDivider()
-                        ReceiptTotalRow("การชำระเงิน", "ชำระเงินสด")
+                        ReceiptTotalRow(
+                            "การชำระเงิน",
+                            if (receipt.paymentMethod == "bank_transfer") "เงินโอน" else "เงินสด"
+                        )
                         ReceiptDashedDivider()
                         ReceiptTotalRow("ส่วนลด", "฿0.00")
                         androidx.compose.material3.HorizontalDivider(color = receiptInk)
                         ReceiptTotalRow("ยอดที่ต้องชำระ", "฿" + baht(receipt.total), bold = true)
                         androidx.compose.material3.HorizontalDivider(color = receiptInk)
-                        ReceiptTotalRow("รับเงินจากลูกค้า", "฿" + baht(receipt.received), bold = true)
-                        ReceiptTotalRow("เงินทอน", "฿" + baht(receipt.change), bold = true)
+                        ReceiptTotalRow(
+                            if (receipt.paymentMethod == "bank_transfer") "ยอดรับเงินโอน" else "รับเงินจากลูกค้า",
+                            "฿" + baht(receipt.received), bold = true
+                        )
+                        if (receipt.paymentMethod != "bank_transfer") {
+                            ReceiptTotalRow("เงินทอน", "฿" + baht(receipt.change), bold = true)
+                        }
                         ReceiptDashedDivider()
                         Text(
                             if (receipt.isDemo) "ไม่ใช่ใบเสร็จรับเงินจริง • ไม่ได้บันทึกเข้าระบบร้านค้า"
@@ -207,20 +235,20 @@ internal fun SavedDemoReceiptSheet(
                     }
                 }
             }
-            Spacer(Modifier.height(9.dp))
+            Spacer(Modifier.height(12.dp))
             Button(
                 onClick = onPrint,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = receiptBlue)
             ) {
                 Text("▣  พิมพ์ใบเสร็จ / บันทึก PDF", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
-            Spacer(Modifier.height(5.dp))
+            Spacer(Modifier.height(9.dp))
             OutlinedButton(
                 onClick = onDone,
-                modifier = Modifier.fillMaxWidth().height(45.dp),
-                shape = RoundedCornerShape(14.dp)
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(16.dp)
             ) { Text("เสร็จสิ้น • กลับหน้าขาย", color = receiptInk) }
         }
     }
