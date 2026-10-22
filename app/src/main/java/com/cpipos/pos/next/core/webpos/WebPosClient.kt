@@ -1,5 +1,6 @@
 package com.cpipos.pos.next.core.webpos
 
+import android.content.Context
 import com.cpipos.pos.next.BuildConfig
 import com.cpipos.pos.next.core.offline.DemoReceiptLine
 import com.cpipos.pos.next.core.offline.DemoSaleReceipt
@@ -287,13 +288,26 @@ internal fun parseHistory(
  *
  * The Web cookie session is NOT a Supabase JWT. Never use it against PostgREST.
  */
-class WebPosClient(baseUrl: String) {
+class WebPosClient(baseUrl: String, context: Context? = null) {
     private val base = baseUrl.trimEnd('/').also {
         require(it.startsWith("https://") && !it.contains('@') && !it.contains('?')) {
             "CpIPOS Web endpoint must be HTTPS"
         }
     }
     private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER)
+    private val secureSessionStore = context?.let(::SecurePosSessionCookieStore)
+
+    init {
+        secureSessionStore?.restore()?.let { restored ->
+            cookieManager.put(URL(base).toURI(), mapOf("Set-Cookie" to listOf(restored)))
+        }
+    }
+
+    fun hasStoredPosSession(): Boolean = secureSessionStore?.restore() != null
+    fun clearStoredPosSession() {
+        secureSessionStore?.clear()
+        cookieManager.cookieStore.removeAll()
+    }
 
     private suspend fun call(
         method: String, path: String, json: JSONObject? = null, key: String? = null
@@ -324,7 +338,10 @@ class WebPosClient(baseUrl: String) {
             }
             val status = conn.responseCode
             val cookies = conn.headerFields.filterKeys { it?.equals("Set-Cookie", true) == true }
-            if (cookies.isNotEmpty()) cookieManager.put(url.toURI(), cookies)
+            if (cookies.isNotEmpty()) {
+                cookieManager.put(url.toURI(), cookies)
+                secureSessionStore?.save(cookies.values.flatten())
+            }
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
             val response = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
             val document = runCatching { JSONObject(response) }.getOrElse {
