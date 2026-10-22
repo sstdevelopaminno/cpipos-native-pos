@@ -8,7 +8,9 @@ they do not assert field acceptance.
 - [x] Separate native Android repository / app id / Kotlin Compose UI
 - [x] Gradle wrapper and JDK 17 debug APK CI
 - [x] Windows VS Code + ADB/scrcpy installation script
-- [x] Existing Web POS HTTPS session adapter (no WebView)
+- [x] **Native Android-only mobile UI** in Kotlin/Compose, no WebView/PWA
+- [x] Shared business HTTPS API and **Supabase CpiPOS-001** with Tablet POS
+- [x] Existing HTTPS session adapter (Kotlin, not embedded web browser)
 - [x] Keep Android 1.0.23 independent
 
 ## Authentication, branch and device
