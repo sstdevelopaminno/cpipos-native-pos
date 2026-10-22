@@ -1,5 +1,14 @@
 # CpiPOS Native Android POS 2.0
 
+**100% Native Android mobile POS** developed in Kotlin + Jetpack Compose for
+**CUTTING POINT INNOVATION CO., LTD.** — **NOT** a WebView, embedded website,
+PWA, TWA, or web wrapper. The Android phone and the existing Tablet POS operate
+on the **same underlying business system and Supabase CpiPOS-001 Primary data**.
+Only the user interfaces and device integrations differ.
+
+**Authoritative architecture and no-WebView guardrails:**
+[Native Android 100% / shared database contract](docs/NATIVE_ANDROID_100_PERCENT_ARCHITECTURE.md).
+
 Native Android 2.x development repository for **CUTTING POINT INNOVATION CO., LTD.**
 (บริษัท คัตติ้ง พอยท์ อินโนเวชั่น จำกัด).
 
@@ -18,9 +27,14 @@ blindly.
 - Current visible app: branded Store Code → authenticated branch → numeric
   employee code → registered cashier terminal → live POS session → open shift →
   takeaway product/cart → server-confirmed cash payment/receipt.
-- The Native app uses the **existing HTTPS CpIPOS Web POS backend**
-  `https://cp-ipos-web.vercel.app`, which accesses authoritative Supabase
-  **CpiPOS-001**; it does not require its own Vercel deployment.
+- Every screen is **Android Compose**, with no HTML/WebView. Current Kotlin
+  networking uses **shared HTTPS JSON POS APIs** at
+  `https://cp-ipos-web.vercel.app`; that endpoint is a shared backend, **not
+  a web screen** or a website embedded inside the app.
+- Tablet POS and Native 2.0 share the **same tenant-scoped CpiPOS-001 records**
+  (staff, terminals, products, inventory, shifts, sales, payments and receipts)
+  and central authorization; no additional Supabase project or independent
+  sales ledger is required.
 - Read-only Supabase/Kotlin models and isolated offline SQLite scaffolds remain
   in source, but **a Web POS cookie is not a Supabase JWT**.
 - Neither real offline sale synchronization nor physical printer support has
