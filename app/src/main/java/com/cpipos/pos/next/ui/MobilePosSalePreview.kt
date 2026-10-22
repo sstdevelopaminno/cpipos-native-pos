@@ -143,6 +143,7 @@ internal fun MobilePosSalePreview(
     branchName: String,
     counterCode: String,
     onBack: () -> Unit,
+    onSelectMode: () -> Unit = onBack,
     liveClient: WebPosClient? = null,
     liveSession: WebPosSession? = null,
     liveProducts: List<WebPosProduct>? = null,
@@ -386,6 +387,28 @@ internal fun MobilePosSalePreview(
                         color = saleInk
                     )
                     Spacer(modifier = Modifier.weight(1f))
+                    // Mode chooser uses the same round surface as the cart control.
+                    Box(
+                        modifier = Modifier.size(54.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .shadow(2.dp, CircleShape)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .clickable(onClickLabel = "เลือกโหมด") { onSelectMode() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_nav_select_mode),
+                                contentDescription = "เลือกโหมด",
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
                     // Badge is outside the clipped button so it cannot be cut off.
                     Box(
                         modifier = Modifier.size(54.dp),
@@ -431,6 +454,12 @@ internal fun MobilePosSalePreview(
                     }
                 }
 
+                // Render transient action feedback in the normal top layout, not
+                // as a floating label across the product pictures or bottom nav.
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
@@ -533,14 +562,6 @@ internal fun MobilePosSalePreview(
             }
 
             HomeBottomMenu(modifier = Modifier.align(Alignment.BottomCenter))
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp)
-                    .padding(bottom = 104.dp)
-            )
         }
     }
     if (showScannerNotice) {
