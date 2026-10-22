@@ -75,7 +75,7 @@ internal fun TransferQrCheckoutScreen(
         verified = false
         try {
             val selected = client.activePaymentAccounts(session).firstOrNull()
-                ?: error("ร้านนี้ยังไม่ได้ตั้งค่าบัญชีรับโอนที่ใช้งานอยู่ใน POS")
+                ?: throw IllegalStateException("ร้านนี้ยังไม่ได้ตั้งค่าบัญชีรับโอนที่ใช้งานอยู่ใน POS")
             account = selected
             val bitmap = if (selected.qrMode == "qr_image" && selected.qrImageUrl.startsWith("https://")) {
                 withContext(Dispatchers.IO) { fetchConfiguredQr(selected.qrImageUrl) }
@@ -85,7 +85,7 @@ internal fun TransferQrCheckoutScreen(
             } else if (selected.qrImageUrl.startsWith("https://")) {
                 withContext(Dispatchers.IO) { fetchConfiguredQr(selected.qrImageUrl) }
             } else null
-            qrImage = bitmap ?: error("บัญชีนี้ยังไม่มี PromptPay หรือรูป QR ที่ใช้ได้")
+            qrImage = bitmap ?: throw IllegalStateException("บัญชีนี้ยังไม่มี PromptPay หรือรูป QR ที่ใช้ได้")
         } catch (failure: Exception) {
             qrError = "ไม่สามารถแสดง QR ได้: " + (failure.message ?: "โปรดตรวจสอบการตั้งค่ารับชำระ").take(100)
         } finally {
@@ -93,7 +93,7 @@ internal fun TransferQrCheckoutScreen(
         }
     }
 
-    BackHandler(enabled = saving) { /* never interrupt an in-flight real payment */ }
+    BackHandler(enabled = true) { if (!saving) onCancel() }
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 26.dp)) {
             Column(
