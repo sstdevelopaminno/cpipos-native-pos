@@ -830,7 +830,7 @@ private fun cpiposTextFieldColors() = OutlinedTextFieldDefaults.colors(
 internal fun HomeModeScreen(
     onSelectMode: (MockSaleMode) -> Unit,
     allowDineIn: Boolean = true,
-    onBack: (() -> Unit)? = null
+    onLogout: (() -> Unit)? = null
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFFAFCFF)) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -848,17 +848,36 @@ internal fun HomeModeScreen(
                     .padding(top = 32.dp, bottom = 112.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (onBack != null) {
-                    Text(
-                        text = "‹ กลับ",
-                        modifier = Modifier.fillMaxWidth()
-                            .clickable(onClick = onBack)
-                            .padding(vertical = 5.dp),
-                        color = Color(0xFF1F75D6),
-                        fontWeight = FontWeight.Bold
-                    )
+                if (onLogout != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.cpipos_logo_symbol),
+                            contentDescription = null,
+                            modifier = Modifier.size(30.dp)
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        Text("CpIPOS", color = Color(0xFF152544), fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                        Box(
+                            modifier = Modifier.size(46.dp)
+                                .shadow(2.dp, CircleShape).clip(CircleShape)
+                                .background(Color.White)
+                                .clickable(onClickLabel = "ออกจากระบบ") { onLogout() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_nav_logout),
+                                contentDescription = "ออกจากระบบ",
+                                modifier = Modifier.size(25.dp)
+                            )
+                        }
+                    }
+                } else {
+                    Spacer(modifier = Modifier.height(14.dp))
                 }
-                Spacer(modifier = Modifier.height(14.dp))
                 Image(
                     painter = painterResource(R.drawable.cpipos_logo_symbol),
                     contentDescription = stringResource(R.string.pos_logo_content_description),
