@@ -248,11 +248,14 @@ object DemoReceiptPrinter {
         y += 6f
         c.drawLine(10f, y, 217f, y, regular)
         y += 16f
-        txt("รับเงินจากลูกค้า", 10f, y, bold)
+        txt(if (receipt.paymentMethod == "bank_transfer") "ยอดรับเงินโอน" else "รับเงินจากลูกค้า", 10f, y, bold)
         right("฿" + baht(receipt.received), y, bold)
         y += 16f
-        txt("เงินทอน", 10f, y, bold)
-        right("฿" + baht(receipt.change), y, bold)
+        if (receipt.paymentMethod != "bank_transfer") {
+            txt("เงินทอน", 10f, y, bold)
+            right("฿" + baht(receipt.change), y, bold)
+            y += 16f
+        }
         y += 9f
         hr(y)
         y += 16f
