@@ -145,7 +145,10 @@ private fun JSONObject.optPath(key: String): String? =
  *
  * The Web cookie session is NOT a Supabase JWT. Never use it against PostgREST.
  */
-class WebPosClient(baseUrl: String) {
+class WebPosClient(
+    baseUrl: String,
+    private val androidPairing: NativeAndroidPairing? = null
+) {
     private val base = baseUrl.trimEnd('/').also {
         require(it.startsWith("https://") && !it.contains('@') && !it.contains('?')) {
             "CpIPOS Web endpoint must be HTTPS"
@@ -154,7 +157,8 @@ class WebPosClient(baseUrl: String) {
     private val cookieManager = CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER)
 
     private suspend fun call(
-        method: String, path: String, json: JSONObject? = null, key: String? = null
+        method: String, path: String, json: JSONObject? = null, key: String? = null,
+        requireAndroidPairing: Boolean = false
     ): JSONObject = withContext(Dispatchers.IO) {
         require(path.startsWith("/") && !path.startsWith("//"))
         val url = URL(base + path)
@@ -166,6 +170,10 @@ class WebPosClient(baseUrl: String) {
             conn.requestMethod = method
             conn.setRequestProperty("Accept", "application/json")
             conn.setRequestProperty("User-Agent", "CpIPOS-Native-Android/2")
+            if (requireAndroidPairing) {
+                check(androidPairing != null) { "Native pairing details required" }
+                conn.setRequestProperty("x-cpipos-android-pos", "true")
+            }
             cookieManager.get(url.toURI(), emptyMap()).forEach { (header, values) ->
                 if (header.equals("Cookie", ignoreCase = true)) {
                     conn.setRequestProperty("Cookie", values.joinToString("; "))
@@ -192,6 +200,13 @@ class WebPosClient(baseUrl: String) {
                 val code = document.optJSONObject("error")?.optString("code")
                     ?.takeIf { it.isNotBlank() } ?: "http_$status"
                 throw WebPosApiException(code, status)
+            }
+            // The backend creates a POS session before updating MDM metadata.
+            // Do not proceed to sales unless it confirms the optional QA pairing.
+            if (requireAndroidPairing && !androidPairingWasConfirmed(
+                    conn.getHeaderField("x-cpipos-android-pairing")
+                )) {
+                throw WebPosApiException("android_pairing_not_confirmed", 409)
             }
             document.optJSONObject("data") ?: throw WebPosApiException("missing_data", status)
         } finally {
@@ -278,7 +293,8 @@ class WebPosClient(baseUrl: String) {
             "Device is not selectable"
         }
         val data = call("POST", "/api/auth/devices/select",
-            JSONObject().put("device_code", selected.code))
+            deviceSelectionBody(selected.code, androidPairing),
+            requireAndroidPairing = androidPairing != null)
         val sessionId = data.getString("session_id")
         val session = getSession()
         if (session.id != sessionId || session.branchId != branchId ||
