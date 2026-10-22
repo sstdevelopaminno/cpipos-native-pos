@@ -12,7 +12,7 @@ import com.cpipos.pos.next.ui.MobilePosLiveScreen
 
 class MainActivity : ComponentActivity() {
     // Android uses the existing public HTTPS POS API; privileged credentials remain server-side.
-    private val webPosClient by lazy { WebPosClient(BuildConfig.WEB_POS_API_URL) }
+    private val webPosClient by lazy { WebPosClient(BuildConfig.WEB_POS_API_URL, applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
