@@ -145,15 +145,28 @@ class LiveSaleReconciler(
         }
 
         return try {
-            val paid = client.payExistingCash(
-                session = session,
-                orderId = serverSnapshot.id,
-                orderNo = serverSnapshot.orderNo,
-                lines = lines,
-                received = received,
-                saleId = attempt.id,
-                expectedTotal = expectedTotal
-            )
+            // The bank-transfer journal is prepared ONLY after a cashier explicitly
+            // confirms checking funds. Reconcile reuses the same sale/payment IDs.
+            val paid = if (attempt.paymentMethod == "bank_transfer") {
+                client.payExistingTransfer(
+                    session = session,
+                    orderId = serverSnapshot.id,
+                    orderNo = serverSnapshot.orderNo,
+                    lines = lines,
+                    saleId = attempt.id,
+                    expectedTotal = expectedTotal
+                )
+            } else {
+                client.payExistingCash(
+                    session = session,
+                    orderId = serverSnapshot.id,
+                    orderNo = serverSnapshot.orderNo,
+                    lines = lines,
+                    received = received,
+                    saleId = attempt.id,
+                    expectedTotal = expectedTotal
+                )
+            }
             OneResult.Confirmed(serverSnapshot.orderNo, paid.receipt)
         } catch (e: WebPosApiException) {
             if (e.code == "order_already_paid") {
