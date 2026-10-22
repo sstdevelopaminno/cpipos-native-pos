@@ -39,6 +39,15 @@ data class WebCashierDevices(
     val canOverrideInUse: Boolean,
     val devices: List<WebCashierDevice>
 )
+data class WebPaymentAccount(
+    val id: String,
+    val bankName: String,
+    val accountName: String,
+    val accountNumber: String,
+    val promptPayPhone: String,
+    val qrImageUrl: String,
+    val qrMode: String
+)
 data class WebPosProduct(
     val id: String,
     val name: String,
@@ -506,6 +515,74 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         }
     }
 
+    /**
+     * Read-only cashier view of the SAME active payment account configured in
+     * tablet POS settings. The server scopes tenant/branch and role.
+     */
+    suspend fun activePaymentAccounts(session: WebPosSession): List<WebPaymentAccount> {
+        requireSameLiveSession(session)
+        val rows = call("GET", "/api/pos/payments/native-accounts")
+            .optJSONArray("accounts") ?: JSONArray()
+        return (0 until rows.length()).map { i ->
+            val row = rows.getJSONObject(i)
+            WebPaymentAccount(
+                id = row.getString("id"),
+                bankName = row.optString("bank_name"),
+                accountName = row.optString("account_name"),
+                accountNumber = row.optString("account_number"),
+                promptPayPhone = row.optString("promptpay_phone"),
+                qrImageUrl = row.optString("qr_image_url"),
+                qrMode = row.optString("qr_mode")
+            )
+        }
+    }
+
+    /**
+     * Use the server's authenticated PromptPay QR proxy, NOT untrusted web
+     * content or a third-party direct request containing merchant data.
+     * The QR is display-only until cashier explicitly confirms funds received.
+     */
+    suspend fun promptPayQrImage(phone: String, amount: Satang): ByteArray =
+        withContext(Dispatchers.IO) {
+            val digits = phone.filter(Char::isDigit)
+            require(digits.length in 9..15 && amount > Satang.ZERO)
+            val url = URL(base + "/api/pos/promptpay-qr-proxy")
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 8000
+                readTimeout = 12000
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Accept", "image/png,image/webp,image/jpeg")
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            }
+            try {
+                cookieManager.get(url.toURI(), emptyMap()).forEach { (header, values) ->
+                    if (header.equals("Cookie", ignoreCase = true)) {
+                        connection.setRequestProperty("Cookie", values.joinToString("; "))
+                    }
+                }
+                val path = "/$digits/${amount.bahtText()}"
+                connection.outputStream.use {
+                    it.write(JSONObject().put("path", path).toString().toByteArray(Charsets.UTF_8))
+                }
+                val status = connection.responseCode
+                val contentType = connection.contentType.orEmpty().lowercase()
+                if (status !in 200..299 || !contentType.startsWith("image/")) {
+                    throw WebPosApiException("promptpay_qr_unavailable", status)
+                }
+                val bytes = connection.inputStream.use { stream ->
+                    stream.readNBytes(900_001)
+                }
+                if (bytes.isEmpty() || bytes.size > 900_000) {
+                    throw WebPosApiException("promptpay_qr_invalid_image", 502)
+                }
+                bytes
+            } finally {
+                connection.disconnect()
+            }
+        }
+
     /** Retrieve the canonical image map using the SAME verified POS Web cookie session.
      * The server scopes assets to the current tenant and branch. Images are optional;
      * callers should keep the catalog usable on media service failure.
@@ -749,6 +826,64 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 shiftLabel = "open"
             )
         )
+    }
+
+    /**
+     * Confirm a manually verified bank transfer against the pre-created order.
+     * Never call this merely because a QR was displayed or scanned.
+     */
+    suspend fun payExistingTransfer(
+        session: WebPosSession,
+        orderId: String,
+        orderNo: String,
+        lines: List<DemoReceiptLine>,
+        saleId: String,
+        expectedTotal: Satang
+    ): WebPaidBill {
+        require(UUID.fromString(orderId).toString() == orderId)
+        require(UUID.fromString(saleId).toString() == saleId)
+        require(expectedTotal > Satang.ZERO && lines.isNotEmpty())
+        requireSameLiveSession(session)
+        val paid = call(
+            "POST",
+            "/api/pos/orders/$orderId/pay",
+            JSONObject().put("method", "bank_transfer")
+                .put("amount", BigDecimal(expectedTotal.bahtText())),
+            key = UUID.nameUUIDFromBytes(("native-pay:$saleId").toByteArray()).toString()
+        )
+        val order = paid.getJSONObject("order")
+        if (order.getString("id") != orderId || order.optString("status") != "completed") {
+            throw WebPosApiException("server_transfer_not_confirmed", 409)
+        }
+        val preview = paid.optJSONObject("receipt_preview")
+        val actualTotal = Satang.fromBaht(
+            preview?.opt("total")?.toString()?.takeIf { it != "null" }
+                ?: expectedTotal.bahtText()
+        )
+        if (actualTotal != expectedTotal) {
+            throw WebPosApiException("transfer_total_mismatch_review", 409)
+        }
+        val store = preview?.optJSONObject("store_profile")
+        val receipt = DemoSaleReceipt(
+            id = orderId,
+            billNo = order.optString("order_no").ifBlank { orderNo },
+            createdAtMs = System.currentTimeMillis(),
+            branchName = session.branchName,
+            counterCode = session.deviceCode,
+            modeLabel = "กลับบ้าน",
+            lines = lines.toList(),
+            total = expectedTotal,
+            received = expectedTotal,
+            change = Satang.ZERO,
+            isDemo = false,
+            storeName = store?.optString("display_name")?.takeIf { it.isNotBlank() }
+                ?: session.storeName,
+            storeAddress = store?.optString("company_address")?.takeIf { it.isNotBlank() },
+            storePhone = store?.optString("contact_phone")?.takeIf { it.isNotBlank() },
+            cashierName = session.cashierName,
+            shiftLabel = "open"
+        )
+        return WebPaidBill(orderId, receipt)
     }
 
     /**
