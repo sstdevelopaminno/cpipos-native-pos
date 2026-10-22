@@ -54,21 +54,26 @@ PrintManager print/PDF path. No direct database access is performed by the APK.
 If the tenant/package/role does not authorize receipt history, the Native app
 shows the server denial and does not bypass feature or permission checks.
 
-## Web POS compatibility PR
+## Web POS Production compatibility
 
-CpIPOS Web PR #345 adds:
+CpIPOS Web PR #345 passed typecheck, lint, tests, schema-drift checks and
+backoffice build, then was squash-merged to `main` as
+`6be1182be0e3cf4e9c88521efdc08c7ecf48e255`.
+
+Vercel Production deployment `dpl_2oXsfdP7SrfM9kvPaajnAjJ32xYy` reached
+`READY`; the production `/api/system/build-info` endpoint reported the exact
+same commit. Runtime error scan after deployment was clean.
+
+Production therefore now has:
 - scoped read-only `/api/pos/orders/{orderId}/status` for recovery;
 - persistence of `cash_received`, `change_amount`,
   `payment_completed_at`, and `payment_completed_by`;
 - real cash/change fields in the immediate receipt response;
 - contract tests.
 
-No database schema migration is required because these order columns already
-exist and are already read by the receipt-history API.
-
-Until PR #345 is merged/deployed, Native keeps compatibility fallbacks. The
-new endpoint must not be assumed available in Production merely because Native
-CI succeeds.
+No database schema migration was required because these order columns already
+existed and were already read by the receipt-history API. Native retains
+compatibility fallbacks for older/non-production deployments.
 
 ## Acceptance checks on a registered phone
 

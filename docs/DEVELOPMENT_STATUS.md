@@ -20,15 +20,20 @@ Active development branch: `feature/native-auth-phase1`.
 
 ## Web compatibility work
 
-CpIPOS Web PR #345 was created for Native recovery:
+CpIPOS Web PR #345 was reviewed, passed CI and was merged as
+`6be1182be0e3cf4e9c88521efdc08c7ecf48e255`. Vercel Production deployment
+`dpl_2oXsfdP7SrfM9kvPaajnAjJ32xYy` is READY and
+`/api/system/build-info` reports that exact commit.
+
+Production now provides:
 
 - read-only tenant/branch-scoped `GET /api/pos/orders/{orderId}/status`;
-- persists `cash_received`, `change_amount`, payment completion time/user;
-- returns real cash/change in immediate receipt data;
-- no schema migration.
+- persisted `cash_received`, `change_amount`, payment completion time/user;
+- real cash/change fields in immediate receipt data;
+- no database schema migration.
 
-Native includes compatibility fallbacks until that PR is actually merged and
-deployed. Do not infer Production deployment from Native CI.
+Native keeps compatibility fallbacks for older deployments/dev environments,
+but Production no longer depends on those fallbacks for the recovery endpoint.
 
 ## Still incomplete
 
