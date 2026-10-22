@@ -146,7 +146,7 @@ class NativeSaleOutbox(context: Context) : SQLiteOpenHelper(
         db.execSQL("""UPDATE native_sales SET
              state=?, last_error=?, updated_at_ms=?, attempts=attempts+1
              WHERE id=? AND tenant_id=? AND branch_id=? AND state=?""",
-            arrayOf(values.getAsString("state"), values.getAsString("last_error"),
+            arrayOf<Any?>(values.getAsString("state"), values.getAsString("last_error"),
                 values.getAsLong("updated_at_ms"), saleId, tenantId, branchId, OutboxState.IN_FLIGHT.name))
         return android.database.DatabaseUtils.longForQuery(db,
             "SELECT changes()", null) == 1L
