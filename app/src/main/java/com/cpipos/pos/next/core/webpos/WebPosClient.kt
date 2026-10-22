@@ -266,7 +266,8 @@ internal fun parseHistory(
             storePhone = phone,
             cashierName = row.optString("cashierName").takeIf { it.isNotBlank() && it != "-" }
                 ?: session.cashierName,
-            shiftLabel = null
+            shiftLabel = null,
+            paymentMethod = if (methods.contains("bank_transfer")) "bank_transfer" else "cash"
         )
         WebReceiptHistoryRecord(
             orderId = id,
@@ -720,7 +721,12 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 storePhone = store?.optString("contact_phone")?.takeIf { it.isNotBlank() },
                 cashierName = data.optString("cashier_name").takeIf { it.isNotBlank() && it != "-" }
                     ?: session.cashierName,
-                shiftLabel = null
+                shiftLabel = null,
+                paymentMethod = if ((data.optJSONArray("payments") ?: JSONArray()).let { rows ->
+                    (0 until rows.length()).any { i ->
+                        rows.optJSONObject(i)?.optString("method") == "bank_transfer"
+                    }
+                }) "bank_transfer" else "cash"
             )
         } else null
         return WebOrderRecovery(snapshot, receipt)
@@ -890,7 +896,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             storeAddress = store?.optString("company_address")?.takeIf { it.isNotBlank() },
             storePhone = store?.optString("contact_phone")?.takeIf { it.isNotBlank() },
             cashierName = session.cashierName,
-            shiftLabel = "open"
+            shiftLabel = "open",
+            paymentMethod = "bank_transfer"
         )
         return WebPaidBill(orderId, receipt)
     }
