@@ -1074,7 +1074,6 @@ internal fun HomeBottomMenu(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color.White)
             .navigationBarsPadding()
             .height(104.dp),
         contentAlignment = Alignment.BottomCenter
