@@ -234,7 +234,7 @@ object DemoReceiptPrinter {
         hr(y)
         y += 15f
         txt("การชำระเงิน", 10f, y, bold)
-        right("ชำระเงินสด", y, bold)
+        right(if (receipt.paymentMethod == "bank_transfer") "เงินโอน" else "ชำระเงินสด", y, bold)
         y += 15f
         hr(y)
         y += 13f
