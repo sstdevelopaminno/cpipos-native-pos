@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -844,8 +845,9 @@ internal fun HomeModeScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .statusBarsPadding()
                     .padding(horizontal = 18.dp)
-                    .padding(top = 32.dp, bottom = 112.dp),
+                    .padding(top = 10.dp, bottom = 112.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 if (onLogout != null) {
