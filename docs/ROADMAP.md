@@ -16,30 +16,30 @@
 - [x] Tenant and branch read model
 - [x] Package/feature entitlement read model
 - [x] Product read model
-- [ ] Trusted authentication RPC/Edge Function contract
-- [ ] Authenticated session model
-- [ ] Device registration/read-only health contract
+- [x] Trusted server authentication contract via existing CpIPOS Web POS session APIs
+- [x] Authenticated tenant/branch/employee/device/session model
+- [x] Registered device selection/status contract
 
-No sale/payment/stock mutations are enabled in this phase.
+Production mutations are performed only through the existing trusted Web POS server boundary; direct APK database mutation remains prohibited.
 
 ## Phase 2 - Offline foundation
 
 - [ ] Room database
 - [ ] Sync queue
-- [ ] Idempotency model
+- [x] Idempotency model + durable uncertain-sale journal
 - [ ] Connectivity state
 - [ ] Initial product/config sync
 - [ ] Conflict/audit strategy
 
 ## Phase 3 - Core POS
 
-- [ ] Login and activation
-- [ ] Open shift
-- [ ] Product grid/search/barcode
-- [ ] Cart
-- [ ] Cash/transfer payment
-- [ ] Transactional sale RPC
-- [ ] Receipt rendering and printing
+- [x] Login and activation
+- [x] Open shift
+- [ ] Product grid/search/barcode (grid/search/images done; camera barcode pending)
+- [x] Cart
+- [ ] Cash/transfer payment (cash live; transfer verification pending)
+- [x] Server-authoritative order/payment transaction path + reconcile journal
+- [x] Receipt rendering + Android PrintManager/PDF (direct ESC/POS pending)
 - [ ] Close shift
 
 ## Phase 4 - Business modules

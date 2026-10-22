@@ -4,60 +4,59 @@ Native Android POS application for CUTTING POINT TECH CO., LTD.
 
 ## Project status
 
-This repository is the clean development line for **CpIPOS Native POS 2.x**.
+This repository is the development line for **CpIPOS Native POS 2.x**.
 
-- Production Android `1.0.23` remains in the existing `sstdevelopaminno/CpIPOS` repository and must not be modified by work in this repository.
-- The current CpIPOS Web application and Vercel deployment remain in service during the migration period.
-- `CpiPOS-001` remains the authoritative production database. Native 2.0 must not perform destructive schema changes or production data migrations without a separately reviewed migration plan.
-- `CpiPOS-002` is not a dependency of this project.
+- Production Android `1.0.23` remains in the existing `sstdevelopaminno/CpIPOS` repository.
+- The current CpIPOS Web/Vercel backend remains authoritative during migration.
+- `CpiPOS-001` remains the production database. Native 2.0 does not embed service-role/database credentials and must not perform destructive schema changes from the APK.
+- Development app id is `com.cpipos.pos.next` (debug: `com.cpipos.pos.next.dev`) so it can coexist with production.
 
-## Target architecture
+## Current live path
 
-- Kotlin
-- Jetpack Compose
-- Native Android UI (no WebView runtime)
-- Room / SQLite local persistence for offline-first operation
-- Supabase `CpiPOS-001` for cloud data, authentication, realtime and controlled RPC/Edge Function operations
-- Multi-tenant: multiple business owners, each with one or more branches
-- Existing subscription/package entitlements remain authoritative
-- Existing CpIPOS IT / device-management concepts remain supported
+On `feature/native-auth-phase1`, MainActivity enters one real native flow:
 
-## Application identity
+`Store Code → branch → employee code → registered cashier device → POS session → active shift → mode → product catalog → cart → cash checkout → server order/payment → receipt`
 
-Development builds use a separate application id so they can coexist with the production 1.0.23 app:
+The app uses the existing authenticated CpIPOS Web POS APIs. It does not turn a
+Supabase publishable key into a cashier session and does not ship administrative
+keys in the APK.
 
-`com.cpipos.pos.next`
+Implemented live checkpoints include:
 
-The production application id `com.cpipos.pos` is reserved for the controlled 2.0 production migration and must not be used by development builds.
+- real Store Code/branch/employee/device session entry;
+- active-shift validation/opening;
+- server-scoped products plus canonical product-media images;
+- native product grid/search/cart;
+- server-authoritative takeaway cash order and payment with stable idempotency IDs;
+- durable local uncertain-sale journal and Reconcile flow;
+- real receipt history/search (last 30 Bangkok days) via authenticated Web POS;
+- 58/80 mm Android PrintManager receipt/PDF rendering.
+
+Transfer settlement, barcode camera scanning, dine-in/Table Bill, close shift,
+direct ESC/POS printer transport, and fully wired offline sync remain incomplete.
 
 ## VS Code + Android handset preview (Windows)
 
 Start at [Windows VS Code / USB Android setup](docs/WINDOWS_VSCODE_ANDROID_DEVICE.md).
-The checked-in `scripts/android-device-preview.ps1` builds a debug APK with Gradle,
-installs the separate `com.cpipos.pos.next.dev` app through ADB and optionally
-opens scrcpy. Use `feature/native-auth-phase1`, **not** the default `main`
-handoff branch. The **live** entry flow now invokes the existing server-verified CpIPOS Web POS
-Store Code → branch → verified employee code → cashier selection → active shift, scoped products, order and
-cash-payment APIs. The live flow now uses the previously approved unified CpIPOS UI
-for branch, employee PIN, counter, sale mode and payment. No demo entry is shown.
-Vercel is not used to build APKs. Live writes occur only after a real backend
-session/shift and explicit cashier confirmation; no demo tenant or products
-can be submitted as real sales.
+The checked-in `scripts/android-device-preview.ps1` builds a debug APK, installs
+`com.cpipos.pos.next.dev` through ADB and can open scrcpy.
 
-## Next implementation checkpoint
+Use `feature/native-auth-phase1`, **not** the default `main` handoff branch.
 
-See [online POS cash/receipt integration, limitations and device prerequisites](docs/NATIVE_ONLINE_CASH_RECEIPTS_2026-09-25.md)
-and [earlier offline/outbox foundation](docs/NATIVE_PHASE2_IMPLEMENTATION_2026-09-25.md).
-Live checkout uses the existing Web pre-entry employee and device-selection session; a Supabase publishable key
-alone is not a POS login. Merchant and printer smoke tests are still required
-before declaring the native path field-ready.
+## Current implementation checkpoints
+
+- [Real-sale reconciliation + receipt history (2026-10-22)](docs/NATIVE_RECONCILE_RECEIPT_HISTORY_2026-10-22.md)
+- [Online cash/receipt integration (2026-09-25)](docs/NATIVE_ONLINE_CASH_RECEIPTS_2026-09-25.md)
+- [Offline/outbox foundation](docs/NATIVE_PHASE2_IMPLEMENTATION_2026-09-25.md)
+
+A CI build proves compile/unit-test/APK generation only. Field readiness still
+requires a registered merchant, employee/device permission, active shift, a
+controlled cash sale comparison against CpIPOS Web, and printer testing.
 
 ## Safety rules
 
 1. Do not copy the legacy WebView POS runtime into this repository.
 2. Do not store Supabase service-role keys, database passwords, Android signing keys or other secrets in Git.
-3. Do not modify the production `CpIPOS` repository as part of Native 2.0 work unless explicitly planned as a compatibility/release change.
-4. Do not modify production `CpiPOS-001` schema or data from ordinary application development work.
-5. Security boundaries must be enforced by Supabase Auth, RLS and transactional server-side database operations, not only by UI state.
-
-See `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/ROADMAP.md`, and `docs/DEVELOPMENT_STATUS.md` on the development branch for the detailed foundation.
+3. Production Web compatibility changes must be isolated, reviewed and pass its own CI before deployment.
+4. Do not perform destructive CpiPOS-001 schema/data changes from ordinary Native application work.
+5. Server permissions, tenant/branch scope, active session/shift and idempotency remain authoritative; UI state is not a security boundary.

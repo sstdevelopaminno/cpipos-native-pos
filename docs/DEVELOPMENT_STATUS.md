@@ -1,35 +1,50 @@
 # Development Status
 
-Last verified: 2026-09-22
+Last verified: 2026-10-22
 
-## Verified baseline
+## Verified Native branch
 
-- Repository status was clean before the first foundation edits in this workspace.
-- `.\gradlew.bat --no-daemon :app:assembleDebug` succeeds with JDK 17.
-- GitHub Actions debug APK workflow exists at `.github/workflows/native-foundation.yml`.
-- Android app id remains isolated as `com.cpipos.pos.next` with debug suffix `.dev`.
-- Current app surface is a mobile POS preview flow: login, branch selection, sale screen, cart, and checkout placeholder.
-- `MobilePosPreviewScreen.kt` is the single active Compose UI surface for the preview flow; the older standalone auth screen has been removed to avoid duplicate UI ownership.
-- Supabase project `CpiPOS-001` / `deejlitaivfnsbwqdugy` was confirmed active through the Supabase plugin.
-- Supabase wiring remains read-only foundation code; no sale, payment, stock, shift, or production mutation path is exposed.
+Active development branch: `feature/native-auth-phase1`.
 
-## UI preview workflow
+- Kotlin + Jetpack Compose native app; no WebView runtime.
+- Debug identity remains `com.cpipos.pos.next.dev`.
+- GitHub Actions runs JVM unit tests and `:app:assembleDebug`.
+- Entry is the real CpIPOS Web pre-entry flow: Store Code → branch → employee code → registered cashier device.
+- POS session, device status, permission and active shift are re-checked server-side.
+- Product catalog is server scoped; canonical product media is loaded separately and media failure does not block selling.
+- Takeaway cash checkout creates a real server order and completes payment with stable idempotency IDs.
+- Cart clears only after confirmed payment. An uncertain response remains journaled and blocks a replacement bill.
+- Journal v2 stores immutable cart/tender data and supports Reconcile of prepared/order-created/requires-review sales.
+- Receipt history/search uses the authenticated Web receipt API with the tenant/package/permission gates preserved.
+- Real receipts can be displayed and sent to Android PrintManager / Save to PDF.
 
-- Open `app/src/main/java/com/cpipos/pos/next/ui/MobilePosPreviewScreen.kt` in Android Studio to view Compose previews for Login, Branch, Sale, and Checkout.
-- Run `.\gradlew.bat --no-daemon :app:assembleDebug` before handing off UI work.
-- Keep preview data local/mock-only until the trusted authentication and session bootstrap contracts are reviewed.
+## Web compatibility work
 
-## Safe next development items
+CpIPOS Web PR #345 was created for Native recovery:
 
-1. Define the trusted Store Code + employee PIN authentication RPC or Edge Function contract.
-2. Add a production `NativeAuthGateway` implementation only after the trusted boundary is reviewed.
-3. Add session bootstrap models for tenant, employee, branch, device, package/features, and initial products.
-4. Add unit tests around PIN clearing, gateway result handling, and read-only repository contracts.
-5. Improve the active mobile POS preview UI in `MobilePosPreviewScreen.kt` before wiring real production data.
+- read-only tenant/branch-scoped `GET /api/pos/orders/{orderId}/status`;
+- persists `cash_received`, `change_amount`, payment completion time/user;
+- returns real cash/change in immediate receipt data;
+- no schema migration.
 
-## Do not change without a reviewed plan
+Native includes compatibility fallbacks until that PR is actually merged and
+deployed. Do not infer Production deployment from Native CI.
 
-- Production Android 1.0.23 repository.
-- Production app id `com.cpipos.pos`.
-- CpiPOS-001 schema, RLS, triggers, or production data.
-- Supabase service-role keys, database passwords, or Android signing material.
+## Still incomplete
+
+1. Real bank-transfer verification/settlement.
+2. Camera/barcode scanner.
+3. Dine-in / table-bill flow.
+4. Close-shift flow in Native UI.
+5. Direct Bluetooth/LAN ESC/POS transport and printer routing.
+6. Fully wired offline outbox/sync worker and conflict/reconciliation policy.
+7. Real server receipt-history pagination/date UI beyond the current last-30-day search surface.
+8. Instrumented/E2E Android tests and controlled merchant/printer field acceptance.
+
+## Local handset check
+
+Use `docs/WINDOWS_VSCODE_ANDROID_DEVICE.md` and build/install from
+`feature/native-auth-phase1`. Do not reset local changes with `git reset --hard`.
+
+CI passing is not evidence that a USB handset, merchant permissions, physical
+printer or a real payment was tested.
