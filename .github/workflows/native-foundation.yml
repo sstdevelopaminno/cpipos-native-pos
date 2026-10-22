@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -R -n -E 'import android[.]webkit[.]WebView|WebView[[:space:]]*\\(|[.]loadUrl[[:space:]]*\\(' \\
+          if grep -R -n -E 'import android[.]webkit[.]WebView|WebView[[:space:]]*\(|[.]loadUrl[[:space:]]*\(' \
             --include='*.kt' --include='*.java' app/src/main/java; then
             echo "::error::CpiPOS Native 2.0 forbids WebView and webpage-based POS screens. Use Kotlin/Jetpack Compose with shared backend JSON APIs."
             exit 1
