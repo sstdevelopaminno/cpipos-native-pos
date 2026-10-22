@@ -13,6 +13,11 @@ import java.net.CookieManager
 import java.net.CookiePolicy
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 
 data class WebBranch(val id: String, val name: String, val code: String)
@@ -65,6 +70,45 @@ data class WebPosSession(
     val employeeId: String, val deviceCode: String,
     val shiftId: String?, val canOpenShift: Boolean, val canSell: Boolean
 )
+data class WebCreatedOrder(
+    val id: String,
+    val orderNo: String,
+    val status: String,
+    val total: Satang
+)
+
+data class WebOrderSnapshot(
+    val id: String,
+    val orderNo: String,
+    val status: String,
+    val shiftId: String?,
+    val total: Satang,
+    val paidTotal: Satang,
+    val createdAtMs: Long
+)
+
+data class WebReceiptHistoryRecord(
+    val orderId: String,
+    val orderNo: String,
+    val status: String,
+    val createdAtMs: Long,
+    val paymentMethods: List<String>,
+    val receipt: DemoSaleReceipt
+)
+
+data class WebReceiptHistory(
+    val records: List<WebReceiptHistoryRecord>,
+    val page: Int,
+    val pageSize: Int,
+    val total: Int,
+    val totalPages: Int
+)
+
+data class WebOrderRecovery(
+    val snapshot: WebOrderSnapshot,
+    val receipt: DemoSaleReceipt?
+)
+
 data class WebPaidBill(val orderId: String, val receipt: DemoSaleReceipt)
 class WebPosApiException(val code: String, val status: Int) : Exception("POS API: $code ($status)")
 
@@ -135,6 +179,104 @@ private fun JSONObject.optPath(key: String): String? =
     optString(key).trim().takeIf { value ->
         value.isNotBlank() && !value.startsWith("http://") && !value.startsWith("https://")
     }
+
+private fun isoMillis(value: String?): Long =
+    value?.takeIf { it.isNotBlank() }?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+        ?: System.currentTimeMillis()
+
+private fun queryValue(value: String): String =
+    URLEncoder.encode(value, StandardCharsets.UTF_8.toString())
+
+private fun JSONObject.optMoney(key: String): Satang =
+    opt(key)?.takeUnless { it == JSONObject.NULL }?.toString()?.let {
+        runCatching { Satang.fromBaht(it) }.getOrNull()
+    } ?: Satang.ZERO
+
+private fun receiptLines(rows: JSONArray): List<DemoReceiptLine> =
+    (0 until rows.length()).mapNotNull { index ->
+        val row = rows.optJSONObject(index) ?: return@mapNotNull null
+        val productId = row.optString("product_id").ifBlank {
+            row.optString("id").ifBlank { "unknown-$index" }
+        }
+        val name = row.optString("name").ifBlank { productId }
+        val quantity = row.optInt("quantity", 0)
+        if (quantity <= 0) return@mapNotNull null
+        DemoReceiptLine(
+            productId = productId,
+            name = name,
+            quantity = quantity,
+            unitPrice = row.optMoney("unit_price")
+        )
+    }
+
+internal fun parseHistory(
+    data: JSONObject,
+    session: WebPosSession
+): WebReceiptHistory {
+    val branch = data.optJSONObject("branch")
+    val store = branch?.optJSONObject("store_profile")
+    val branchName = branch?.optString("name")?.takeIf { it.isNotBlank() } ?: session.branchName
+    val storeName = store?.optString("display_name")?.takeIf { it.isNotBlank() } ?: session.storeName
+    val address = store?.optString("company_address")?.takeIf { it.isNotBlank() }
+    val phone = store?.optString("contact_phone")?.takeIf { it.isNotBlank() }
+    val records = data.optJSONArray("records") ?: JSONArray()
+    val parsed = (0 until records.length()).mapNotNull { index ->
+        val row = records.optJSONObject(index) ?: return@mapNotNull null
+        val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val orderNo = row.optString("orderNo").takeIf { it.isNotBlank() } ?: id
+        val total = row.optMoney("totalAmount")
+        val paid = row.optMoney("paidTotal")
+        val methodsArray = row.optJSONArray("paymentMethods") ?: JSONArray()
+        val methods = (0 until methodsArray.length()).map { methodsArray.optString(it) }
+            .filter { it.isNotBlank() }
+        val storedReceived = row.optMoney("cashReceived")
+        val received = if (storedReceived > Satang.ZERO) storedReceived
+            else if (methods.any { it == "cash" }) paid
+            else paid
+        val change = row.optMoney("changeAmount")
+        val lines = receiptLines(row.optJSONArray("items") ?: JSONArray())
+        val mode = when (row.optString("orderType")) {
+            "dine_in" -> "นั่งโต๊ะ"
+            else -> "กลับบ้าน"
+        }
+        val receipt = DemoSaleReceipt(
+            id = id,
+            billNo = orderNo,
+            createdAtMs = isoMillis(row.optString("createdAt")),
+            branchName = branchName,
+            counterCode = session.deviceCode,
+            modeLabel = mode,
+            lines = lines,
+            total = total,
+            received = received,
+            change = change,
+            isDemo = false,
+            storeName = storeName,
+            storeAddress = address,
+            storePhone = phone,
+            cashierName = row.optString("cashierName").takeIf { it.isNotBlank() && it != "-" }
+                ?: session.cashierName,
+            shiftLabel = null
+        )
+        WebReceiptHistoryRecord(
+            orderId = id,
+            orderNo = orderNo,
+            status = row.optString("status"),
+            createdAtMs = receipt.createdAtMs,
+            paymentMethods = methods,
+            receipt = receipt
+        )
+    }
+    val page = data.optJSONObject("pagination")
+    return WebReceiptHistory(
+        records = parsed,
+        page = page?.optInt("page", 1) ?: 1,
+        pageSize = page?.optInt("page_size", parsed.size.coerceAtLeast(1)) ?: parsed.size.coerceAtLeast(1),
+        total = page?.optInt("total", parsed.size) ?: parsed.size,
+        totalPages = page?.optInt("total_pages", if (parsed.isEmpty()) 0 else 1)
+            ?: if (parsed.isEmpty()) 0 else 1
+    )
+}
 
 /**
  * Existing CpIPOS Web backend is the server authority for Store Code, employee code,
@@ -359,58 +501,218 @@ class WebPosClient(baseUrl: String) {
         return mergeCanonicalProductMedia(products, images)
     }
 
-    /** Online only: server creates scoped idempotent order and separately settles payment.
-     * On uncertain network outcome caller MUST NOT discard bill ID or retry with a new key.
-     * Payment result must state completed and return canonical server order number.
+    private suspend fun requireSameLiveSession(
+        expected: WebPosSession,
+        requireShift: Boolean = true
+    ): WebPosSession {
+        val current = getSession()
+        if (current.id != expected.id ||
+            current.tenantId != expected.tenantId ||
+            current.branchId != expected.branchId ||
+            current.deviceCode != expected.deviceCode ||
+            current.employeeId != expected.employeeId ||
+            !current.canSell ||
+            (requireShift && (current.shiftId == null || current.shiftId != expected.shiftId))
+        ) {
+            throw WebPosApiException("cashier_session_or_shift_changed", 409)
+        }
+        return current
+    }
+
+    suspend fun currentShiftOrders(): List<WebOrderSnapshot> {
+        val data = call("GET", "/api/pos/orders/current-shift")
+        val rows = data.optJSONArray("orders") ?: JSONArray()
+        return (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            WebOrderSnapshot(
+                id = id,
+                orderNo = row.optString("order_no").ifBlank { id },
+                status = row.optString("status"),
+                shiftId = data.optJSONObject("shift")?.optString("id")?.takeIf { it.isNotBlank() },
+                total = row.optMoney("grand_total").takeIf { it > Satang.ZERO }
+                    ?: row.optMoney("subtotal"),
+                paidTotal = row.optMoney("paid_total"),
+                createdAtMs = isoMillis(row.optString("created_at"))
+            )
+        }
+    }
+
+    /**
+     * Search canonical receipt history in the current branch. The default window
+     * is the last 30 Bangkok calendar days so a cashier can recover/reprint a
+     * recently completed bill without reading the database directly.
      */
-    suspend fun payCash(
-        session: WebPosSession, lines: List<DemoReceiptLine>,
-        received: Satang, saleId: String,
-        onOrderCreated: suspend (String) -> Unit
-    ): WebPaidBill {
+    suspend fun receiptHistory(
+        session: WebPosSession,
+        query: String = "",
+        from: LocalDate? = null,
+        to: LocalDate? = null,
+        status: String = "completed",
+        page: Int = 1,
+        pageSize: Int = 40
+    ): WebReceiptHistory {
+        require(session.branchId.isNotBlank())
+        require(page >= 1 && pageSize in 1..100)
+        val today = LocalDate.now(ZoneId.of("Asia/Bangkok"))
+        val start = from ?: today.minusDays(29)
+        val end = to ?: today
+        require(!end.isBefore(start))
+        val path = buildString {
+            append("/api/pos/receipts?mode=custom")
+            append("&from=").append(queryValue(start.toString()))
+            append("&to=").append(queryValue(end.toString()))
+            append("&status=").append(queryValue(status))
+            append("&page=").append(page)
+            append("&page_size=").append(pageSize)
+            if (query.isNotBlank()) append("&q=").append(queryValue(query.trim()))
+        }
+        return parseHistory(call("GET", path), session)
+    }
+
+    /**
+     * New recovery endpoint does not require the original shift to remain open.
+     * Native callers should fall back to current-shift/history APIs while the
+     * compatibility endpoint is rolling through Web production.
+     */
+    suspend fun orderRecovery(session: WebPosSession, orderId: String): WebOrderRecovery {
+        require(runCatching { UUID.fromString(orderId) }.isSuccess)
+        val data = call("GET", "/api/pos/orders/$orderId/status")
+        val order = data.getJSONObject("order")
+        val id = order.getString("id")
+        if (id != orderId) throw WebPosApiException("reconcile_order_scope_mismatch", 409)
+        val total = order.optMoney("total")
+        val paid = order.optMoney("paid_total")
+        val snapshot = WebOrderSnapshot(
+            id = id,
+            orderNo = order.optString("order_no").ifBlank { id },
+            status = order.optString("status"),
+            shiftId = order.optString("shift_id").takeIf { it.isNotBlank() },
+            total = total,
+            paidTotal = paid,
+            createdAtMs = isoMillis(order.optString("created_at"))
+        )
+        val receipt = if (snapshot.status == "completed") {
+            val store = data.optJSONObject("store_profile")
+            val branch = data.optJSONObject("branch")
+            val storedReceived = order.optMoney("cash_received")
+            val received = if (storedReceived > Satang.ZERO) storedReceived else paid
+            DemoSaleReceipt(
+                id = id,
+                billNo = snapshot.orderNo,
+                createdAtMs = snapshot.createdAtMs,
+                branchName = branch?.optString("name")?.takeIf { it.isNotBlank() }
+                    ?: session.branchName,
+                counterCode = order.optString("device_code").takeIf { it.isNotBlank() }
+                    ?: session.deviceCode,
+                modeLabel = "กลับบ้าน",
+                lines = receiptLines(data.optJSONArray("items") ?: JSONArray()),
+                total = total,
+                received = received,
+                change = order.optMoney("change_amount"),
+                isDemo = false,
+                storeName = store?.optString("display_name")?.takeIf { it.isNotBlank() }
+                    ?: session.storeName,
+                storeAddress = store?.optString("company_address")?.takeIf { it.isNotBlank() },
+                storePhone = store?.optString("contact_phone")?.takeIf { it.isNotBlank() },
+                cashierName = data.optString("cashier_name").takeIf { it.isNotBlank() && it != "-" }
+                    ?: session.cashierName,
+                shiftLabel = null
+            )
+        } else null
+        return WebOrderRecovery(snapshot, receipt)
+    }
+
+    suspend fun createTakeawayOrder(
+        session: WebPosSession,
+        lines: List<DemoReceiptLine>,
+        saleId: String
+    ): WebCreatedOrder {
         require(lines.isNotEmpty() && lines.all { it.quantity in 1..9999 })
         require(lines.map { it.productId }.distinct().size == lines.size)
         require(session.canSell && session.shiftId != null)
+        require(UUID.fromString(saleId).toString() == saleId)
+        requireSameLiveSession(session)
         val total = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
-        require(total > Satang.ZERO && received >= total)
-        val current = getSession()
-        if (current.id != session.id || current.tenantId != session.tenantId ||
-            current.branchId != session.branchId || current.shiftId != session.shiftId ||
-            current.deviceCode != session.deviceCode || !current.canSell) {
-            throw WebPosApiException("cashier_session_or_shift_changed", 409)
-        }
+        require(total > Satang.ZERO)
         val items = JSONArray()
         lines.forEach { line ->
             require(runCatching { UUID.fromString(line.productId) }.isSuccess)
-            items.put(JSONObject().put("product_id", line.productId).put("quantity", line.quantity))
+            items.put(
+                JSONObject()
+                    .put("product_id", line.productId)
+                    .put("quantity", line.quantity)
+            )
         }
-        val order = call("POST", "/api/pos/orders",
+        val order = call(
+            "POST",
+            "/api/pos/orders",
             JSONObject().put("items", items).put("discount_total", 0),
-            key = saleId).getJSONObject("order")
+            key = saleId
+        ).getJSONObject("order")
         val serverTotal = Satang.fromBaht(
             order.opt("grand_total")?.toString()?.takeIf { it != "null" }
                 ?: order.get("total_amount").toString()
         )
-        if (serverTotal != total) throw WebPosApiException("server_price_changed_review_order", 409)
-        val orderId = order.getString("id")
-        onOrderCreated(orderId)
-        val paid = call("POST", "/api/pos/orders/$orderId/pay",
-            JSONObject().put("method", "cash").put("amount", BigDecimal(received.bahtText())),
-            key = UUID.nameUUIDFromBytes(("native-pay:$saleId").toByteArray()).toString())
+        if (serverTotal != total) {
+            throw WebPosApiException("server_price_changed_review_order", 409)
+        }
+        return WebCreatedOrder(
+            id = order.getString("id"),
+            orderNo = order.getString("order_no"),
+            status = order.optString("status"),
+            total = serverTotal
+        )
+    }
+
+    suspend fun payExistingCash(
+        session: WebPosSession,
+        orderId: String,
+        orderNo: String,
+        lines: List<DemoReceiptLine>,
+        received: Satang,
+        saleId: String,
+        expectedTotal: Satang
+    ): WebPaidBill {
+        require(runCatching { UUID.fromString(orderId) }.isSuccess)
+        require(UUID.fromString(saleId).toString() == saleId)
+        require(lines.isNotEmpty())
+        require(received >= expectedTotal && expectedTotal > Satang.ZERO)
+        requireSameLiveSession(session)
+        val paid = call(
+            "POST",
+            "/api/pos/orders/$orderId/pay",
+            JSONObject()
+                .put("method", "cash")
+                .put("amount", BigDecimal(received.bahtText())),
+            key = UUID.nameUUIDFromBytes(("native-pay:$saleId").toByteArray()).toString()
+        )
         val paymentOrder = paid.getJSONObject("order")
         if (paymentOrder.getString("id") != orderId ||
-            paymentOrder.optString("status") != "completed") {
+            paymentOrder.optString("status") != "completed"
+        ) {
             throw WebPosApiException("server_payment_not_confirmed", 409)
         }
         val actual = paid.optJSONObject("receipt_preview")
         val store = actual?.optJSONObject("store_profile")
-        val serverReceiptNo = paymentOrder.getString("order_no")
+        val serverReceiptNo = paymentOrder.optString("order_no").ifBlank { orderNo }
         require(serverReceiptNo.isNotBlank())
-        val snapshotTotal = Satang.fromBaht(actual?.get("total")?.toString() ?: serverTotal.bahtText())
-        if (snapshotTotal != serverTotal) throw WebPosApiException("receipt_total_mismatch_review", 409)
+        val snapshotTotal = Satang.fromBaht(
+            actual?.opt("total")?.toString()?.takeIf { it != "null" }
+                ?: expectedTotal.bahtText()
+        )
+        if (snapshotTotal != expectedTotal) {
+            throw WebPosApiException("receipt_total_mismatch_review", 409)
+        }
+        val actualReceived = actual?.opt("cash_received")?.toString()
+            ?.let { runCatching { Satang.fromBaht(it) }.getOrNull() }
+            ?.takeIf { it > Satang.ZERO } ?: received
+        val actualChange = actual?.opt("change_total")?.toString()
+            ?.let { runCatching { Satang.fromBaht(it) }.getOrNull() }
+            ?: (actualReceived - snapshotTotal)
         return WebPaidBill(
-            orderId,
-            DemoSaleReceipt(
+            orderId = orderId,
+            receipt = DemoSaleReceipt(
                 id = orderId,
                 billNo = serverReceiptNo,
                 createdAtMs = System.currentTimeMillis(),
@@ -418,17 +720,43 @@ class WebPosClient(baseUrl: String) {
                 counterCode = session.deviceCode,
                 modeLabel = "กลับบ้าน",
                 lines = lines.toList(),
-                total = serverTotal,
-                received = received,
-                change = received - serverTotal,
+                total = snapshotTotal,
+                received = actualReceived,
+                change = actualChange,
                 isDemo = false,
                 storeName = store?.optString("display_name")?.takeIf { it.isNotBlank() }
                     ?: session.storeName,
-                storeAddress = store?.optString("company_address"),
-                storePhone = store?.optString("contact_phone"),
+                storeAddress = store?.optString("company_address")?.takeIf { it.isNotBlank() },
+                storePhone = store?.optString("contact_phone")?.takeIf { it.isNotBlank() },
                 cashierName = session.cashierName,
                 shiftLabel = "open"
             )
+        )
+    }
+
+    /**
+     * Normal online checkout. Recovery code uses the two explicit operations
+     * above so it can replay the same order/payment keys independently.
+     */
+    suspend fun payCash(
+        session: WebPosSession,
+        lines: List<DemoReceiptLine>,
+        received: Satang,
+        saleId: String,
+        onOrderCreated: suspend (String, String) -> Unit
+    ): WebPaidBill {
+        val total = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
+        require(received >= total && total > Satang.ZERO)
+        val order = createTakeawayOrder(session, lines, saleId)
+        onOrderCreated(order.id, order.orderNo)
+        return payExistingCash(
+            session = session,
+            orderId = order.id,
+            orderNo = order.orderNo,
+            lines = lines,
+            received = received,
+            saleId = saleId,
+            expectedTotal = order.total
         )
     }
 }

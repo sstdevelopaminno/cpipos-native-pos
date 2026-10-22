@@ -88,6 +88,7 @@ import com.cpipos.pos.next.core.webpos.LiveSaleJournal
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.core.webpos.WebPosProduct
 import com.cpipos.pos.next.core.webpos.WebPosSession
+import com.cpipos.pos.next.core.webpos.WebReceiptHistory
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -162,6 +163,11 @@ internal fun MobilePosSalePreview(
     var receipt by remember { mutableStateOf<DemoSaleReceipt?>(null) }
     var dailyReceipts by remember { mutableStateOf<List<DemoSaleReceipt>>(emptyList()) }
     var showHistory by remember { mutableStateOf(false) }
+    var showLiveHistory by remember { mutableStateOf(false) }
+    var liveHistoryQuery by remember { mutableStateOf("") }
+    var liveHistory by remember { mutableStateOf<WebReceiptHistory?>(null) }
+    var liveHistoryLoading by remember { mutableStateOf(false) }
+    var liveHistoryError by remember { mutableStateOf<String?>(null) }
     var activeBillId by remember { mutableStateOf(UUID.randomUUID().toString()) }
     var saving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
@@ -182,7 +188,8 @@ internal fun MobilePosSalePreview(
         else listOf("ทั้งหมด") + products.map { it.category }.distinct()
     val quantity = cart.values.sum()
     val total = products.sumOf { it.price * (cart[it.id] ?: 0) }
-    BackHandler(enabled = !showCart && !showMethods && payment == null && !showScannerNotice && pendingAction == null && !showCancelBillConfirm) {
+    BackHandler(enabled = !showCart && !showMethods && !showHistory && !showLiveHistory &&
+        payment == null && !showScannerNotice && pendingAction == null && !showCancelBillConfirm) {
         onBack()
     }
 
@@ -196,9 +203,38 @@ internal fun MobilePosSalePreview(
         val next = (cart[id] ?: 0) - 1
         if (next <= 0) cart.remove(id) else cart[id] = next
     }
+    fun loadLiveReceiptHistory() {
+        val client = liveClient ?: return
+        val session = liveSession ?: return
+        liveHistoryLoading = true
+        liveHistoryError = null
+        scope.launch {
+            try {
+                liveHistory = client.receiptHistory(
+                    session = session,
+                    query = liveHistoryQuery.trim(),
+                    page = 1,
+                    pageSize = 40
+                )
+            } catch (error: Exception) {
+                liveHistoryError = when (error) {
+                    is com.cpipos.pos.next.core.webpos.WebPosApiException -> when (error.code) {
+                        "feature_not_enabled", "forbidden", "forbidden_role" ->
+                            "บัญชีนี้ยังไม่มีสิทธิ์ดูประวัติใบเสร็จจาก POS"
+                        else -> "โหลดประวัติไม่ได้: ${error.code} (${error.status})"
+                    }
+                    else -> "โหลดประวัติใบเสร็จไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ต"
+                }
+            } finally {
+                liveHistoryLoading = false
+            }
+        }
+    }
+
     fun openPreviewSalesHistory() {
         if (liveSession != null) {
-            notice = "ยอดขายจริงบันทึกใน CpIPOS Web • เปิดหน้ารายงาน/ใบเสร็จใน POS Web"
+            showLiveHistory = true
+            loadLiveReceiptHistory()
             return
         }
         scope.launch {
@@ -238,7 +274,15 @@ internal fun MobilePosSalePreview(
                                 liveSession != null && liveClient != null && liveJournal != null
                             ) {
                                 withContext(Dispatchers.IO) {
-                                    check(liveJournal.prepare(liveSession, billId)) {
+                                    check(
+                                        liveJournal.prepare(
+                                            session = liveSession,
+                                            billId = billId,
+                                            lines = snapshot,
+                                            total = Satang.of(total),
+                                            received = paid
+                                        )
+                                    ) {
                                         "บิลนี้เคยส่งแล้ว ตรวจสอบสถานะใน POS Web ก่อน"
                                     }
                                 }
@@ -247,9 +291,11 @@ internal fun MobilePosSalePreview(
                                     lines = snapshot,
                                     received = paid,
                                     saleId = billId,
-                                    onOrderCreated = { orderId ->
+                                    onOrderCreated = { orderId, orderNo ->
                                         withContext(Dispatchers.IO) {
-                                            liveJournal.orderCreated(liveSession, billId, orderId)
+                                            liveJournal.orderCreated(
+                                                liveSession, billId, orderId, orderNo
+                                            )
                                         }
                                     }
                                 )
@@ -264,7 +310,7 @@ internal fun MobilePosSalePreview(
                                     received = paid, id = billId
                                 )
                             }
-                            // Clear ONLY after SQLite commits the immutable receipt.
+                            // Clear ONLY after the server confirms payment (or demo SQLite commits).
                             cart.clear()
                             activeBillId = UUID.randomUUID().toString()
                             showCart = false
@@ -607,6 +653,22 @@ internal fun MobilePosSalePreview(
             receipts = dailyReceipts,
             onOpenReceipt = { selected -> showHistory = false; receipt = selected },
             onDismiss = { showHistory = false }
+        )
+    }
+    if (showLiveHistory && liveSession != null) {
+        LiveReceiptHistorySheet(
+            records = liveHistory?.records.orEmpty(),
+            query = liveHistoryQuery,
+            loading = liveHistoryLoading,
+            error = liveHistoryError,
+            totalRecords = liveHistory?.total ?: 0,
+            onQueryChange = { liveHistoryQuery = it.take(80) },
+            onSearch = { loadLiveReceiptHistory() },
+            onOpen = { selected ->
+                showLiveHistory = false
+                receipt = selected.receipt
+            },
+            onDismiss = { showLiveHistory = false }
         )
     }
     receipt?.let { saved ->

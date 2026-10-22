@@ -524,22 +524,39 @@ internal fun LiveCounterScreen(
 
 @Composable
 internal fun LiveReviewScreen(
-    message: String, onRefresh: () -> Unit, onBack: () -> Unit
+    message: String,
+    busy: Boolean,
+    onReconcile: () -> Unit,
+    onBack: () -> Unit
 ) {
     LiveAuthCard {
-        Text("มีบิลค้างตรวจสอบ", color = Color(0xFFB13F43),
+        Text(
+            "มีบิลค้างตรวจสอบ",
+            color = Color(0xFFB13F43),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.fillMaxWidth())
+            modifier = Modifier.fillMaxWidth()
+        )
         Spacer(modifier = Modifier.height(9.dp))
-        Text(message, color = Color(0xFF1B3151),
-            fontSize = 12.sp, lineHeight = 18.sp)
         Text(
-            "ตรวจสอบเลขที่บิลและการชำระเงินใน POS Web ก่อนเปิดบิลใหม่ เพื่อป้องกันยอดซ้ำ",
-            color = Color(0xFFB13F43), fontSize = 11.sp, lineHeight = 17.sp
+            message,
+            color = Color(0xFF1B3151),
+            fontSize = 12.sp,
+            lineHeight = 18.sp
+        )
+        Text(
+            "ระบบจะตรวจ Order เดิมกับ Server ก่อน และจะใช้รหัสเดิมในการดำเนินรายการต่อ " +
+                "เพื่อป้องกันการสร้างยอดขายซ้ำ",
+            color = Color(0xFF8D553A),
+            fontSize = 11.sp,
+            lineHeight = 17.sp
         )
         Spacer(modifier = Modifier.height(12.dp))
-        LiveAction("ตรวจสอบสิทธิ์และสถานะอีกครั้ง", onClick = onRefresh)
+        LiveAction(
+            if (busy) "กำลัง Reconcile บิล..." else "ตรวจสอบกับเซิร์ฟเวอร์และดำเนินบิลเดิมต่อ",
+            enabled = !busy,
+            onClick = onReconcile
+        )
         Spacer(modifier = Modifier.height(8.dp))
         LiveBack("กลับหน้าเข้าสู่ระบบ", onClick = onBack)
     }

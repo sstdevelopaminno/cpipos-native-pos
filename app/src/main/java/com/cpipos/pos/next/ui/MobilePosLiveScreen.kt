@@ -40,13 +40,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cpipos.pos.next.R
+import com.cpipos.pos.next.core.offline.DemoSaleReceipt
 import com.cpipos.pos.next.core.webpos.LiveSaleJournal
+import com.cpipos.pos.next.core.webpos.LiveSaleReconciler
 import com.cpipos.pos.next.core.webpos.WebBranch
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.core.webpos.WebPosProduct
 import com.cpipos.pos.next.core.webpos.WebPosSession
 import com.cpipos.pos.next.core.webpos.WebStore
 import com.cpipos.pos.next.core.webpos.WebPosApiException
+import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -57,6 +60,7 @@ private val liveInk = Color(0xFF152749)
 internal fun MobilePosLiveScreen(client: WebPosClient) {
     val ctx = LocalContext.current
     val journal = remember(ctx.applicationContext) { LiveSaleJournal(ctx.applicationContext) }
+    val reconciler = remember(client, journal) { LiveSaleReconciler(client, journal) }
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf("store") }
     var storeCode by remember { mutableStateOf("") }
@@ -79,6 +83,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var unresolved by remember { mutableStateOf("") }
+    var recoveredReceipt by remember { mutableStateOf<DemoSaleReceipt?>(null) }
 
     fun goToStore() {
         employeeCode = ""
@@ -88,6 +93,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         session = null
         catalog = emptyList()
         error = null
+        recoveredReceipt = null
         step = "store"
     }
 
@@ -365,9 +371,32 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
         "review" -> LiveReviewScreen(
             message = unresolved,
-            onRefresh = {
+            busy = busy,
+            onReconcile = {
                 val verified = session
-                if (verified != null && !busy) scope.launch { refreshCatalog(verified) }
+                if (verified != null && !busy) {
+                    scope.launch {
+                        busy = true
+                        error = null
+                        try {
+                            val report = reconciler.reconcile(verified)
+                            recoveredReceipt = report.recoveredReceipts.lastOrNull()
+                            unresolved = report.notes.joinToString("\n")
+                                .ifBlank { "ตรวจสอบบิลค้างกับ Server แล้ว" }
+                            if (report.remaining.isEmpty()) {
+                                refreshCatalog(verified)
+                            } else {
+                                step = "review"
+                            }
+                        } catch (failure: Exception) {
+                            unresolved = "Reconcile ไม่สำเร็จ: " +
+                                (failure.message ?: "กรุณาตรวจสอบเครือข่าย").take(100)
+                            step = "review"
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
             },
             onBack = { goToStore() }
         )
@@ -390,5 +419,15 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 liveJournal = journal
             )
         }
+    }
+
+    recoveredReceipt?.let { saved ->
+        SavedDemoReceiptSheet(
+            receipt = saved,
+            onPrint = {
+                runCatching { DemoReceiptPrinter.print(ctx, saved) }
+            },
+            onDone = { recoveredReceipt = null }
+        )
     }
 }
