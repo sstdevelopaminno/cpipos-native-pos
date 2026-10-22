@@ -1,63 +1,99 @@
-# CpIPOS Native POS 2.0
+# CpiPOS Native Android POS 2.0
 
-Native Android POS application for CUTTING POINT TECH CO., LTD.
+**100% Native Android mobile POS** developed in Kotlin + Jetpack Compose for
+**CUTTING POINT INNOVATION CO., LTD.** — **NOT** a WebView, embedded website,
+PWA, TWA, or web wrapper. The Android phone and the existing Tablet POS operate
+on the **same underlying business system and Supabase CpiPOS-001 Primary data**.
+Only the user interfaces and device integrations differ.
 
-## Project status
+**Authoritative architecture and no-WebView guardrails:**
+[Native Android 100% / shared database contract](docs/NATIVE_ANDROID_100_PERCENT_ARCHITECTURE.md).
 
-This repository is the clean development line for **CpIPOS Native POS 2.x**.
+Native Android 2.x development repository for **CUTTING POINT INNOVATION CO., LTD.**
+(บริษัท คัตติ้ง พอยท์ อินโนเวชั่น จำกัด).
 
-- Production Android `1.0.23` remains in the existing `sstdevelopaminno/CpIPOS` repository and must not be modified by work in this repository.
-- The current CpIPOS Web application and Vercel deployment remain in service during the migration period.
-- `CpiPOS-001` remains the authoritative production database. Native 2.0 must not perform destructive schema changes or production data migrations without a separately reviewed migration plan.
-- `CpiPOS-002` is not a dependency of this project.
+## Development status (2026-10-22)
 
-## Target architecture
+The Android source lives on the active development branch
+[`feature/native-device-pairing-preview-20261022`](https://github.com/sstdevelopaminno/cpipos-native-pos/tree/feature/native-device-pairing-preview-20261022),
+based on `feature/native-auth-phase1`. The repository's `main` currently holds
+only the historical handoff documents; it is **not buildable as an APK** until a
+reviewed integration merge. Do not overwrite it or merge the old draft PRs
+blindly.
 
-- Kotlin
-- Jetpack Compose
-- Native Android UI (no WebView runtime)
-- Room / SQLite local persistence for offline-first operation
-- Supabase `CpiPOS-001` for cloud data, authentication, realtime and controlled RPC/Edge Function operations
-- Multi-tenant: multiple business owners, each with one or more branches
-- Existing subscription/package entitlements remain authoritative
-- Existing CpIPOS IT / device-management concepts remain supported
+- Android: Kotlin, Jetpack Compose, AGP 9.3, Gradle 9.5, JDK 17.
+- Existing production Android **1.0.23 (`com.cpipos.pos`) stays untouched**.
+- Native 2.0 debug APK: `com.cpipos.pos.next.dev` can be installed alongside 1.0.23.
+- Current visible app: branded Store Code → authenticated branch → numeric
+  employee code → registered cashier terminal → live POS session → open shift →
+  takeaway product/cart → server-confirmed cash payment/receipt.
+- Every screen is **Android Compose**, with no HTML/WebView. Current Kotlin
+  networking uses **shared HTTPS JSON POS APIs** at
+  `https://cp-ipos-web.vercel.app`; that endpoint is a shared backend, **not
+  a web screen** or a website embedded inside the app.
+- Tablet POS and Native 2.0 share the **same tenant-scoped CpiPOS-001 records**
+  (staff, terminals, products, inventory, shifts, sales, payments and receipts)
+  and central authorization; no additional Supabase project or independent
+  sales ledger is required.
+- Read-only Supabase/Kotlin models and isolated offline SQLite scaffolds remain
+  in source, but **a Web POS cookie is not a Supabase JWT**.
+- Neither real offline sale synchronization nor physical printer support has
+  been validated. Bank transfer/dine-in/barcode camera and Lao currency are
+  not yet release-ready. Do not treat an Android Build success as field signoff.
 
-## Application identity
+## VS Code → Windows → USB Android installation
 
-Development builds use a separate application id so they can coexist with the production 1.0.23 app:
+Detailed illustrated-free guide:
+[Open in VS Code, build debug APK, install and view on phone](docs/WINDOWS_VSCODE_ANDROID_DEVICE.md).
 
-`com.cpipos.pos.next`
+First checkout (example drive E:):
 
-The production application id `com.cpipos.pos` is reserved for the controlled 2.0 production migration and must not be used by development builds.
+```powershell
+cd E:\
+git clone --branch feature/native-device-pairing-preview-20261022 https://github.com/sstdevelopaminno/cpipos-native-pos.git cpipos-native-pos-latest
+cd E:\cpipos-native-pos-latest
+code .
+```
 
-## VS Code + Android handset preview (Windows)
+Then connect an Android handset with USB debugging enabled and JDK 17 / Android
+SDK platform 37 installed:
 
-Start at [Windows VS Code / USB Android setup](docs/WINDOWS_VSCODE_ANDROID_DEVICE.md).
-The checked-in `scripts/android-device-preview.ps1` builds a debug APK with Gradle,
-installs the separate `com.cpipos.pos.next.dev` app through ADB and optionally
-opens scrcpy. Use `feature/native-auth-phase1`, **not** the default `main`
-handoff branch. The **live** entry flow now invokes the existing server-verified CpIPOS Web POS
-Store Code → branch → verified employee code → cashier selection → active shift, scoped products, order and
-cash-payment APIs. The live flow now uses the previously approved unified CpIPOS UI
-for branch, employee PIN, counter, sale mode and payment. No demo entry is shown.
-Vercel is not used to build APKs. Live writes occur only after a real backend
-session/shift and explicit cashier confirmation; no demo tenant or products
-can be submitted as real sales.
+```powershell
+.\gradlew.bat --no-daemon :app:testDebugUnitTest :app:assembleDebug
+.\scripts\android-device-preview.ps1 -ListOnly
+.\scripts\android-device-preview.ps1 -Mirror
+```
 
-## Next implementation checkpoint
+If `scrcpy` is not installed, omit `-Mirror` and view the APK on the phone.
+The actual debug APK path is `app\build\outputs\apk\debug\app-debug.apk`.
 
-See [online POS cash/receipt integration, limitations and device prerequisites](docs/NATIVE_ONLINE_CASH_RECEIPTS_2026-09-25.md)
-and [earlier offline/outbox foundation](docs/NATIVE_PHASE2_IMPLEMENTATION_2026-09-25.md).
-Live checkout uses the existing Web pre-entry employee and device-selection session; a Supabase publishable key
-alone is not a POS login. Merchant and printer smoke tests are still required
-before declaring the native path field-ready.
+## Registered Android terminal pairing (opt-in QA)
 
-## Safety rules
+This development branch adds a versioned Android installation UUID and validates
+the server's explicit pairing acknowledgement. **Pairing defaults OFF** in all
+normal APK builds to avoid changing registered terminals used by existing
+Android 1.0.23. Only after IT approves an isolated QA cashier device, set
+`CPIPOS_ANDROID_PAIRING_ENABLED=true` in ignored `local.properties`, rebuild
+and follow the [device guide](docs/WINDOWS_VSCODE_ANDROID_DEVICE.md).
 
-1. Do not copy the legacy WebView POS runtime into this repository.
-2. Do not store Supabase service-role keys, database passwords, Android signing keys or other secrets in Git.
-3. Do not modify the production `CpIPOS` repository as part of Native 2.0 work unless explicitly planned as a compatibility/release change.
-4. Do not modify production `CpiPOS-001` schema or data from ordinary application development work.
-5. Security boundaries must be enforced by Supabase Auth, RLS and transactional server-side database operations, not only by UI state.
+Pairing on an in-use cashier terminal may change `branch_devices` metadata
+and affect old MDM/Android usage; never enable it to merely view UI. Server
+credentials, service-role keys, signing secrets and PINs must never enter Git
+or the APK.
 
-See `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/ROADMAP.md`, and `docs/DEVELOPMENT_STATUS.md` on the development branch for the detailed foundation.
+## Implementation / release gates
+
+- Existing Web POS API and Supabase CpiPOS-001 remain the authority for user,
+  tenant, branch, terminal, package, active shift, price, order and payments.
+- Cash receipts are returned after the server confirms the order is completed.
+  Current Web payment records still need canonical persistence of **actual
+  cash tendered and change** before a full Native cashier release.
+- Any uncertain server payment is journaled for manual reconciliation, **not**
+  retried under a new bill UUID. A tested server-side recovery API is still needed.
+- Real shop/device and printer UAT, offline outbox synchronization and receipt
+  reprint verification remain open.
+- No new paid cloud services, Supabase migration, Vercel production deployment,
+  production signing or Android 1.0.23 replacement is part of this branch.
+
+See [development status](docs/DEVELOPMENT_STATUS.md),
+[roadmap](docs/ROADMAP.md), and [security](docs/SECURITY.md).

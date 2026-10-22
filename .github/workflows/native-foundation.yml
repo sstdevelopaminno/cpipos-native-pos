@@ -37,6 +37,17 @@ jobs:
         with:
           gradle-version: "9.5.0"
 
+      - name: Enforce 100% Native Android UI (no WebView POS wrapper)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R -n -E 'import android[.]webkit[.]WebView|WebView[[:space:]]*\(|[.]loadUrl[[:space:]]*\(' \
+            --include='*.kt' --include='*.java' app/src/main/java; then
+            echo "::error::CpiPOS Native 2.0 forbids WebView and webpage-based POS screens. Use Kotlin/Jetpack Compose with shared backend JSON APIs."
+            exit 1
+          fi
+          echo "Verified: no WebView embedding in Android app source."
+
       - name: Test and build debug APK
         run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
 

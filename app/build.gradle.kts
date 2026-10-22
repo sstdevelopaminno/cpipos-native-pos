@@ -46,6 +46,15 @@ android {
             "SUPABASE_PUBLISHABLE_KEY",
             quoted(localProperty("CPIPOS_SUPABASE_PUBLISHABLE_KEY"))
         )
+
+        // Opt-in only for a dedicated QA cashier terminal; the endpoint updates
+        // branch_devices metadata and may affect existing Android 1.0.23 pairing.
+        // Keep false for normal APK/UI previews to avoid production device writes.
+        buildConfigField(
+            "boolean",
+            "ANDROID_PAIRING_ENABLED",
+            (localProperty("CPIPOS_ANDROID_PAIRING_ENABLED").equals("true", ignoreCase = true)).toString()
+        )
     }
 
     buildTypes {
