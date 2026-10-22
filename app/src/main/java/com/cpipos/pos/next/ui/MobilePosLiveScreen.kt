@@ -14,7 +14,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.Image
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -85,6 +87,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var error by remember { mutableStateOf<String?>(null) }
     var unresolved by remember { mutableStateOf("") }
     var recoveredReceipt by remember { mutableStateOf<DemoSaleReceipt?>(null) }
+    var showLogoutConfirm by remember { mutableStateOf(false) }
 
     fun goToStore() {
         employeeCode = ""
@@ -433,7 +436,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 if (mode == MockSaleMode.Takeaway) step = "sale"
             },
             allowDineIn = false,
-            onBack = { step = "shift" }
+            onLogout = { if (!busy) showLogoutConfirm = true }
         )
         "sale" -> session?.let { verified ->
             MobilePosSalePreview(
@@ -449,6 +452,65 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 liveJournal = journal
             )
         }
+    }
+
+    if (showLogoutConfirm) {
+        val verified = session
+        // Fail closed if the local durable journal cannot be read. Never discard
+        // an uncertain payment merely to make a logout button succeed.
+        val pendingCount = if (verified == null) -1 else
+            runCatching { journal.unresolved(verified).size }.getOrDefault(-1)
+        val hasPending = pendingCount != 0
+        AlertDialog(
+            onDismissRequest = { if (!busy) showLogoutConfirm = false },
+            title = {
+                Text(if (hasPending) "มีบิลที่ต้องตรวจสอบ" else "ออกจากระบบ CpIPOS?",
+                    fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    if (pendingCount > 0)
+                        "มี $pendingCount บิลที่ยังไม่ยืนยันผลชำระเงิน ต้อง Reconcile บิลเดิมก่อนออกจากระบบ"
+                    else if (pendingCount < 0)
+                        "ไม่สามารถตรวจสอบบิลค้างในเครื่องได้ กรุณากลับไปตรวจสอบก่อนออกจากระบบ"
+                    else "จะออกจากระบบบนมือถือเครื่องนี้ และล้าง SSO ที่บันทึกไว้ กะขายที่เปิดอยู่จะไม่ถูกปิด"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !busy,
+                    onClick = {
+                        showLogoutConfirm = false
+                        if (hasPending) {
+                            if (pendingCount > 0) {
+                                unresolved = "พบ $pendingCount บิลค้าง ห้ามสร้างบิลใหม่จนกว่า Reconcile จะสำเร็จ"
+                                step = "review"
+                            }
+                        } else {
+                            scope.launch {
+                                busy = true
+                                val remoteRevoked = client.logoutCurrentPosSession()
+                                goToStore()
+                                storeCode = ""
+                                store = null
+                                branch = null
+                                unresolved = ""
+                                error = if (remoteRevoked) null else
+                                    "ออกจากเครื่องแล้ว แต่ยังไม่ได้รับการยืนยันเพิกถอนเซสชันจากเซิร์ฟเวอร์"
+                                busy = false
+                            }
+                        }
+                    }
+                ) {
+                    Text(if (hasPending) "ไปตรวจสอบบิล" else "ยืนยันออกจากระบบ")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { if (!busy) showLogoutConfirm = false }) {
+                    Text("ยกเลิก")
+                }
+            }
+        )
     }
 
     recoveredReceipt?.let { saved ->
