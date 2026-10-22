@@ -1032,7 +1032,8 @@ private fun ModeCard(
 internal fun HomeBottomMenu(modifier: Modifier = Modifier) {
     val density = LocalDensity.current
     val flatTopPx = with(density) { 17.dp.toPx() }
-    val cornerPx = with(density) { 23.dp.toPx() }
+    // Square side edges let the navigation surface meet both screen edges.
+    val cornerPx = with(density) { 0.dp.toPx() }
     val shoulderPx = with(density) { 78.dp.toPx() }
     val crestHalfPx = with(density) { 28.dp.toPx() }
 
@@ -1072,8 +1073,9 @@ internal fun HomeBottomMenu(modifier: Modifier = Modifier) {
 
     Box(
         modifier = modifier
-            .navigationBarsPadding()
             .fillMaxWidth()
+            .background(Color.White)
+            .navigationBarsPadding()
             .height(104.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
@@ -1094,7 +1096,7 @@ internal fun HomeBottomMenu(modifier: Modifier = Modifier) {
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .height(77.dp)
-                .padding(start = 6.dp, end = 6.dp, top = 15.dp),
+                .padding(top = 15.dp),
             verticalAlignment = Alignment.Top
         ) {
             BottomMenuItem(
