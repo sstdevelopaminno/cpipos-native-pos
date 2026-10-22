@@ -319,6 +319,23 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         cookieManager.cookieStore.removeAll()
     }
 
+    /**
+     * Revoke only THIS authenticated cashier-device session on CpIPOS Web.
+     * Always discard local SSO state, including when the server is unreachable.
+     * Returns false if remote revocation could not be confirmed.
+     */
+    suspend fun logoutCurrentPosSession(): Boolean {
+        val confirmed = try {
+            call("POST", "/api/auth/session/logout", JSONObject().put("mode", "full"))
+            true
+        } catch (_: Exception) {
+            false
+        } finally {
+            clearStoredPosSession()
+        }
+        return confirmed
+    }
+
     private suspend fun call(
         method: String, path: String, json: JSONObject? = null, key: String? = null
     ): JSONObject = withContext(Dispatchers.IO) {
