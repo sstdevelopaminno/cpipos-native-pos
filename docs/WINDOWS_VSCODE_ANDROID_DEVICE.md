@@ -1,107 +1,178 @@
-# Open CpIPOS Native in VS Code and preview on a real Android phone (Windows)
+# CpiPOS Native 2.0 — VS Code, Windows, Android USB preview
 
-**Verified source branch:** `feature/native-auth-phase1` (not the nearly empty `main` handoff branch). Follow [Cross-project handoff](../docs/CROSS_PROJECT_HANDOFF_2026-09-25.md) and [Issue #4](https://github.com/sstdevelopaminno/cpipos-native-pos/issues/4). This workflow **does not call Vercel**, deploy the website, alter Supabase records, or replace Android production 1.0.23.
+Verified development source: `feature/native-device-pairing-preview-20261022`.
+**Do NOT clone the minimal `main` branch for Android builds.**
+This app has its own debug identity `com.cpipos.pos.next.dev`, so it can install
+beside Android POS 1.0.23 (`com.cpipos.pos`) without replacing it.
 
-## 1 — Get the code on your own Windows computer
+## A. Open code in Visual Studio Code
 
-Run these commands in the **VS Code PowerShell terminal**. The GitHub connector cannot run commands in your personal Windows PC or physically connect to its USB port, so these are local steps.
+Run in VS Code's PowerShell terminal. Use an existing folder if you have one.
 
-**If the folder does NOT exist:**
+**First time — E: drive available:**
 
 ```powershell
 cd E:\
-git clone --branch feature/native-auth-phase1 https://github.com/sstdevelopaminno/cpipos-native-pos.git cpipos-native-pos-latest
-code E:\cpipos-native-pos-latest
+git clone --branch feature/native-device-pairing-preview-20261022 https://github.com/sstdevelopaminno/cpipos-native-pos.git cpipos-native-pos-latest
+cd E:\cpipos-native-pos-latest
+code .
 ```
 
-**If `E:\cpipos-native-pos-latest` already exists:**
+**If E: is unavailable:** replace `E:\` with `$HOME\Documents` and use the
+matching directory in later commands.
+
+**Existing checkout, without deleting edits:**
 
 ```powershell
 cd E:\cpipos-native-pos-latest
 git status --short
 git remote -v
 git fetch origin
-git switch feature/native-auth-phase1
-git pull --ff-only origin feature/native-auth-phase1
-code .
+git branch --list feature/native-device-pairing-preview-20261022
 ```
 
-If local work is uncommitted or the branch does not exist locally, **do not use `reset --hard` or force a pull**. First preserve your edits, then create the branch with:
+If the branch is not listed locally:
 
 ```powershell
-git switch --track origin/feature/native-auth-phase1
+git switch --track origin/feature/native-device-pairing-preview-20261022
 ```
 
-Check `git remote -v` points to `sstdevelopaminno/cpipos-native-pos.git`, not the Web POS or IT repositories.
+If it is already listed, run:
 
-## 2 — Check Android build environment
+```powershell
+git switch feature/native-device-pairing-preview-20261022
+git pull --ff-only origin feature/native-device-pairing-preview-20261022
+```
 
-Install JDK **17**, Android SDK Platform Tools, Android SDK platform `android-37.0` and Build Tools `37.0.0` (the project currently uses AGP 9.3.0, Gradle 9.5.0 and compileSdk 37). Android Studio can install SDK components even if you edit the project in VS Code.
+If Git reports uncommitted/conflicting changes, preserve your own edits first.
+**Never run `git reset --hard`, force-pull, or delete your old workspace.**
+
+Check that `git remote -v` points to **cpipos-native-pos**, not Web POS
+(`CpIPOS`) or IT.
+
+## B. Build environment (one-time setup)
+
+- JDK 17; check `java -version` and `$env:JAVA_HOME`.
+- Android SDK platform 37, Build Tools 37.0.0, SDK Platform-Tools.
+  Android Studio's SDK Manager can install these, even if you edit in VS Code.
+- Git and VS Code. Optional: scrcpy to mirror your mobile screen on the computer.
+- `gradlew.bat` and Gradle wrapper are committed (Gradle 9.5; AGP 9.3).
+- Create or edit untracked `local.properties` if SDK location is not detected,
+  e.g. `sdk.dir=C:\\Users\\YourUser\\AppData\\Local\\Android\\Sdk`.
 
 ```powershell
 java -version
-$env:JAVA_HOME
 adb version
+.\gradlew.bat --no-daemon :app:testDebugUnitTest :app:assembleDebug
 ```
 
-If `adb` is not in PATH, the script checks `ANDROID_HOME`, `ANDROID_SDK_ROOT` and `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`. Keep `local.properties` private and untracked; `sdk.dir=...` may be needed to locate the SDK for Gradle.
+For normal UI/employee login/device/shift testing, **leave device pairing off**.
+This is the safe build default even if `local.properties` is absent.
 
-**Supabase is optional for UI preview:** The current trusted PIN gateway is intentionally disabled. A project URL/publishable key alone will NOT enable production employee login or real sales. Do not put a service-role key, employee PIN, or database password into `local.properties` or GitHub.
+Optional Web server override only when necessary:
 
-## 3 — Connect Android phone by USB
+```properties
+CPIPOS_WEB_POS_API_URL=https://cp-ipos-web.vercel.app
+CPIPOS_ANDROID_PAIRING_ENABLED=false
+```
 
-On the phone, enable Developer options → USB debugging, connect a **data-capable** USB cable, unlock the phone, and accept the **Allow USB debugging** prompt. In VS Code terminal:
+The live Native flow uses the existing HTTPS Web POS backend, which in turn uses
+Supabase CpiPOS-001. A Supabase publishable key is NOT a bypass for real login.
+Do not copy any service-role secret, employee PIN, database password, Android
+signing key or production auth cookie to this repository.
+
+## C. Connect the Android phone
+
+On the phone: Developer options → enable USB debugging → attach USB data cable,
+unlock phone, accept the USB debugging authorization popup.
 
 ```powershell
 .\scripts\android-device-preview.ps1 -ListOnly
 ```
 
-Only a device with state `device` (not `unauthorized` or `offline`) can receive the APK. If multiple devices are connected use `-DeviceSerial` with the serial shown *locally* by ADB. Do not post or commit private device serials.
+Your phone must say `device`, not `unauthorized` or `offline`.
+If more than one is connected, supply the local ADB serial using `-DeviceSerial`.
+Do not publish any device serials in GitHub.
 
-## 4 — Build, install, launch and mirror
-
-From `E:\cpipos-native-pos-latest`:
+## D. Compile, install and view the APK
 
 ```powershell
 .\scripts\android-device-preview.ps1 -Mirror
 ```
 
-This runs `gradlew.bat --no-daemon :app:assembleDebug`, installs `app\build\outputs\apk\debug\app-debug.apk`, launches **`com.cpipos.pos.next.dev`**, and opens `scrcpy` if available.
+This builds `app\build\outputs\apk\debug\app-debug.apk`, installs the
+separate app id `com.cpipos.pos.next.dev`, launches it, and uses scrcpy if
+installed. Without scrcpy:
 
-On a system without scrcpy, omit `-Mirror` and view the app directly on the phone. Once the debug APK has been built:
+```powershell
+.\scripts\android-device-preview.ps1
+```
+
+After the first successful build, reinstall faster:
 
 ```powershell
 .\scripts\android-device-preview.ps1 -SkipBuild -Mirror
 ```
 
-If PowerShell blocks scripts, use this **only in the current terminal** (do not change machine-wide settings):
+If PowerShell blocks the script, apply to **this terminal only**:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-Then retry the script.
-
-**Manual fallback:**
+If running manually:
 
 ```powershell
 .\gradlew.bat --no-daemon :app:assembleDebug
 adb devices -l
-adb -s <serial-from-adb> install -r -t .\app\build\outputs\apk\debug\app-debug.apk
-adb -s <serial-from-adb> shell monkey -p com.cpipos.pos.next.dev -c android.intent.category.LAUNCHER 1
-scrcpy -s <serial-from-adb>
+adb install -r -t .\app\build\outputs\apk\debug\app-debug.apk
+adb shell monkey -p com.cpipos.pos.next.dev -c android.intent.category.LAUNCHER 1
 ```
 
-Replace `<serial-from-adb>` with the identifier displayed **on your computer**. `-s` can be omitted if exactly one device is connected.
+Do NOT uninstall existing `com.cpipos.pos` to troubleshoot this debug app.
 
-## 5 — Faster alternative: existing GitHub Actions APK
+## E. What you can actually inspect
 
-GitHub Actions run [Native Foundation Build #35756961237](https://github.com/sstdevelopaminno/cpipos-native-pos/actions/runs/35756961237) passed for source commit `2b07c5d`; artifact **`cpipos-native-preview-debug-apk`** (artifact ID `10708368370`) was confirmed unexpired at handoff. Download ZIP from **Artifacts** at the bottom of that run, extract `app-debug.apk`, then use the manual `adb install -r -t` command pointing to the extracted file. This option installs the *older build tied to that commit*; use local Gradle for the newest branch source. GitHub artifacts expire (this one was marked for 2026-09-29), so rebuild locally or trigger new CI after that.
+- Branded CpiPOS login (Thai/English, Store Code) on opening the APK.
+- With a **real authorized test Store Code**: branch → numeric back-office
+  employee code → registered terminal → shift → mode → product grid/cart.
+- With an approved test account/device/shift, cash checkout runs through the
+  real Web POS and can create a **real sale/payment**. Do **not** press Confirm
+  to test appearance alone, and do not use a real merchant with no QA approval.
+- Dine-in/Table Bill is not enabled yet; bank transfer is not bank-verified;
+  scanning, reliable offline-sync and hardware ESC/POS printer support are
+  not production-complete.
+- The app shows a receipt only after the server confirms a paid order; any
+  uncertain checkout is locked for review to avoid double payments.
+- This branch contains no user-facing fake `ทดลอง UI` shortcut, respecting the
+  approved unified Native UI. Without test access you can still inspect the
+  first Store Code screen and code, but cannot bypass login to view cash screens.
 
-## 6 — What to test / known limitations
+**Optional dedicated QA Android pairing (do not enable for ordinary previews):**
 
-Walk through native UI: store-code entry → branch picker → PIN field → counter → choose **กลับบ้าน / นั่งโต๊ะ** → product list → cart → mock cash/transfer → back/cancel. Enter **only dummy PIN/test inputs** to inspect the preview, not a real employee PIN. The guard gateway returns BackendUnavailable and does not send credentials. Any screen progression after that is for UI preview, **not proof of successful employee authentication**. Products/checkout are mock Compose data; no real payment, stock deduction, receipt, shift or sync writes.
+After an IT administrator provides a **separate QA cashier terminal** that is
+not being used by Android 1.0.23, set in untracked `local.properties`:
 
-Development APK has its own package ID `com.cpipos.pos.next.dev`; it installs alongside production `com.cpipos.pos` (Android 1.0.23). Never uninstall/replace production Android to fix the preview.
+```properties
+CPIPOS_ANDROID_PAIRING_ENABLED=true
+```
 
-Please send screenshots of login, mode picker, sale grid, cart and checkout from the installed debug app before requesting detailed UX changes. Verify device resolution, touch targets, Thai text wrapping and bottom navigation on your actual phone.
+Rebuild/reinstall the APK; the app creates a per-install UUID in private Android
+preferences and sends `android_install_id` / `android_app_version` and
+`x-cpipos-android-pos:true` only during authorized terminal selection.
+The server may change `branch_devices.metadata` during successful pairing.
+Native requires the server's `paired`, `confirmed` or authorized
+`lab-roaming` acknowledgment. If device is already paired elsewhere, stop and
+let IT reconcile; do not remove bindings or retry on customer terminals.
+Switch back to false and rebuild for routine UI previews.
+
+## F. CI APK alternative and issue reporting
+
+The branch CI runs `:app:testDebugUnitTest :app:assembleDebug` and uploads
+`cpipos-native-preview-debug-apk` at GitHub Actions (7-day retention).
+In the run's **Artifacts** section download ZIP and extract `app-debug.apk`.
+Local Gradle/USB build remains the most direct workflow in VS Code.
+
+Send screenshots of login, branch, cashier selection, mode and sale/cash screens
+from the device, plus the *non-secret* error code and GitHub run link for
+failures. Do not send customer account secrets, PINs, auth cookies or bank data.
