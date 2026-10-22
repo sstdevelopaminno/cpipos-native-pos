@@ -25,7 +25,8 @@ data class LiveSaleAttempt(
     val payloadJson: String?,
     val totalSatang: Long?,
     val receivedSatang: Long?,
-    val createdAtMs: Long
+    val createdAtMs: Long,
+    val paymentMethod: String = "cash"
 ) {
     fun linesOrNull(): List<DemoReceiptLine>? {
         val raw = payloadJson?.takeIf { it.isNotBlank() } ?: return null
@@ -48,7 +49,7 @@ data class LiveSaleAttempt(
 }
 
 class LiveSaleJournal(context: Context) : SQLiteOpenHelper(
-    context.applicationContext, "cpipos_live_sale_attempts_v1.db", null, 2
+    context.applicationContext, "cpipos_live_sale_attempts_v1.db", null, 3
 ) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -64,6 +65,7 @@ class LiveSaleJournal(context: Context) : SQLiteOpenHelper(
               payload_json TEXT,
               total_satang INTEGER,
               received_satang INTEGER,
+              payment_method TEXT NOT NULL DEFAULT 'cash',
               created_at_ms INTEGER NOT NULL,
               updated_at_ms INTEGER NOT NULL
             )
@@ -82,6 +84,9 @@ class LiveSaleJournal(context: Context) : SQLiteOpenHelper(
             db.execSQL("ALTER TABLE live_attempts ADD COLUMN payload_json TEXT")
             db.execSQL("ALTER TABLE live_attempts ADD COLUMN total_satang INTEGER")
             db.execSQL("ALTER TABLE live_attempts ADD COLUMN received_satang INTEGER")
+        }
+        if (oldVersion <= 2 && newVersion >= 3) {
+            db.execSQL("ALTER TABLE live_attempts ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cash'")
             return
         }
         error("Live sale journal migration required: $oldVersion -> $newVersion")
@@ -92,7 +97,7 @@ class LiveSaleJournal(context: Context) : SQLiteOpenHelper(
             "live_attempts",
             arrayOf(
                 "id", "order_id", "order_no", "stage", "payload_json",
-                "total_satang", "received_satang", "created_at_ms"
+                "total_satang", "received_satang", "created_at_ms", "payment_method"
             ),
             "tenant_id=? AND branch_id=? AND device_code=? AND stage NOT IN (?,?)",
             arrayOf(
@@ -114,7 +119,8 @@ class LiveSaleJournal(context: Context) : SQLiteOpenHelper(
                             payloadJson = if (cursor.isNull(4)) null else cursor.getString(4),
                             totalSatang = if (cursor.isNull(5)) null else cursor.getLong(5),
                             receivedSatang = if (cursor.isNull(6)) null else cursor.getLong(6),
-                            createdAtMs = cursor.getLong(7)
+                            createdAtMs = cursor.getLong(7),
+                            paymentMethod = cursor.getString(8)
                         )
                     )
                 }
@@ -131,12 +137,15 @@ class LiveSaleJournal(context: Context) : SQLiteOpenHelper(
         billId: String,
         lines: List<DemoReceiptLine>,
         total: Satang,
-        received: Satang
+        received: Satang,
+        paymentMethod: String = "cash"
     ): Boolean {
         require(UUID.fromString(billId).toString() == billId)
         require(lines.isNotEmpty())
         require(lines.all { it.quantity > 0 && it.unitPrice >= Satang.ZERO })
         require(total > Satang.ZERO && received >= total)
+        require(paymentMethod == "cash" || paymentMethod == "bank_transfer")
+        if (paymentMethod == "bank_transfer") require(received == total)
         require(unresolved(session).all { it.id == billId }) {
             "Unresolved previous sale: reconcile it before opening a new bill"
         }
@@ -166,6 +175,7 @@ class LiveSaleJournal(context: Context) : SQLiteOpenHelper(
             put("payload_json", payload)
             put("total_satang", total.value)
             put("received_satang", received.value)
+            put("payment_method", paymentMethod)
             put("created_at_ms", now)
             put("updated_at_ms", now)
         }
