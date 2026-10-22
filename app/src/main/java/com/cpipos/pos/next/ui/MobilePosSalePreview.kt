@@ -49,6 +49,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
@@ -171,7 +174,17 @@ internal fun MobilePosSalePreview(
     var activeBillId by remember { mutableStateOf(UUID.randomUUID().toString()) }
     var saving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(notice) {
+        if (notice.isNotBlank()) {
+            snackbarHostState.showSnackbar(
+                message = notice,
+                duration = SnackbarDuration.Short
+            )
+            notice = ""
+        }
+    }
 
     val products = if (liveSession != null) {
         (liveProducts ?: emptyList()).map {
@@ -357,28 +370,25 @@ internal fun MobilePosSalePreview(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(76.dp),
+                        .height(64.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Image(
                         painter = painterResource(R.drawable.cpipos_logo_symbol),
                         contentDescription = "กลับหน้าเลือกโหมด",
-                        modifier = Modifier.size(45.dp).clickable { onBack() }
+                        modifier = Modifier.size(39.dp).clickable { onBack() }
                     )
-                    Text("CpIPOS", fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, color = saleInk)
-                    Spacer(modifier = Modifier.width(9.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(mode.title, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = saleInk, maxLines = 1)
-                        Text(
-                            if (mode == MockSaleMode.Takeaway) "แคชเชียร์ขายกลับบ้าน" else "แคชเชียร์ขายนั่งโต๊ะ",
-                            fontSize = 12.sp,
-                            color = saleMuted,
-                            maxLines = 1
-                        )
-                    }
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text(
+                        "CpIPOS",
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = saleInk
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
                     // Badge is outside the clipped button so it cannot be cut off.
                     Box(
-                        modifier = Modifier.size(56.dp),
+                        modifier = Modifier.size(54.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Box(
@@ -423,15 +433,9 @@ internal fun MobilePosSalePreview(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        if (liveSession == null) "พรีวิว UI • ไม่ใช่ยอดขายจริง"
-                        else "เชื่อมต่อ POS จริง • ${liveSession.cashierName}",
-                        color = if (liveSession == null) saleMuted else Color(0xFF16824D),
-                        fontSize = 11.sp
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
                     Text(
                         if (liveSession == null) "ดูยอดขายทดลอง ›" else "ยอดขายใน POS Web ›",
                         modifier = Modifier.clickable { openPreviewSalesHistory() },
@@ -529,17 +533,13 @@ internal fun MobilePosSalePreview(
             }
 
             HomeBottomMenu(modifier = Modifier.align(Alignment.BottomCenter))
-            if (notice.isNotEmpty()) {
-                Text(
-                    notice,
-                    color = Color(0xFF25834C),
-                    fontSize = 10.sp,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(bottom = 112.dp)
-                )
-            }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 104.dp)
+            )
         }
     }
     if (showScannerNotice) {
