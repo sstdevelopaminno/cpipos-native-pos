@@ -10,8 +10,15 @@ mock-only summary. It is **not a field acceptance signoff**.
 - The `main` branch is handoff-only and cannot compile an Android APK yet.
 - Kotlin/Jetpack Compose, Android package `com.cpipos.pos.next` with
   `.dev` debug suffix. Android 1.0.23 (`com.cpipos.pos`) remains untouched.
-- The visible `MainActivity` calls `MobilePosLiveScreen(WebPosClient)` using
-  the existing, real HTTPS Web POS cookie-based session. The historical
+- **Product architecture: 100% Native Android phone app, NOT a wrapped
+  Tablet/Web POS.** All visible screens are Jetpack Compose, not WebView.
+  Native and Tablet POS share the same secured business API and Supabase
+  CpiPOS-001 Primary database. See
+  [Native architecture](NATIVE_ANDROID_100_PERCENT_ARCHITECTURE.md).
+- The visible `MainActivity` calls `MobilePosLiveScreen(WebPosClient)`: the
+  `WebPosClient` symbol is a native Kotlin HTTPS/JSON adapter, **not** a
+  WebView. The existing, real POS API currently uses cookie-based session.
+  The historical
   `GuardedNativeAuthGateway` remains an inactive scaffold; it is *not* the
   running login gateway.
 - Login steps: Store Code → server branch → back-office numeric employee code
