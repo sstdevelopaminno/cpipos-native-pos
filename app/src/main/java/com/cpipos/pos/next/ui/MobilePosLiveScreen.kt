@@ -413,6 +413,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 branchName = verified.branchName,
                 counterCode = verified.deviceCode,
                 onBack = { step = "mode" },
+                // Return to the existing mode chooser; keep the authenticated POS session.
+                onSelectMode = { step = "mode" },
                 liveClient = client,
                 liveSession = verified,
                 liveProducts = catalog,
