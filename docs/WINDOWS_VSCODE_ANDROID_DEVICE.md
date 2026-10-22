@@ -1,6 +1,12 @@
 # CpiPOS Native 2.0 — VS Code, Windows, Android USB preview
 
 Verified development source: `feature/native-device-pairing-preview-20261022`.
+
+**App architecture:** This is a **100% Native Android mobile POS** (Kotlin +
+Jetpack Compose), **not** a web wrapper. The API hostname is only the
+authenticated networking backend shared with Tablet POS; both access the
+same CpiPOS-001 Primary business data. No WebView or duplicate database.
+See [architecture and feature parity](NATIVE_ANDROID_100_PERCENT_ARCHITECTURE.md).
 **Do NOT clone the minimal `main` branch for Android builds.**
 This app has its own debug identity `com.cpipos.pos.next.dev`, so it can install
 beside Android POS 1.0.23 (`com.cpipos.pos`) without replacing it.
