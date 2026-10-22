@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -156,7 +157,34 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             }
     }
 
+    // Resume the same backend-issued POS identity after process restart.
+    // Server still validates tenant, branch, device, employee and session lease.
+    LaunchedEffect(client) {
+        if (client.hasStoredPosSession() && step == "store") {
+            step = "restoring"
+            try {
+                val restored = client.getSession()
+                session = restored
+                refreshCatalog(restored)
+            } catch (failure: WebPosApiException) {
+                if (failure.status == 401 || failure.status == 403) client.clearStoredPosSession()
+                session = null
+                error = null
+                step = "store"
+            } catch (_: Exception) {
+                session = null
+                step = "store"
+            }
+        }
+    }
+
     when (step) {
+        "restoring" -> Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("กำลังตรวจสอบเซสชัน CpIPOS ที่เคยเข้าสู่ระบบ...", color = liveInk)
+        }
         "store" -> LoginLandingScreen(
             storeCode = storeCode,
             isSubmitting = busy,
