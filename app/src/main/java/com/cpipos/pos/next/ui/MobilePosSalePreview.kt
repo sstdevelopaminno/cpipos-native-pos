@@ -538,7 +538,8 @@ internal fun MobilePosSalePreview(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 104.dp)
+                    .padding(horizontal = 12.dp)
+                    .padding(bottom = 104.dp)
             )
         }
     }
