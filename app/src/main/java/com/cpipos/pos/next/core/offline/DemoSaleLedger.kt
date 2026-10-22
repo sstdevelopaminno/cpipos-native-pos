@@ -35,7 +35,9 @@ data class DemoSaleReceipt(
     val storeAddress: String? = null,
     val storePhone: String? = null,
     val cashierName: String = "ทดลอง UI",
-    val shiftLabel: String? = null
+    val shiftLabel: String? = null,
+    /** Display/printing metadata only. Payment truth is server-authoritative. */
+    val paymentMethod: String = "cash"
 )
 
 data class DemoDailyTotal(val billCount: Int, val sales: Satang)
