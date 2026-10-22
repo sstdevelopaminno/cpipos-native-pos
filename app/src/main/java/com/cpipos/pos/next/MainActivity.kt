@@ -13,7 +13,9 @@ import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.ui.MobilePosLiveScreen
 
 class MainActivity : ComponentActivity() {
-    // Android uses the existing public HTTPS POS API; privileged credentials remain server-side.
+    // Fully native Kotlin/Compose UI, NOT a WebView.
+    // The shared HTTPS POS API connects mobile and tablet to the same CpiPOS-001
+    // tenant/branch data; privileged database credentials remain server-side.
     private val webPosClient by lazy {
         val pairing = if (BuildConfig.ANDROID_PAIRING_ENABLED) {
             NativeAndroidPairing(
