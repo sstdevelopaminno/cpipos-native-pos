@@ -358,6 +358,96 @@ internal fun MobilePosSalePreview(
         return
     }
 
+    if (payment == PreviewPayment.Transfer &&
+        liveSession != null && liveClient != null && liveJournal != null
+    ) {
+        TransferQrCheckoutScreen(
+            client = liveClient,
+            session = liveSession,
+            due = Satang.of(total),
+            saving = saving,
+            error = saveError,
+            onCancel = {
+                if (!saving) {
+                    payment = null
+                    showCart = true
+                    saveError = null
+                }
+            },
+            onConfirmReceived = {
+                if (!saving && quantity > 0 && total > 0L) {
+                    saving = true
+                    saveError = null
+                    val snapshot = products.mapNotNull { item ->
+                        val count = cart[item.id] ?: 0
+                        if (count > 0) {
+                            DemoReceiptLine(item.id, item.name, count, Satang.of(item.price))
+                        } else null
+                    }
+                    val billId = activeBillId
+                    scope.launch {
+                        try {
+                            // Only AFTER the cashier verifies actual funds does a
+                            // durable transfer attempt exist. QR display is not payment.
+                            withContext(Dispatchers.IO) {
+                                check(
+                                    liveJournal.prepare(
+                                        session = liveSession,
+                                        billId = billId,
+                                        lines = snapshot,
+                                        total = Satang.of(total),
+                                        received = Satang.of(total),
+                                        paymentMethod = "bank_transfer"
+                                    )
+                                ) { "บิลนี้เคยส่งแล้ว ต้อง Reconcile ด้วยรหัสเดิม" }
+                            }
+                            val order = liveClient.createTakeawayOrder(
+                                session = liveSession, lines = snapshot, saleId = billId
+                            )
+                            withContext(Dispatchers.IO) {
+                                liveJournal.orderCreated(
+                                    liveSession, billId, order.id, order.orderNo
+                                )
+                            }
+                            val paid = liveClient.payExistingTransfer(
+                                session = liveSession,
+                                orderId = order.id,
+                                orderNo = order.orderNo,
+                                lines = snapshot,
+                                saleId = billId,
+                                expectedTotal = order.total
+                            )
+                            withContext(Dispatchers.IO) {
+                                liveJournal.confirmed(liveSession, billId)
+                            }
+                            cart.clear()
+                            activeBillId = UUID.randomUUID().toString()
+                            showCart = false
+                            showMethods = false
+                            payment = null
+                            receipt = paid.receipt
+                            notice = "บันทึกเงินโอนที่ตรวจสอบแล้ว: ${paid.receipt.billNo}"
+                        } catch (failure: Exception) {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    if (liveJournal.unresolved(liveSession).any { it.id == billId }) {
+                                        liveJournal.review(liveSession, billId)
+                                    }
+                                }
+                            }
+                            saveError = "ยังไม่ทราบผลการจบบิล ห้ามขายซ้ำ " +
+                                "กรุณากลับหน้าเลือกโหมดและ Reconcile บิลเดิม: " +
+                                (failure.localizedMessage ?: "เชื่อมต่อไม่สำเร็จ").take(55)
+                        } finally {
+                            saving = false
+                        }
+                    }
+                }
+            }
+        )
+        return
+    }
+
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
