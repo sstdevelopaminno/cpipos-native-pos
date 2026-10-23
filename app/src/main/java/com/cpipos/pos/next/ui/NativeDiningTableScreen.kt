@@ -233,6 +233,7 @@ internal fun NativeDiningTableScreen(
         val bill = managementBill
         val pending = journal.pending(session, table.id)
         val eligible = bill != null && bill.editable && !bill.paid &&
+            session.canManageTables && (!hasItems || session.canSell) &&
             !managementLoading && !working && canManageTable(table.id) && pending == null
         val hasItems = bill?.lines?.isNotEmpty() == true
         AlertDialog(
@@ -251,6 +252,11 @@ internal fun NativeDiningTableScreen(
                         color = Color(0xFFB33D4D), fontSize = 12.sp
                     )
                     managementError?.let { Text(it, color = Color(0xFFB33D4D), fontSize = 12.sp) }
+                    if (!session.canManageTables || (hasItems && !session.canSell)) Text(
+                        "บัญชีพนักงานไม่มีสิทธิ์จัดการโต๊ะหรือยกเลิกรายการ " +
+                            "โปรดใช้ผู้มีสิทธิ์ที่ CpIPOS Web",
+                        color = Color(0xFFB33D4D), fontSize = 12.sp
+                    )
                     if (!canManageTable(table.id)) Text(
                         "มีตะกร้าหรือบิลค้างบนมือถือเครื่องนี้ " +
                             "กรุณาตรวจสอบก่อนยกเลิก",
