@@ -104,7 +104,8 @@ data class WebPosSession(
     val id: String, val tenantId: String, val branchId: String,
     val branchName: String, val storeName: String, val cashierName: String,
     val employeeId: String, val deviceCode: String,
-    val shiftId: String?, val canOpenShift: Boolean, val canSell: Boolean
+    val shiftId: String?, val canOpenShift: Boolean, val canSell: Boolean,
+    val canManageTables: Boolean = false
 )
 data class WebCreatedOrder(
     val id: String,
@@ -570,7 +571,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             shiftId = if (shift?.optString("status") == "open")
                 shift.optString("id").takeIf { it.isNotBlank() } else null,
             canOpenShift = "shift:open" in values,
-            canSell = "sale:create" in values && "sales:enter" in values
+            canSell = "sale:create" in values && "sales:enter" in values,
+            canManageTables = "tables:manage" in values
         )
     }
 
@@ -836,6 +838,9 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         session: WebPosSession, tableId: String, expected: WebDiningBill
     ): Boolean {
         requireSameLiveSession(session)
+        check(session.canManageTables && session.canSell) {
+            "table_management_permission_required"
+        }
         require(UUID.fromString(tableId).toString() == tableId)
         val current = diningBill(session, tableId)
         if (!current.editable || current.paid || current.sessionId != expected.sessionId ||
@@ -863,6 +868,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         session: WebPosSession, tableId: String, expected: WebDiningBill
     ): Boolean {
         requireSameLiveSession(session)
+        check(session.canManageTables) { "table_management_permission_required" }
         require(UUID.fromString(tableId).toString() == tableId)
         val current = diningBill(session, tableId)
         if (!current.editable || current.paid || current.lines.isNotEmpty() ||
