@@ -50,6 +50,7 @@ internal class DiningDraft {
     var paymentRequestId by mutableStateOf<String?>(null)
     var paymentMethod by mutableStateOf<PreviewPayment?>(null)
     var cashInput by mutableStateOf("")
+    var discount by mutableStateOf<PosDiscount?>(null)
 }
 private fun billQuantities(bill: WebDiningBill): Map<String, Int> =
     bill.lines.groupBy { it.productId }.mapValues { (_, lines) -> lines.sumOf { it.quantity } }
@@ -73,6 +74,7 @@ internal fun NativeDiningOrderScreen(
     var showCancelPin by remember(session.id, table.id) { mutableStateOf(false) }
     var cancelPinError by remember(session.id, table.id) { mutableStateOf<String?>(null) }
     var showMethods by remember(session.id, table.id) { mutableStateOf(false) }
+    var showDiscount by remember(session.id, table.id) { mutableStateOf(false) }
     var selectedPaymentMethod by remember(session.id, table.id) { mutableStateOf(PreviewPayment.Cash) }
     var category by remember(session.id, table.id) { mutableStateOf("ทั้งหมด") }
     var search by remember(session.id, table.id) { mutableStateOf("") }
@@ -155,27 +157,37 @@ internal fun NativeDiningOrderScreen(
         draft.items.forEach { (id, quantity) -> put(id, (get(id) ?: 0) + quantity) }
     }
     val combinedCount = combinedCart.values.sum()
-    val combinedTotal = (existing?.total?.value ?: 0L) + subtotal
+    val gross = (existing?.total?.value ?: 0L) +
+        (existing?.discount?.value ?: 0L) + subtotal
+    val targetDiscount = draft.discount?.amount(gross)
+        ?: (existing?.discount?.value ?: 0L)
+    val discountChanged = draft.discount != null &&
+        targetDiscount != (existing?.discount?.value ?: 0L)
+    val discountValid = targetDiscount >= 0L && targetDiscount < gross
+    val combinedTotal = (gross - targetDiscount).coerceAtLeast(0L)
     val custom = existing?.lines.orEmpty().any { item ->
         val product = products.find { it.id == item.productId }
         item.quantity <= 0 || item.hasCustomMetadata || !item.notes.isNullOrBlank() ||
             product == null || product.price != item.unitPrice
     }
     val canSubmit = existing?.editable == true && !custom && !stale &&
-        !draft.busy && !draft.uncertain && count > 0
+        !draft.busy && !draft.uncertain && discountValid &&
+        (count > 0 || discountChanged)
     val canPayExisting = existing?.editable == true && existing.orderId != null &&
         existing.total > Satang.ZERO && !custom && !stale &&
-        !draft.busy && !draft.uncertain && count == 0
+        !draft.busy && !draft.uncertain && !discountChanged && count == 0
     val canCheckout = canSubmit || canPayExisting
 
-    fun save() {
+    fun save(thenCheckout: Boolean = true) {
         val initial = bill ?: return
         if (!canSubmit) return
         val desired = billQuantities(initial).toMutableMap()
         draft.items.forEach { (id, qty) -> desired[id] = (desired[id] ?: 0) + qty }
+        val requestedDiscount = targetDiscount
         val requestId = UUID.randomUUID().toString()
         try {
-            mutationJournal.prepare(session, table.id, "items", initial.orderId, requestId, desired)
+            mutationJournal.prepare(session, table.id, "items", initial.orderId, requestId,
+                desired, requestedDiscount)
         } catch (failure: Exception) {
             draft.uncertain = true
             error = "มีรายการที่ต้องตรวจสอบในเครื่อง ห้ามบันทึกซ้ำ"
@@ -190,21 +202,24 @@ internal fun NativeDiningOrderScreen(
         scope.launch {
             try {
                 client.saveDiningOrder(session, table.id, initial, desired, products,
-                    requireNotNull(draft.requestId))
+                    requireNotNull(draft.requestId), Satang.of(requestedDiscount))
                 val verified = client.diningBill(session, table.id)
-                if (billQuantities(verified) != desired || verified.orderId.isNullOrBlank())
+                if (billQuantities(verified) != desired ||
+                    verified.discount.value != requestedDiscount ||
+                    verified.orderId.isNullOrBlank())
                     throw IllegalStateException("table_order_acknowledgement_not_confirmed")
                 mutationJournal.confirmed(session, table.id, requestId)
                 bill = verified
                 // Items are saved, but the table has NOT been paid.
                 // Show the green success check only after actual settlement.
                 draft.items.clear()
+                draft.discount = null
                 draft.pendingQuantities = emptyMap()
                 draft.requestId = null
                 draft.uncertain = false
                 stale = false
                 feedback = "idle"
-                showMethods = true
+                if (thenCheckout) showMethods = true else onTables()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -258,6 +273,8 @@ internal fun NativeDiningOrderScreen(
                 val resolved = pending != null && when (pending.kind) {
                     "items" -> pending.quantities.isNotEmpty() &&
                         billQuantities(remote) == pending.quantities &&
+                        (pending.discountSatang == null ||
+                            remote.discount.value == pending.discountSatang) &&
                         !remote.orderId.isNullOrBlank()
                     "payment" -> remote.paid && remote.sessionStatus == "closed" &&
                         remote.orderId == pending.orderId
@@ -266,6 +283,7 @@ internal fun NativeDiningOrderScreen(
                 if (resolved && pending != null) {
                     mutationJournal.confirmed(session, table.id, pending.requestId)
                     draft.items.clear()
+                    draft.discount = null
                     draft.pendingQuantities = emptyMap()
                     draft.requestId = null
                     draft.paymentRequestId = null
@@ -522,6 +540,17 @@ internal fun NativeDiningOrderScreen(
         PaymentFeedbackOverlay(feedback)
         return
     }
+    if (showDiscount) NativeDiscountDialog(
+        subtotal = gross,
+        current = draft.discount ?: PosDiscount(
+            "amount", existing?.discount?.bahtText().orEmpty()
+        ),
+        onDismiss = { showDiscount = false },
+        onConfirm = { selected ->
+            draft.discount = selected
+            showDiscount = false
+        }
+    )
     if (cartOpen) PreviewCartBottomSheet(
         products = entries, cart = combinedCart,
         quantity = combinedCount, total = combinedTotal,
@@ -557,7 +586,14 @@ internal fun NativeDiningOrderScreen(
                 else showMethods = true
             }
         },
-        onFeatureClick = {},
+        onFeatureClick = { if (it == "ส่วนลด") showDiscount = true },
+        onHoldBill = {
+            cartOpen = false
+            if (canSubmit) save(thenCheckout = false)
+            else if (canPayExisting) onTables()
+            else error = "ไม่สามารถพักบิลที่ยังตรวจสอบสถานะไม่สำเร็จ"
+        },
+        discountAmount = targetDiscount,
         checkoutLabel = "ชำระเงิน", tableMode = true,
         checkoutEnabled = canCheckout,
         lockedQuantities = storedQuantities
