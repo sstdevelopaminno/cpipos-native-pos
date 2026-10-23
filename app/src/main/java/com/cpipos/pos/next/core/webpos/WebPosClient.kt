@@ -1153,15 +1153,17 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     suspend fun createTakeawayOrder(
         session: WebPosSession,
         lines: List<DemoReceiptLine>,
-        saleId: String
+        saleId: String,
+        expectedTotal: Satang = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
     ): WebCreatedOrder {
         require(lines.isNotEmpty() && lines.all { it.quantity in 1..9999 })
         require(lines.map { it.productId }.distinct().size == lines.size)
         require(session.canSell && session.shiftId != null)
         require(UUID.fromString(saleId).toString() == saleId)
         requireSameLiveSession(session)
-        val total = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
-        require(total > Satang.ZERO)
+        val subtotal = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
+        require(expectedTotal > Satang.ZERO && expectedTotal <= subtotal)
+        val discountTotal = subtotal - expectedTotal
         val items = JSONArray()
         lines.forEach { line ->
             require(runCatching { UUID.fromString(line.productId) }.isSuccess)
@@ -1174,15 +1176,16 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         val order = call(
             "POST",
             "/api/pos/orders",
-            JSONObject().put("items", items).put("discount_total", 0),
+            JSONObject().put("items", items)
+                .put("discount_total", BigDecimal(discountTotal.bahtText())),
             key = saleId
         ).getJSONObject("order")
         val serverTotal = Satang.fromBaht(
             order.opt("grand_total")?.toString()?.takeIf { it != "null" }
                 ?: order.get("total_amount").toString()
         )
-        if (serverTotal != total) {
-            throw WebPosApiException("server_price_changed_review_order", 409)
+        if (serverTotal != expectedTotal) {
+            throw WebPosApiException("server_price_or_discount_changed_review_order", 409)
         }
         return WebCreatedOrder(
             id = order.getString("id"),
@@ -1329,11 +1332,11 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         lines: List<DemoReceiptLine>,
         received: Satang,
         saleId: String,
-        onOrderCreated: suspend (String, String) -> Unit
+        onOrderCreated: suspend (String, String) -> Unit,
+        expectedTotal: Satang = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
     ): WebPaidBill {
-        val total = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
-        require(received >= total && total > Satang.ZERO)
-        val order = createTakeawayOrder(session, lines, saleId)
+        require(received >= expectedTotal && expectedTotal > Satang.ZERO)
+        val order = createTakeawayOrder(session, lines, saleId, expectedTotal)
         onOrderCreated(order.id, order.orderNo)
         return payExistingCash(
             session = session,
