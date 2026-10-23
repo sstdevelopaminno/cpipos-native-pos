@@ -16,7 +16,8 @@ internal class DiningMutationJournal(context: Context) {
 
     data class Pending(
         val requestId: String, val kind: String,
-        val orderId: String?, val quantities: Map<String, Int>
+        val orderId: String?, val quantities: Map<String, Int>,
+        val discountSatang: Long? = null
     )
 
     private fun key(s: WebPosSession, tableId: String) =
@@ -33,7 +34,9 @@ internal class DiningMutationJournal(context: Context) {
                 requestId = json.getString("request_id"),
                 kind = json.getString("kind"),
                 orderId = json.optString("order_id").takeIf { it.isNotBlank() },
-                quantities = qty
+                quantities = qty,
+                discountSatang = if (json.has("discount_satang"))
+                    json.getLong("discount_satang") else null
             )
         }.getOrElse {
             // Garbled journal is not safe to overwrite. The UI must not
@@ -45,7 +48,8 @@ internal class DiningMutationJournal(context: Context) {
     @Synchronized
     fun prepare(
         s: WebPosSession, tableId: String, kind: String, orderId: String?,
-        requestId: String, quantities: Map<String, Int>
+        requestId: String, quantities: Map<String, Int>,
+        discountSatang: Long? = null
     ) {
         require(UUID.fromString(tableId).toString() == tableId)
         require(UUID.fromString(requestId).toString() == requestId)
@@ -58,6 +62,7 @@ internal class DiningMutationJournal(context: Context) {
             .put("kind", kind)
             .put("order_id", orderId ?: "")
             .put("quantities", q)
+        if (discountSatang != null) document.put("discount_satang", discountSatang)
         check(prefs.edit().putString(key(s, tableId), document.toString()).commit()) {
             "dining_journal_persist_failed"
         }
