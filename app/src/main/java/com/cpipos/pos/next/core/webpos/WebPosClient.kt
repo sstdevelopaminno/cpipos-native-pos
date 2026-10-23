@@ -557,6 +557,29 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     /**
+     * An older Android SSO session can remain bound to a shift that was
+     * closed in tablet POS. /session/current then correctly reports closed,
+     * but does not automatically rebind to a *new* shift. Join the same
+     * registered device's current shift via the existing audited server API.
+     * Never create a shift while merely refreshing status.
+     */
+    suspend fun synchronizedShiftSession(): WebPosSession {
+        val current = getSession()
+        if (current.shiftId != null) return current
+        val snapshot = call("GET", "/api/pos/shifts/current")
+        val candidate = snapshot.optJSONObject("current_shift")
+            ?.optString("id")?.takeIf { it.isNotBlank() } ?: return current
+        require(UUID.fromString(candidate).toString() == candidate)
+        call("POST", "/api/pos/shifts/join", JSONObject().put("shift_id", candidate))
+        val rebound = getSession()
+        if (rebound.id != current.id || rebound.branchId != current.branchId ||
+            rebound.deviceCode != current.deviceCode || rebound.shiftId != candidate) {
+            throw WebPosApiException("shift_rebind_not_confirmed", 409)
+        }
+        return rebound
+    }
+
+    /**
      * Opens or reuses the POS Web shift bound to the same branch/device code.
      * Opening cash is cashier-supplied baht, never the old hardcoded zero.
      * Backend owns shift truth; an existing shift retains its original float.
