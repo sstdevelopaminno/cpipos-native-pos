@@ -49,10 +49,17 @@ internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSessio
     var working by remember(session.id) { mutableStateOf(false) }
     var selected by remember(session.id) { mutableStateOf<WebDiningTable?>(null) }
     var detail by remember(session.id) { mutableStateOf<WebTableBillSummary?>(null) }
+    // A timed-out open-bill request may have reached the server: block re-open
+    // until a fresh server snapshot confirms this table is no longer available.
+    var uncertainOpens by remember(session.id) { mutableStateOf(setOf<String>()) }
 
     suspend fun refresh() {
         try {
-            floor = client.diningTables(session)
+            val current = client.diningTables(session)
+            floor = current
+            uncertainOpens = uncertainOpens.filterNot { id ->
+                current.tables.any { it.id == id && (it.sessionId != null || it.status != "available") }
+            }.toSet()
             error = null
         } catch (e: CancellationException) {
             throw e
@@ -181,7 +188,8 @@ internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSessio
         }
     }
     selected?.let { table ->
-        val canOpen = table.status == "available" && table.sessionId == null
+        val canOpen = table.status == "available" && table.sessionId == null &&
+            !uncertainOpens.contains(table.id)
         AlertDialog(
             onDismissRequest = { if (!working) { selected = null; detail = null } },
             title = { Text(table.name, color = diningInk, fontWeight = FontWeight.Bold) },
@@ -190,7 +198,9 @@ internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSessio
                     Text("สถานะ: " + diningStatus(table.status).first)
                     detail?.orderNo?.let { Text("เลขบิล: " + it, color = diningBlue) }
                     if (!canOpen) Text(
-                        "โต๊ะนี้มีสถานะที่บันทึกบน POS Web แล้ว กรุณาตรวจสอบบิลเดิม",
+                        if (uncertainOpens.contains(table.id))
+                            "สถานะเปิดโต๊ะยังไม่แน่นอน กรุณารีเฟรชตรวจสอบเซิร์ฟเวอร์ก่อนเปิดอีกครั้ง"
+                        else "โต๊ะนี้มีสถานะที่บันทึกบน POS Web แล้ว กรุณาตรวจสอบบิลเดิม",
                         fontSize = 12.sp, color = Color(0xFF72829A)
                     )
                 }
@@ -199,6 +209,7 @@ internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSessio
                 if (canOpen) {
                     Button(enabled = !working, onClick = {
                         working = true
+                        uncertainOpens = uncertainOpens + table.id
                         scope.launch {
                             try {
                                 client.openDiningTable(session, table.id)
@@ -206,6 +217,9 @@ internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSessio
                                 detail = null
                                 refresh()
                             } catch (e: Exception) {
+                                if (e is WebPosApiException && e.status in 400..499) {
+                                    uncertainOpens = uncertainOpens - table.id
+                                }
                                 error = "เปิดโต๊ะไม่สำเร็จ โปรดรีเฟรชและตรวจสอบสถานะโต๊ะเดิม"
                                 // Do not retry an uncertain table-open automatically.
                                 selected = null
