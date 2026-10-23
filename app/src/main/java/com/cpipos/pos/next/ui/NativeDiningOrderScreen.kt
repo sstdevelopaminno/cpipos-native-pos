@@ -84,7 +84,7 @@ internal fun NativeDiningOrderScreen(
         try {
             val remote = client.diningBill(session, table.id)
             if (bill != null && remote.fingerprint() != bill?.fingerprint() &&
-                draft.items.isNotEmpty() && !accept) {
+                (draft.items.isNotEmpty() || draft.discount != null) && !accept) {
                 stale = true
                 error = "บิลบน POS หลักเปลี่ยนแล้ว ต้องรีเฟรชก่อนบันทึกรายการ"
             } else {
@@ -582,7 +582,7 @@ internal fun NativeDiningOrderScreen(
         onCheckout = {
             if (canCheckout) {
                 cartOpen = false
-                if (draft.items.isNotEmpty()) save()
+                if (canSubmit) save()
                 else showMethods = true
             }
         },
