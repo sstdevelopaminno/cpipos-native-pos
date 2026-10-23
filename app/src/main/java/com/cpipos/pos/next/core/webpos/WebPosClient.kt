@@ -53,13 +53,14 @@ data class WebDiningLine(
 data class WebDiningBill(
     val sessionId: String?, val sessionStatus: String?,
     val orderId: String?, val orderNo: String?, val orderStatus: String?,
-    val lines: List<WebDiningLine>, val paid: Boolean, val total: Satang
+    val lines: List<WebDiningLine>, val paid: Boolean, val total: Satang,
+    val discount: Satang = Satang.ZERO
 ) {
     val editable: Boolean get() =
         sessionId != null && sessionStatus in setOf("open", "ordering") &&
             (orderId == null || orderStatus == "queued") && !paid
     fun fingerprint(): String = listOf(sessionId, sessionStatus, orderId, orderStatus,
-        paid, total.value,
+        paid, total.value, discount.value,
         lines.joinToString("|") { "${it.productId}:${it.quantity}:${it.unitPrice.value}:${it.notes.orEmpty()}:${it.hasCustomMetadata}" }
     ).joinToString("#")
 }
@@ -725,7 +726,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             paid = (0 until payments.length()).any { i ->
                 payments.optJSONObject(i)?.optDouble("amount", 0.0)?.let { it > 0.0 } == true
             } || order?.optString("status") == "completed",
-            total = Satang.fromBaht(order?.optString("total_amount", "0") ?: "0")
+            total = Satang.fromBaht(order?.optString("total_amount", "0") ?: "0"),
+            discount = Satang.fromBaht(order?.optString("discount_amount", "0") ?: "0")
         )
     }
 
@@ -738,7 +740,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     suspend fun saveDiningOrder(
         session: WebPosSession, tableId: String, base: WebDiningBill,
         quantities: Map<String, Int>, products: List<WebPosProduct>,
-        requestId: String
+        requestId: String, discount: Satang = base.discount
     ): String {
         require(UUID.fromString(tableId).toString() == tableId)
         require(UUID.fromString(requestId).toString() == requestId)
@@ -757,6 +759,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 .put("quantity", quantity)
                 .put("unit_price", BigDecimal(product.price.bahtText())))
         }
+        require(discount >= Satang.ZERO && discount < total)
         // A current server snapshot guards against applying a stale full-cart
         // overwrite. The DB's replace_queued_dine_in_order_tx serializes writes,
         // but does not offer an atomic If-Match revision yet.
@@ -770,6 +773,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             .put("channel", "pos")
             .put("table_id", tableId)
             .put("app_total_amount", BigDecimal(total.bahtText()))
+            .put("discount_amount", BigDecimal(discount.bahtText()))
             .put("items", payloadLines)
         base.orderId?.let { input.put("order_id", it) }
         val result = call("POST", "/api/pos/sales", input, requestId)
