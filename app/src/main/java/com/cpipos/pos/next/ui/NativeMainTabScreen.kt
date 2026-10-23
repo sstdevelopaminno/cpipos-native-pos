@@ -52,7 +52,7 @@ internal fun NativeMainTabScreen(
     LaunchedEffect(client, session.id, tab) {
         if (tab == "history" || tab == "report") {
             try {
-                history = client.receiptHistory(session, "", 1, 40)
+                history = client.receiptHistory(session = session, query = "", page = 1, pageSize = 40)
                 error = null
             } catch (e: CancellationException) {
                 throw e
