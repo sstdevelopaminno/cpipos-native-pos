@@ -188,8 +188,8 @@ internal fun NativeDiningOrderScreen(
                     throw IllegalStateException("table_order_acknowledgement_not_confirmed")
                 mutationJournal.confirmed(session, table.id, requestId)
                 bill = verified
-                feedback = "success"
-                delay(850L)
+                // Items are saved, but the table has NOT been paid.
+                // Show the green success check only after actual settlement.
                 draft.items.clear()
                 draft.pendingQuantities = emptyMap()
                 draft.requestId = null
