@@ -45,6 +45,9 @@ internal class DiningDraft {
     var busy by mutableStateOf(false)
     var pendingQuantities by mutableStateOf<Map<String, Int>>(emptyMap())
     var requestId by mutableStateOf<String?>(null)
+    var paymentRequestId by mutableStateOf<String?>(null)
+    var paymentMethod by mutableStateOf<PreviewPayment?>(null)
+    var cashInput by mutableStateOf("")
 }
 private fun billQuantities(bill: WebDiningBill): Map<String, Int> =
     bill.lines.groupBy { it.productId }.mapValues { (_, lines) -> lines.sumOf { it.quantity } }
@@ -63,6 +66,8 @@ internal fun NativeDiningOrderScreen(
     var cartOpen by remember(session.id, table.id) { mutableStateOf(false) }
     var showExisting by remember(session.id, table.id) { mutableStateOf(false) }
     var showClear by remember(session.id, table.id) { mutableStateOf(false) }
+    var showMethods by remember(session.id, table.id) { mutableStateOf(false) }
+    var selectedPaymentMethod by remember(session.id, table.id) { mutableStateOf(PreviewPayment.Cash) }
     var category by remember(session.id, table.id) { mutableStateOf("ทั้งหมด") }
     var search by remember(session.id, table.id) { mutableStateOf("") }
     var feedback by remember(session.id, table.id) { mutableStateOf("idle") }
@@ -204,6 +209,54 @@ internal fun NativeDiningOrderScreen(
         }
     }
 
+    fun settle() {
+        val reference = bill ?: return
+        val method = draft.paymentMethod ?: return
+        if (!reference.editable || reference.orderId == null ||
+            reference.total <= Satang.ZERO || draft.items.isNotEmpty() ||
+            stale || draft.uncertain || draft.busy) return
+        val received = if (method == PreviewPayment.Cash) {
+            val parsed = runCatching {
+                com.cpipos.pos.next.core.pos.CashTenderInput.money(draft.cashInput)
+            }.getOrNull() ?: return
+            if (parsed < reference.total) return
+            parsed
+        } else Satang.ZERO
+        if (draft.paymentRequestId == null)
+            draft.paymentRequestId = UUID.randomUUID().toString()
+        draft.busy = true
+        feedback = "saving"
+        error = null
+        scope.launch {
+            try {
+                client.settleDiningBill(session, table.id, reference,
+                    if (method == PreviewPayment.Cash) "cash" else "bank_transfer",
+                    received, requireNotNull(draft.paymentRequestId))
+                val verification = client.diningBill(session, table.id)
+                if (!verification.paid || verification.sessionStatus != "closed")
+                    throw IllegalStateException("payment_or_table_cleanup_unconfirmed")
+                bill = verification
+                feedback = "success"
+                delay(900L)
+                draft.paymentRequestId = null
+                draft.paymentMethod = null
+                draft.cashInput = ""
+                onTables()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                // The payment may already have settled at the server. NEVER
+                // send again with a different payment UUID or unlock the table.
+                draft.uncertain = true
+                error = "ผลชำระเงินโต๊ะยังไม่แน่นอน กรุณาตรวจบิลเดิมใน POS Web ก่อน: " +
+                    ((failure as? WebPosApiException)?.code ?: "network_or_response_lost")
+            } finally {
+                feedback = "idle"
+                draft.busy = false
+            }
+        }
+    }
+
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().statusBarsPadding()
@@ -245,6 +298,19 @@ internal fun NativeDiningOrderScreen(
                         Text("฿" + Satang.of(savedTotal + subtotal).bahtText(),
                             color = dineBlue, fontWeight = FontWeight.ExtraBold)
                     }
+                }
+                if (existing?.orderId != null && existing.editable &&
+                    existing.total > Satang.ZERO) {
+                    Button(
+                        onClick = {
+                            if (!draft.busy && draft.items.isEmpty() && !stale &&
+                                !draft.uncertain) showMethods = true
+                        },
+                        enabled = !draft.busy && draft.items.isEmpty() &&
+                            !stale && !draft.uncertain && !custom,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        shape = RoundedCornerShape(15.dp)
+                    ) { Text("ชำระเงิน / เคลียร์บิลโต๊ะ", fontWeight = FontWeight.Bold) }
                 }
                 if (existing?.lines?.isNotEmpty() == true) {
                     TextButton(onClick = { showExisting = true }) {
@@ -318,6 +384,46 @@ internal fun NativeDiningOrderScreen(
         }
     }
 
+    if (showMethods) PreviewPaymentMethodSheet(
+        total = bill?.total?.value ?: 0L,
+        isLiveSale = true,
+        selectedMethod = selectedPaymentMethod,
+        onSelectMethod = { selectedPaymentMethod = it },
+        onDismiss = { showMethods = false },
+        onConfirm = {
+            if (!draft.busy && !draft.uncertain && draft.items.isEmpty()) {
+                showMethods = false
+                draft.paymentMethod = selectedPaymentMethod
+                if (selectedPaymentMethod == PreviewPayment.Cash)
+                    draft.cashInput = ""
+            }
+        }
+    )
+    if (draft.paymentMethod == PreviewPayment.Cash) {
+        CashCheckoutScreen(
+            due = bill?.total ?: Satang.ZERO,
+            cashInput = draft.cashInput,
+            saving = draft.busy,
+            error = error,
+            isLiveSale = true,
+            onInputChange = { if (!draft.busy) draft.cashInput = it },
+            onCancel = { if (!draft.busy) draft.paymentMethod = null },
+            onConfirm = { settle() }
+        )
+        PaymentFeedbackOverlay(feedback)
+        return
+    }
+    if (draft.paymentMethod == PreviewPayment.Transfer) {
+        TransferQrCheckoutScreen(
+            client = client, session = session,
+            due = bill?.total ?: Satang.ZERO, saving = draft.busy,
+            error = error,
+            onCancel = { if (!draft.busy) draft.paymentMethod = null },
+            onConfirmReceived = { settle() }
+        )
+        PaymentFeedbackOverlay(feedback)
+        return
+    }
     if (cartOpen) PreviewCartBottomSheet(
         products = entries, cart = draft.items, quantity = count, total = subtotal,
         onDismiss = { cartOpen = false },
