@@ -62,6 +62,9 @@ internal fun NativeSalesListScreen(
     onTab: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val deleteJournal = remember(context.applicationContext) {
+        SalesDeleteJournal(context.applicationContext)
+    }
     val scope = rememberCoroutineScope()
     val today = remember { LocalDate.now(bangkok) }
     var mode by remember { mutableStateOf("day") }
@@ -80,7 +83,9 @@ internal fun NativeSalesListScreen(
     var deleteTarget by remember { mutableStateOf<WebReceiptHistoryRecord?>(null) }
     var deleteBusy by remember { mutableStateOf(false) }
     var deleteError by remember { mutableStateOf<String?>(null) }
-    var uncertainId by remember { mutableStateOf<String?>(null) }
+    var uncertainIds by remember(session.id) {
+        mutableStateOf(deleteJournal.pending(session))
+    }
     var selectedReceipt by remember { mutableStateOf<WebReceiptHistoryRecord?>(null) }
     var printError by remember { mutableStateOf<String?>(null) }
 
@@ -194,7 +199,7 @@ internal fun NativeSalesListScreen(
                     Text(error.orEmpty(), color = Color(0xFFAF354A),
                         fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
                 }
-                if (uncertainId != null) {
+                if (uncertainIds.isNotEmpty()) {
                     Surface(color = Color(0xFFFFF0EA), shape = RoundedCornerShape(14.dp)) {
                         Column(Modifier.fillMaxWidth().padding(11.dp)) {
                             Text("การลบบิลยังไม่ยืนยัน ห้ามส่งคำขอซ้ำ",
@@ -298,7 +303,7 @@ internal fun NativeSalesListScreen(
                                                     deleteTarget = record
                                                     deleteError = null
                                                 },
-                                                enabled = !deleteBusy && uncertainId != record.orderId
+                                                enabled = !deleteBusy && record.orderId !in uncertainIds
                                             ) { Text("ลบบิล", color = Color(0xFFCE354C), fontSize = 12.sp) }
                                         }
                                     }
@@ -386,9 +391,18 @@ internal fun NativeSalesListScreen(
                 scope.launch {
                     var deletionSent = false
                     try {
+                        if (row.orderId in deleteJournal.pending(session)) {
+                            deleteError = "บิลนี้มีคำขอลบที่ไม่แน่นอน " +
+                                "กรุณาตรวจสอบ CpIPOS Web ก่อน ห้ามส่งซ้ำ"
+                            return@launch
+                        }
                         val approvalId = client.approveSalesRecordDelete(session, row.orderId, pin)
+                        deleteJournal.prepare(session, row.orderId)
+                        uncertainIds = deleteJournal.pending(session)
                         deletionSent = true
                         client.deleteSalesRecord(session, row.orderId, approvalId)
+                        deleteJournal.confirmed(session, row.orderId)
+                        uncertainIds = deleteJournal.pending(session)
                         deleteTarget = null
                         visibleDeleteId = null
                         page = 1
@@ -398,7 +412,7 @@ internal fun NativeSalesListScreen(
                     } catch (failure: Exception) {
                         if (deletionSent) {
                             // No network retries: server may have restored stock.
-                            uncertainId = row.orderId
+                            uncertainIds = deleteJournal.pending(session)
                             deleteTarget = null
                             deleteError = null
                         } else {
