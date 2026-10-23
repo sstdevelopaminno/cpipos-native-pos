@@ -836,7 +836,7 @@ internal fun MobilePosSalePreview(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PreviewPaymentMethodSheet(
+internal fun PreviewPaymentMethodSheet(
     total: Long,
     isLiveSale: Boolean,
     selectedMethod: PreviewPayment,
