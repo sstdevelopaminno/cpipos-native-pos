@@ -137,6 +137,21 @@ private val saleCategories = listOf("ทั้งหมด", "เครื่อ
 
 private enum class PreviewPayment { Cash, Transfer }
 
+/** Retains an in-progress takeaway checkout while the cashier visits the mode menu. */
+internal class TakeawayWorkspace {
+    val cart = mutableStateMapOf<String, Int>()
+    val showCart = mutableStateOf(false)
+    val showMethods = mutableStateOf(false)
+    val selectedMethod = mutableStateOf(PreviewPayment.Cash)
+    val payment = mutableStateOf<PreviewPayment?>(null)
+    val cashInput = mutableStateOf("")
+    val activeBillId = mutableStateOf(UUID.randomUUID().toString())
+    val saving = mutableStateOf(false)
+    val saveError = mutableStateOf<String?>(null)
+    val paymentFeedback = mutableStateOf("idle")
+}
+
+
 @Composable
 internal fun MobilePosSalePreview(
     mode: MockSaleMode,
@@ -147,17 +162,18 @@ internal fun MobilePosSalePreview(
     liveClient: WebPosClient? = null,
     liveSession: WebPosSession? = null,
     liveProducts: List<WebPosProduct>? = null,
-    liveJournal: LiveSaleJournal? = null
+    liveJournal: LiveSaleJournal? = null,
+    workspace: TakeawayWorkspace = remember { TakeawayWorkspace() }
 ) {
-    val cart = remember { mutableStateMapOf<String, Int>() }
+    val cart = workspace.cart
     var category by remember { mutableStateOf("ทั้งหมด") }
     var search by remember { mutableStateOf("") }
     var showScannerNotice by remember { mutableStateOf(false) }
-    var showCart by remember { mutableStateOf(false) }
-    var showMethods by remember { mutableStateOf(false) }
-    var selectedMethod by remember { mutableStateOf(PreviewPayment.Cash) }
-    var payment by remember { mutableStateOf<PreviewPayment?>(null) }
-    var cashInput by remember { mutableStateOf("") }
+    var showCart by workspace.showCart
+    var showMethods by workspace.showMethods
+    var selectedMethod by workspace.selectedMethod
+    var payment by workspace.payment
+    var cashInput by workspace.cashInput
     var notice by remember { mutableStateOf("") }
     var pendingAction by remember { mutableStateOf<String?>(null) }
     var showCancelBillConfirm by remember { mutableStateOf(false) }
@@ -172,9 +188,10 @@ internal fun MobilePosSalePreview(
     var liveHistory by remember { mutableStateOf<WebReceiptHistory?>(null) }
     var liveHistoryLoading by remember { mutableStateOf(false) }
     var liveHistoryError by remember { mutableStateOf<String?>(null) }
-    var activeBillId by remember { mutableStateOf(UUID.randomUUID().toString()) }
-    var saving by remember { mutableStateOf(false) }
-    var saveError by remember { mutableStateOf<String?>(null) }
+    var activeBillId by workspace.activeBillId
+    var saving by workspace.saving
+    var saveError by workspace.saveError
+    var paymentFeedback by workspace.paymentFeedback
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(notice) {
@@ -273,6 +290,7 @@ internal fun MobilePosSalePreview(
                     CashTenderInput.isSufficient(cashInput, Satang.of(total))
                 ) {
                     saving = true
+                    paymentFeedback = "saving"
                     saveError = null
                     val snapshot = products.mapNotNull { item ->
                         val count = cart[item.id] ?: 0
@@ -324,6 +342,8 @@ internal fun MobilePosSalePreview(
                                     received = paid, id = billId
                                 )
                             }
+                            paymentFeedback = "success"
+                            kotlinx.coroutines.delay(950L)
                             // Clear ONLY after the server confirms payment (or demo SQLite commits).
                             cart.clear()
                             activeBillId = UUID.randomUUID().toString()
@@ -334,6 +354,7 @@ internal fun MobilePosSalePreview(
                             receipt = saved
                             notice = if (saved.isDemo) "บันทึกบิลทดลองในเครื่องแล้ว: ${saved.billNo}" else "บันทึกยอดขายจริงแล้ว: ${saved.billNo}"
                         } catch (error: Exception) {
+                            paymentFeedback = "idle"
                             if (liveSession != null && liveJournal != null) {
                                 runCatching {
                                     withContext(Dispatchers.IO) {
@@ -350,6 +371,7 @@ internal fun MobilePosSalePreview(
                                 (error.localizedMessage ?: "กรุณาลองอีกครั้ง").take(80)
                         } finally {
                             saving = false
+                            paymentFeedback = "idle"
                         }
                     }
                 }
@@ -377,6 +399,7 @@ internal fun MobilePosSalePreview(
             onConfirmReceived = {
                 if (!saving && quantity > 0 && total > 0L) {
                     saving = true
+                    paymentFeedback = "saving"
                     saveError = null
                     val snapshot = products.mapNotNull { item ->
                         val count = cart[item.id] ?: 0
@@ -420,6 +443,8 @@ internal fun MobilePosSalePreview(
                             withContext(Dispatchers.IO) {
                                 liveJournal.confirmed(liveSession, billId)
                             }
+                            paymentFeedback = "success"
+                            kotlinx.coroutines.delay(950L)
                             cart.clear()
                             activeBillId = UUID.randomUUID().toString()
                             showCart = false
@@ -428,6 +453,7 @@ internal fun MobilePosSalePreview(
                             receipt = paid.receipt
                             notice = "บันทึกเงินโอนที่ตรวจสอบแล้ว: ${paid.receipt.billNo}"
                         } catch (failure: Exception) {
+                            paymentFeedback = "idle"
                             runCatching {
                                 withContext(Dispatchers.IO) {
                                     if (liveJournal.unresolved(liveSession).any { it.id == billId }) {
@@ -440,6 +466,7 @@ internal fun MobilePosSalePreview(
                                 (failure.localizedMessage ?: "เชื่อมต่อไม่สำเร็จ").take(55)
                         } finally {
                             saving = false
+                            paymentFeedback = "idle"
                         }
                     }
                 }
