@@ -46,6 +46,10 @@ internal fun NativeMainTabScreen(
     products: List<WebPosProduct>,
     onTab: (String) -> Unit
 ) {
+    if (tab == "report") {
+        NativeSalesListScreen(client = client, session = session, onTab = onTab)
+        return
+    }
     var history by remember(session.id, tab) { mutableStateOf<WebReceiptHistory?>(null) }
     var page by remember(session.id, tab) { mutableStateOf(1) }
     var loading by remember(session.id, tab) { mutableStateOf(tab == "history" || tab == "report") }
@@ -67,7 +71,7 @@ internal fun NativeMainTabScreen(
         }
     }
     val title = when (tab) {
-        "report" -> "สรุปยอดขาย"
+        "report" -> "รายการขาย"
         "history" -> "รายการ"
         "stock" -> "ข้อมูลสินค้า"
         else -> "ข้อมูลระบบ"
