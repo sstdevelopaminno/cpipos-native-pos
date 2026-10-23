@@ -476,7 +476,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             NativeDiningTableScreen(
                 client = client,
                 session = verified,
-                onBack = { step = "mode" }
+                onBack = { step = "mode" },
+                onMainMenu = { tab -> navigateTab(tab) }
             )
         }
         "tab" -> session?.let { verified ->
