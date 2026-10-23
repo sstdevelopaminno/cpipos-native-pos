@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,13 +47,17 @@ internal fun NativeMainTabScreen(
     onTab: (String) -> Unit
 ) {
     var history by remember(session.id, tab) { mutableStateOf<WebReceiptHistory?>(null) }
+    var page by remember(session.id, tab) { mutableStateOf(1) }
     var loading by remember(session.id, tab) { mutableStateOf(tab == "history" || tab == "report") }
     var error by remember(session.id, tab) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(client, session.id, tab) {
+    LaunchedEffect(client, session.id, tab, page) {
         if (tab == "history" || tab == "report") {
             try {
-                history = client.receiptHistory(session = session, query = "", page = 1, pageSize = 40)
+                loading = true
+                history = client.receiptHistory(
+                    session = session, query = "", page = page, pageSize = 40
+                )
                 error = null
             } catch (e: CancellationException) {
                 throw e
@@ -63,7 +68,7 @@ internal fun NativeMainTabScreen(
     }
     val title = when (tab) {
         "report" -> "สรุปยอดขาย"
-        "history" -> "ประวัติใบเสร็จ"
+        "history" -> "รายการ"
         "stock" -> "ข้อมูลสินค้า"
         else -> "ข้อมูลระบบ"
     }
@@ -77,6 +82,10 @@ internal fun NativeMainTabScreen(
                     fontWeight = FontWeight.ExtraBold)
                 Text(session.branchName + " · " + session.deviceCode,
                     color = Color(0xFF71849B), fontSize = 12.sp)
+                if (tab == "history") {
+                    Text("รายการขายสำเร็จทั้งโหมดกลับบ้านและนั่งโต๊ะ • ย้อนหลัง 30 วัน",
+                        color = Color(0xFF71849B), fontSize = 11.sp)
+                }
                 Spacer(Modifier.height(20.dp))
                 when {
                     loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -88,6 +97,9 @@ internal fun NativeMainTabScreen(
                         if (records.isEmpty()) {
                             Text("ไม่มีรายการในช่วงประวัติที่โหลด", color = Color(0xFF71849B))
                         } else {
+                            Text("ทั้งหมด " + (history?.total ?: records.size) + " บิล",
+                                color = Color(0xFF657A96), fontSize = 12.sp,
+                                modifier = Modifier.padding(bottom = 10.dp))
                             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 items(records, key = { it.orderId }) { record ->
                                     Surface(
@@ -102,11 +114,35 @@ internal fun NativeMainTabScreen(
                                             Column {
                                                 Text(record.orderNo, fontWeight = FontWeight.Bold,
                                                     color = Color(0xFF193251))
-                                                Text(record.status, fontSize = 11.sp,
-                                                    color = Color(0xFF8796AC))
+                                                Text(
+                                                    record.receipt.modeLabel + " · " +
+                                                        (if (record.receipt.paymentMethod == "bank_transfer")
+                                                            "เงินโอน" else "เงินสด"),
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF8796AC)
+                                                )
                                             }
                                             Text("฿" + record.receipt.total.bahtText(),
                                                 fontWeight = FontWeight.Bold, color = Color(0xFF176DED))
+                                        }
+                                    }
+                                }
+                                if ((history?.totalPages ?: 1) > 1) {
+                                    item {
+                                        Row(modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically) {
+                                            OutlinedButton(
+                                                onClick = { if (page > 1) page -= 1 },
+                                                enabled = page > 1
+                                            ) { Text("ก่อนหน้า") }
+                                            Text(page.toString() + "/" +
+                                                (history?.totalPages ?: page),
+                                                fontSize = 12.sp, color = Color(0xFF677A95))
+                                            OutlinedButton(
+                                                onClick = { page += 1 },
+                                                enabled = page < (history?.totalPages ?: page)
+                                            ) { Text("ถัดไป") }
                                         }
                                     }
                                 }
