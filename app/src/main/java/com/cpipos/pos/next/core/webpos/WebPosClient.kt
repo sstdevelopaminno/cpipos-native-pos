@@ -39,6 +39,14 @@ data class WebCashierDevices(
     val canOverrideInUse: Boolean,
     val devices: List<WebCashierDevice>
 )
+data class WebTableZone(val id: String, val name: String, val color: String)
+data class WebDiningTable(
+    val id: String, val zoneId: String?, val code: String, val name: String,
+    val capacity: Int, val status: String, val sessionId: String?, val orderId: String?
+)
+data class WebTableFloor(val zones: List<WebTableZone>, val tables: List<WebDiningTable>)
+data class WebTableBillSummary(val sessionId: String?, val orderNo: String?, val status: String?, val itemCount: Int)
+
 data class WebPaymentAccount(
     val id: String,
     val bankName: String,
@@ -574,6 +582,56 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 imageUrl = productImageUrlFrom(item)
             )
         }
+    }
+
+
+    /** Same authenticated tenant/branch-scoped floor state as tablet POS. */
+    suspend fun diningTables(session: WebPosSession): WebTableFloor {
+        requireSameLiveSession(session)
+        val data = call("GET", "/api/pos/tables")
+        val zones = data.optJSONArray("zones") ?: JSONArray()
+        val tables = data.optJSONArray("tables") ?: JSONArray()
+        return WebTableFloor(
+            zones = (0 until zones.length()).map { index ->
+                val row = zones.getJSONObject(index)
+                WebTableZone(row.getString("id"), row.optString("zone_name"), row.optString("color"))
+            },
+            tables = (0 until tables.length()).map { index ->
+                val row = tables.getJSONObject(index)
+                WebDiningTable(
+                    id = row.getString("id"),
+                    zoneId = row.optString("zone_id").takeUnless { it.isBlank() || it == "null" },
+                    code = row.optString("table_code"),
+                    name = row.optString("table_name").takeUnless { it.isBlank() || it == "null" }
+                        ?: row.optString("table_code"),
+                    capacity = row.optInt("capacity", 0),
+                    status = row.optString("status", "available"),
+                    sessionId = row.optString("active_session_id").takeUnless { it.isBlank() || it == "null" },
+                    orderId = row.optString("active_order_id").takeUnless { it.isBlank() || it == "null" }
+                )
+            }
+        )
+    }
+
+    /** Server validates tables:manage, active shift and restaurant feature flag. */
+    suspend fun openDiningTable(session: WebPosSession, tableId: String) {
+        require(UUID.fromString(tableId).toString() == tableId)
+        requireSameLiveSession(session)
+        call("POST", "/api/pos/tables/$tableId/open-bill", JSONObject())
+    }
+
+    suspend fun tableBill(session: WebPosSession, tableId: String): WebTableBillSummary {
+        require(UUID.fromString(tableId).toString() == tableId)
+        requireSameLiveSession(session)
+        val data = call("GET", "/api/pos/tables/$tableId/bill?lite=1&refresh=1")
+        val entry = data.optJSONObject("session")
+        val order = data.optJSONObject("order")
+        return WebTableBillSummary(
+            sessionId = entry?.optString("id"),
+            orderNo = order?.optString("order_no"),
+            status = entry?.optString("status"),
+            itemCount = data.optJSONArray("items")?.length() ?: 0
+        )
     }
 
     /**
