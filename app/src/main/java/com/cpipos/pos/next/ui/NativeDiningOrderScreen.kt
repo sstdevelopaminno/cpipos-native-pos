@@ -70,7 +70,8 @@ internal fun NativeDiningOrderScreen(
     var error by remember(session.id, table.id) { mutableStateOf<String?>(null) }
     var stale by remember(session.id, table.id) { mutableStateOf(false) }
     var cartOpen by remember(session.id, table.id) { mutableStateOf(false) }
-    var showClear by remember(session.id, table.id) { mutableStateOf(false) }
+    var showCancelPin by remember(session.id, table.id) { mutableStateOf(false) }
+    var cancelPinError by remember(session.id, table.id) { mutableStateOf<String?>(null) }
     var showMethods by remember(session.id, table.id) { mutableStateOf(false) }
     var selectedPaymentMethod by remember(session.id, table.id) { mutableStateOf(PreviewPayment.Cash) }
     var category by remember(session.id, table.id) { mutableStateOf("ทั้งหมด") }
@@ -225,9 +226,28 @@ internal fun NativeDiningOrderScreen(
         draft.busy = true
         scope.launch {
             try {
+                val pending = mutationJournal.pending(session, table.id)
+                if (pending?.kind == "cancel") {
+                    val snapshot = client.diningTables(session)
+                    val vacant = snapshot.tables.any {
+                        it.id == table.id && it.status == "available" && it.sessionId == null
+                    }
+                    if (vacant && pending.requestId.isNotBlank()) {
+                        mutationJournal.confirmed(session, table.id, pending.requestId)
+                        draft.items.clear()
+                        draft.pendingQuantities = emptyMap()
+                        draft.uncertain = false
+                        error = null
+                        onTables()
+                    } else {
+                        draft.uncertain = true
+                        error = "ยังไม่ยืนยันการยกเลิกบิล โปรดตรวจใน POS Web " +
+                            "ห้ามส่งคำขอซ้ำ"
+                    }
+                    return@launch
+                }
                 val remote = client.diningBill(session, table.id)
                 bill = remote
-                val pending = mutationJournal.pending(session, table.id)
                 val resolved = pending != null && when (pending.kind) {
                     "items" -> pending.quantities.isNotEmpty() &&
                         billQuantities(remote) == pending.quantities &&
@@ -253,6 +273,48 @@ internal fun NativeDiningOrderScreen(
                 }
             } catch (failure: Exception) {
                 error = "ยังตรวจสอบบิลไม่ได้ ห้ามบันทึกซ้ำ"
+            } finally { draft.busy = false }
+        }
+    }
+
+    fun cancelBillWithPin(pin: String) {
+        val base = bill ?: return
+        if (draft.busy || draft.uncertain || !base.editable || base.paid ||
+            base.sessionId == null || !session.canSell) return
+        if (mutationJournal.pending(session, table.id) != null) {
+            draft.uncertain = true
+            cancelPinError = "มีคำขอค้างอยู่ ห้ามยกเลิกซ้ำ"
+            return
+        }
+        draft.busy = true
+        cancelPinError = null
+        scope.launch {
+            var mutationPrepared = false
+            try {
+                val approvalId = client.approveDiningCancellation(session, base, pin)
+                val requestId = UUID.randomUUID().toString()
+                mutationJournal.prepare(session, table.id, "cancel", base.orderId,
+                    requestId, emptyMap())
+                mutationPrepared = true
+                val vacant = client.cancelDiningBill(session, table.id, base, approvalId)
+                if (!vacant) throw IllegalStateException("table_release_not_confirmed")
+                mutationJournal.confirmed(session, table.id, requestId)
+                draft.items.clear()
+                draft.pendingQuantities = emptyMap()
+                draft.requestId = null
+                draft.paymentRequestId = null
+                draft.uncertain = false
+                showCancelPin = false
+                onTables()
+            } catch (failure: Exception) {
+                if (mutationPrepared) {
+                    draft.uncertain = true
+                    showCancelPin = false
+                    error = "ผลยกเลิกบิลยังไม่ยืนยัน โปรดตรวจบิลเดิมใน POS Web ห้ามส่งซ้ำ"
+                } else {
+                    cancelPinError = "PIN ไม่ถูกต้องหรือไม่มีสิทธิ์อนุมัติ " +
+                        "หรือบิลเปลี่ยนแล้ว กรุณาตรวจสอบและลองใหม่"
+                }
             } finally { draft.busy = false }
         }
     }
@@ -340,10 +402,10 @@ internal fun NativeDiningOrderScreen(
                     DiningTopAction(R.drawable.ic_nav_back, "กลับ", !draft.busy) { onTables() }
                     DiningTopAction(R.drawable.ic_nav_tables, "เลือกโต๊ะ", !draft.busy) { onTables() }
                     DiningTopAction(R.drawable.ic_nav_select_mode, "เลือกโหมด", !draft.busy, onMode)
-                    DiningTopAction(R.drawable.ic_nav_cart, "ตะกร้า" +
-                        if (combinedCount > 0) " ($combinedCount)" else "", !draft.busy) {
-                        cartOpen = true
-                    }
+                    DiningTopAction(
+                        R.drawable.ic_nav_cart, "ตะกร้า", !draft.busy,
+                        count = combinedCount
+                    ) { cartOpen = true }
                 }
                 if (error != null || custom || draft.uncertain || stale) {
                     Text(error ?: if (custom)
@@ -469,7 +531,16 @@ internal fun NativeDiningOrderScreen(
             }
         },
         onDelete = { if (!draft.uncertain && !draft.busy && !stale && !custom) draft.items.remove(it) },
-        onCancelBill = { showClear = true },
+        onCancelBill = {
+            cartOpen = false
+            if (bill?.sessionId != null && bill?.editable == true &&
+                !draft.busy && !draft.uncertain && session.canSell) {
+                cancelPinError = null
+                showCancelPin = true
+            } else {
+                error = "ยกเลิกไม่ได้: ตรวจสถานะบิล/สิทธิ์พนักงานใน CpIPOS หลัก"
+            }
+        },
         onCheckout = {
             if (canCheckout) {
                 cartOpen = false
@@ -482,22 +553,24 @@ internal fun NativeDiningOrderScreen(
         checkoutEnabled = canCheckout,
         lockedQuantities = storedQuantities
     )
-    if (showClear) AlertDialog(
-        onDismissRequest = { showClear = false },
-        title = { Text("ล้างตะกร้ารายการใหม่") },
-        text = { Text("ล้างเฉพาะรายการยังไม่ส่ง ไม่ลบรายการใน POS หลัก") },
-        confirmButton = { TextButton(onClick = {
-            if (!draft.uncertain && !draft.busy) { draft.items.clear(); cartOpen = false }
-            showClear = false
-        }) { Text("ล้างตะกร้า") } },
-        dismissButton = { TextButton(onClick = { showClear = false }) { Text("กลับ") } }
+    if (showCancelPin) NativeCancelBillPinDialog(
+        title = "ยกเลิกบิลโต๊ะ " + table.name,
+        busy = draft.busy,
+        error = cancelPinError,
+        onDismiss = {
+            if (!draft.busy) {
+                showCancelPin = false
+                cancelPinError = null
+            }
+        },
+        onApprove = { pin -> cancelBillWithPin(pin) }
     )
     PaymentFeedbackOverlay(feedback)
 }
 
 @Composable
 private fun DiningTopAction(icon: Int, description: String, enabled: Boolean,
-    onClick: () -> Unit) {
+    count: Int = 0, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Box(
@@ -508,6 +581,18 @@ private fun DiningTopAction(icon: Int, description: String, enabled: Boolean,
         ) {
             Image(painter = painterResource(icon), contentDescription = description,
                 modifier = Modifier.size(25.dp))
+            if (count > 0) {
+                Surface(
+                    modifier = Modifier.align(Alignment.TopEnd),
+                    shape = CircleShape, color = dineBlue
+                ) {
+                    Text(
+                        if (count > 99) "99+" else count.toString(),
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                        color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp
+                    )
+                }
+            }
         }
         Text(description, fontSize = 10.sp, color = Color(0xFF667894),
             maxLines = 1)
