@@ -280,7 +280,8 @@ internal fun NativeDiningOrderScreen(
     fun cancelBillWithPin(pin: String) {
         val base = bill ?: return
         if (draft.busy || draft.uncertain || !base.editable || base.paid ||
-            base.sessionId == null || !session.canSell) return
+            base.sessionId == null ||
+            !(if (base.orderId != null) session.canSell else session.canManageTables)) return
         if (mutationJournal.pending(session, table.id) != null) {
             draft.uncertain = true
             cancelPinError = "มีคำขอค้างอยู่ ห้ามยกเลิกซ้ำ"
@@ -534,7 +535,8 @@ internal fun NativeDiningOrderScreen(
         onCancelBill = {
             cartOpen = false
             if (bill?.sessionId != null && bill?.editable == true &&
-                !draft.busy && !draft.uncertain && session.canSell) {
+                !draft.busy && !draft.uncertain &&
+                (if (bill?.orderId != null) session.canSell else session.canManageTables)) {
                 cancelPinError = null
                 showCancelPin = true
             } else {
