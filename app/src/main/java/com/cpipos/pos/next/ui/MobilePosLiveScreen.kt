@@ -46,6 +46,8 @@ import com.cpipos.pos.next.R
 import com.cpipos.pos.next.core.offline.DemoSaleReceipt
 import com.cpipos.pos.next.core.webpos.LiveSaleJournal
 import com.cpipos.pos.next.core.webpos.LiveSaleReconciler
+import com.cpipos.pos.next.core.webpos.NativeHeldBillStore
+import java.util.UUID
 import com.cpipos.pos.next.core.webpos.WebBranch
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.core.webpos.WebPosProduct
@@ -63,6 +65,7 @@ private val liveInk = Color(0xFF152749)
 internal fun MobilePosLiveScreen(client: WebPosClient) {
     val ctx = LocalContext.current
     val journal = remember(ctx.applicationContext) { LiveSaleJournal(ctx.applicationContext) }
+    val heldBillStore = remember(ctx.applicationContext) { NativeHeldBillStore(ctx.applicationContext) }
     val reconciler = remember(client, journal) { LiveSaleReconciler(client, journal) }
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf("store") }
@@ -471,6 +474,26 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                         error = null
                         try {
                             val report = reconciler.reconcile(verified)
+                            // Clear only drafts whose original sale UUID is confirmed
+                            // completed or cancelled in the durable journal. Uncertain
+                            // attempts keep their parked snapshots for safe recovery.
+                            runCatching {
+                                val resolved = heldBillStore.all(verified).filter {
+                                    journal.stage(verified, it.saleId) in setOf("confirmed", "resolved_cancelled")
+                                }
+                                resolved.forEach { heldBillStore.remove(verified, it.id) }
+                                if (resolved.any { it.id == takeaway.activeHeldId.value }) {
+                                    takeaway.cart.clear()
+                                    takeaway.discount.value = PosDiscount()
+                                    takeaway.activeHeldId.value = null
+                                    takeaway.activeBillId.value = UUID.randomUUID().toString()
+                                    takeaway.showCart.value = false
+                                    takeaway.payment.value = null
+                                }
+                            }.onFailure {
+                                // A paid sale must still remain blocked by journal.stage.
+                                Log.e("CpIPOS", "Could not clean up resolved local held bill", it)
+                            }
                             recoveredReceipt = report.recoveredReceipts.lastOrNull()
                             unresolved = report.notes.joinToString("\n")
                                 .ifBlank { "ตรวจสอบบิลค้างกับ Server แล้ว" }
