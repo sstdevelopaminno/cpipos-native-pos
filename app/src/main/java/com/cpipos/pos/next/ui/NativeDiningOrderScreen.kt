@@ -80,11 +80,16 @@ internal fun NativeDiningOrderScreen(
                 error = null
             }
             if (!remote.editable) {
-                draft.uncertain = true
+                if (draft.items.isNotEmpty() || draft.pendingQuantities.isNotEmpty()) draft.uncertain = true
                 if (remote.paid || remote.sessionStatus in listOf("closed", "cancelled")) {
-                    draft.items.clear()
-                    draft.requestId = null
-                    onTables()
+                    if (draft.items.isEmpty() && draft.pendingQuantities.isEmpty()) {
+                        onTables()
+                    } else {
+                        bill = remote
+                        stale = true
+                        error = "โต๊ะถูกชำระหรือปิดจาก POS อีกเครื่องแล้ว " +
+                            "มีรายการในมือถือที่ยังไม่ได้ยืนยัน ห้ามส่งซ้ำและต้องตรวจบิลเดิม"
+                    }
                 }
             }
         } catch (cancelled: CancellationException) {
