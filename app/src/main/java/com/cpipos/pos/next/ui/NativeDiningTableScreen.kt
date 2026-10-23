@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -14,6 +16,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import java.util.UUID
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -40,12 +44,18 @@ private fun diningStatus(status: String): Pair<String, Color> = when (status) {
 
 /** Read actual shared floor data and active table sessions; no local table mocks. */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 internal fun NativeDiningTableScreen(
     client: WebPosClient, session: WebPosSession,
     onBack: () -> Unit, onMainMenu: (String) -> Unit = {},
-    onEnterTable: (WebDiningTable) -> Unit = {}
+    onEnterTable: (WebDiningTable) -> Unit = {},
+    canManageTable: (String) -> Boolean = { true }
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val journal = remember(context.applicationContext) {
+        DiningMutationJournal(context.applicationContext)
+    }
     var floor by remember(session.id) { mutableStateOf<WebTableFloor?>(null) }
     var zone by remember(session.id) { mutableStateOf<String?>(null) }
     var loading by remember(session.id) { mutableStateOf(true) }
@@ -53,6 +63,10 @@ internal fun NativeDiningTableScreen(
     var working by remember(session.id) { mutableStateOf(false) }
     var selected by remember(session.id) { mutableStateOf<WebDiningTable?>(null) }
     var detail by remember(session.id) { mutableStateOf<WebTableBillSummary?>(null) }
+    var managing by remember(session.id) { mutableStateOf<WebDiningTable?>(null) }
+    var managementBill by remember(session.id) { mutableStateOf<WebDiningBill?>(null) }
+    var managementError by remember(session.id) { mutableStateOf<String?>(null) }
+    var managementLoading by remember(session.id) { mutableStateOf(false) }
     // A timed-out open-bill request may have reached the server: block re-open
     // until a fresh server snapshot confirms this table is no longer available.
     var uncertainOpens by remember(session.id) { mutableStateOf(setOf<String>()) }
@@ -139,21 +153,39 @@ internal fun NativeDiningTableScreen(
                     items(visible, key = { it.id }) { table ->
                         val (label, accent) = diningStatus(table.status)
                         Surface(
-                            modifier = Modifier.fillMaxWidth().clickable(enabled = !working) {
-                                if (table.sessionId != null &&
-                                    table.status in setOf("occupied", "ordering", "pending_payment")) {
-                                    onEnterTable(table)
-                                } else {
-                                    selected = table
-                                    detail = null
-                                    if (table.status != "available") {
-                                        scope.launch {
-                                            runCatching { client.tableBill(session, table.id) }
-                                                .onSuccess { detail = it }
+                            modifier = Modifier.fillMaxWidth().combinedClickable(
+                                enabled = !working,
+                                onClick = {
+                                    if (table.sessionId != null &&
+                                        table.status in setOf("occupied", "ordering", "pending_payment")) {
+                                        onEnterTable(table)
+                                    } else {
+                                        selected = table
+                                        detail = null
+                                        if (table.status != "available") {
+                                            scope.launch {
+                                                runCatching { client.tableBill(session, table.id) }
+                                                    .onSuccess { detail = it }
+                                            }
+                                        }
+                                    }
+                                },
+                                onLongClick = {
+                                    managing = table
+                                    managementBill = null
+                                    managementError = null
+                                    managementLoading = true
+                                    scope.launch {
+                                        try {
+                                            managementBill = client.diningBill(session, table.id)
+                                        } catch (e: Exception) {
+                                            managementError = "ตรวจสถานะบิลไม่ได้ ห้ามยกเลิกโต๊ะจนกว่าเชื่อมต่อเซิร์ฟเวอร์ได้"
+                                        } finally {
+                                            managementLoading = false
                                         }
                                     }
                                 }
-                            },
+                            ),
                             shape = RoundedCornerShape(22.dp),
                             color = Color.White, shadowElevation = 2.dp
                         ) {
@@ -196,6 +228,127 @@ internal fun NativeDiningTableScreen(
         )
         }
     }
+
+    managing?.let { table ->
+        val bill = managementBill
+        val pending = journal.pending(session, table.id)
+        val eligible = bill != null && bill.editable && !bill.paid &&
+            !managementLoading && !working && canManageTable(table.id) && pending == null
+        val hasItems = bill?.lines?.isNotEmpty() == true
+        AlertDialog(
+            onDismissRequest = { if (!working) managing = null },
+            title = { Text("จัดการโต๊ะ " + table.name + " (" + table.code + ")",
+                color = diningInk, fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    if (managementLoading) CircularProgressIndicator(color = diningBlue)
+                    Text(if (hasItems) "บิลนี้มีรายการสินค้า ต้องยกเลิกบิลก่อนคืนสถานะโต๊ะ"
+                        else "ยกเลิกบิลว่างเพื่อให้โต๊ะกลับเป็นสถานะว่าง",
+                        color = Color(0xFF657994), fontSize = 13.sp)
+                    if (pending != null) Text(
+                        "มีคำขอยกเลิกที่ไม่แน่นอน กรุณากดตรวจสอบสถานะ " +
+                            "ห้ามส่งคำขอยกเลิกซ้ำ",
+                        color = Color(0xFFB33D4D), fontSize = 12.sp
+                    )
+                    managementError?.let { Text(it, color = Color(0xFFB33D4D), fontSize = 12.sp) }
+                    if (!canManageTable(table.id)) Text(
+                        "มีตะกร้าหรือบิลค้างบนมือถือเครื่องนี้ " +
+                            "กรุณาตรวจสอบก่อนยกเลิก",
+                        color = Color(0xFFB33D4D), fontSize = 12.sp
+                    )
+                    if (bill?.paid == true) Text(
+                        "บิลนี้ได้รับชำระแล้ว ไม่สามารถยกเลิกยอดขายโดยการเคลียร์โต๊ะ",
+                        color = Color(0xFFB33D4D), fontSize = 12.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp),
+                    modifier = Modifier.fillMaxWidth()) {
+                    if (pending != null) {
+                        Button(
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !working,
+                            onClick = {
+                                working = true
+                                scope.launch {
+                                    try {
+                                        val updated = client.diningTables(session)
+                                        val vacant = updated.tables.any {
+                                            it.id == table.id && it.status == "available" &&
+                                                it.sessionId == null
+                                        }
+                                        if (vacant && pending.requestId.isNotBlank()) {
+                                            journal.confirmed(session, table.id, pending.requestId)
+                                            managing = null
+                                            floor = updated
+                                        } else managementError =
+                                            "โต๊ะยังไม่ว่าง กรุณาตรวจบิลเดิมจาก POS Web ก่อนทำรายการอีกครั้ง"
+                                    } catch (e: Exception) {
+                                        managementError = "ยังตรวจสอบสถานะจากเซิร์ฟเวอร์ไม่ได้"
+                                    } finally { working = false }
+                                }
+                            }
+                        ) { Text("ตรวจสอบสถานะโต๊ะ") }
+                    } else {
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = eligible && hasItems,
+                            onClick = {
+                                if (bill != null) {
+                                    working = true
+                                    managementError = null
+                                    scope.launch {
+                                        try {
+                                            val requestId = UUID.randomUUID().toString()
+                                            journal.prepare(session, table.id, "cancel",
+                                                bill.orderId, requestId, emptyMap())
+                                            val vacant = client.cancelDiningBill(session, table.id, bill)
+                                            if (!vacant) error("table_not_yet_vacant")
+                                            journal.confirmed(session, table.id, requestId)
+                                            managing = null
+                                            refresh()
+                                        } catch (e: Exception) {
+                                            managementError = "ยกเลิกบิลยังไม่ยืนยัน " +
+                                                "กรุณาตรวจสถานะโต๊ะ ห้ามส่งคำขอซ้ำ"
+                                        } finally { working = false }
+                                    }
+                                }
+                            }
+                        ) { Text("ยกเลิกบิลและรายการสินค้า") }
+                        Button(
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = eligible && !hasItems,
+                            onClick = {
+                                if (bill != null) {
+                                    working = true
+                                    managementError = null
+                                    scope.launch {
+                                        try {
+                                            val requestId = UUID.randomUUID().toString()
+                                            journal.prepare(session, table.id, "cancel",
+                                                bill.orderId, requestId, emptyMap())
+                                            val vacant = client.releaseEmptyDiningTable(session, table.id, bill)
+                                            if (!vacant) error("table_not_yet_vacant")
+                                            journal.confirmed(session, table.id, requestId)
+                                            managing = null
+                                            refresh()
+                                        } catch (e: Exception) {
+                                            managementError = "เคลียร์โต๊ะยังไม่ยืนยัน " +
+                                                "กรุณาตรวจสถานะโต๊ะ ห้ามส่งคำขอซ้ำ"
+                                        } finally { working = false }
+                                    }
+                                }
+                            }
+                        ) { Text("เคลียร์โต๊ะให้ว่าง") }
+                    }
+                }
+            },
+            dismissButton = { TextButton(enabled = !working,
+                onClick = { managing = null }) { Text("กลับ") } }
+        )
+    }
+
     selected?.let { table ->
         val canOpen = table.status == "available" && table.sessionId == null &&
             !uncertainOpens.contains(table.id)
