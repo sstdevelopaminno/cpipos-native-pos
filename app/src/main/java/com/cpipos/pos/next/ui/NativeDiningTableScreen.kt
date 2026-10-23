@@ -40,7 +40,11 @@ private fun diningStatus(status: String): Pair<String, Color> = when (status) {
 
 /** Read actual shared floor data and active table sessions; no local table mocks. */
 @Composable
-internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSession, onBack: () -> Unit, onMainMenu: (String) -> Unit = {}) {
+internal fun NativeDiningTableScreen(
+    client: WebPosClient, session: WebPosSession,
+    onBack: () -> Unit, onMainMenu: (String) -> Unit = {},
+    onEnterTable: (WebDiningTable) -> Unit = {}
+) {
     val scope = rememberCoroutineScope()
     var floor by remember(session.id) { mutableStateOf<WebTableFloor?>(null) }
     var zone by remember(session.id) { mutableStateOf<String?>(null) }
@@ -136,12 +140,17 @@ internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSessio
                         val (label, accent) = diningStatus(table.status)
                         Surface(
                             modifier = Modifier.fillMaxWidth().clickable(enabled = !working) {
-                                selected = table
-                                detail = null
-                                if (table.sessionId != null) {
-                                    scope.launch {
-                                        runCatching { client.tableBill(session, table.id) }
-                                            .onSuccess { detail = it }
+                                if (table.sessionId != null &&
+                                    table.status in setOf("occupied", "ordering", "pending_payment")) {
+                                    onEnterTable(table)
+                                } else {
+                                    selected = table
+                                    detail = null
+                                    if (table.status != "available") {
+                                        scope.launch {
+                                            runCatching { client.tableBill(session, table.id) }
+                                                .onSuccess { detail = it }
+                                        }
                                     }
                                 }
                             },
@@ -213,19 +222,36 @@ internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSessio
                         scope.launch {
                             try {
                                 client.openDiningTable(session, table.id)
+                                val opened = client.diningBill(session, table.id)
+                                check(!opened.sessionId.isNullOrBlank()) { "table_open_needs_review" }
                                 selected = null
                                 detail = null
                                 refresh()
+                                onEnterTable(table)
                             } catch (e: Exception) {
-                                if (e is WebPosApiException && e.status in 400..499) {
+                                // Another cashier may have won a simultaneous
+                                // open. If their session exists, JOIN that exact
+                                // server-owned bill instead of opening another.
+                                val existing = runCatching { client.diningBill(session, table.id) }.getOrNull()
+                                if (existing?.sessionId != null && existing.editable) {
+                                    selected = null
+                                    detail = null
                                     uncertainOpens = uncertainOpens - table.id
+                                    onEnterTable(table)
+                                } else {
+                                    if (e is WebPosApiException && e.status in 400..499)
+                                        uncertainOpens = uncertainOpens - table.id
+                                    error = "สถานะเปิดโต๊ะไม่แน่นอน โปรดรีเฟรชบิลเดิม ห้ามกดเปิดซ้ำ"
+                                    selected = null
                                 }
-                                error = "เปิดโต๊ะไม่สำเร็จ โปรดรีเฟรชและตรวจสอบสถานะโต๊ะเดิม"
-                                // Do not retry an uncertain table-open automatically.
-                                selected = null
                             } finally { working = false }
                         }
                     }) { Text(if (working) "กำลังเปิดโต๊ะ" else "เปิดโต๊ะ") }
+                } else if (detail?.sessionId != null &&
+                    table.status in setOf("occupied", "ordering", "pending_payment")) {
+                    TextButton(onClick = { selected = null; onEnterTable(table) }) {
+                        Text("เข้าบิลโต๊ะนี้")
+                    }
                 } else TextButton(onClick = { selected = null }) { Text("ปิด") }
             },
             dismissButton = {
