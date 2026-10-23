@@ -88,6 +88,7 @@ import com.cpipos.pos.next.core.offline.DemoReceiptLine
 import com.cpipos.pos.next.core.pos.CashTenderInput
 import com.cpipos.pos.next.core.pos.Satang
 import com.cpipos.pos.next.core.webpos.LiveSaleJournal
+import com.cpipos.pos.next.core.webpos.NativeHeldBillStore
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.core.webpos.WebPosProduct
 import com.cpipos.pos.next.core.webpos.WebPosSession
@@ -140,6 +141,7 @@ internal enum class PreviewPayment { Cash, Transfer }
 /** Retains an in-progress takeaway checkout while the cashier visits the mode menu. */
 internal class TakeawayWorkspace {
     val cart = mutableStateMapOf<String, Int>()
+    val discount = mutableStateOf(PosDiscount())
     val showCart = mutableStateOf(false)
     val showMethods = mutableStateOf(false)
     val selectedMethod = mutableStateOf(PreviewPayment.Cash)
@@ -190,6 +192,20 @@ internal fun MobilePosSalePreview(
     var liveHistoryLoading by remember { mutableStateOf(false) }
     var liveHistoryError by remember { mutableStateOf<String?>(null) }
     var activeBillId by workspace.activeBillId
+    var discount by workspace.discount
+    var showDiscount by remember { mutableStateOf(false) }
+    var showHeldBills by remember { mutableStateOf(false) }
+    val holdStore = remember(context.applicationContext) { NativeHeldBillStore(context.applicationContext) }
+    var heldDrafts by remember(liveSession?.id) {
+        mutableStateOf<List<NativeHeldBillStore.Draft>>(emptyList())
+    }
+    LaunchedEffect(liveSession?.id) {
+        if (liveSession != null) {
+            runCatching { holdStore.all(liveSession) }
+                .onSuccess { heldDrafts = it }
+                .onFailure { notice = "อ่านบิลพักในเครื่องไม่ได้ กรุณาตรวจสอบข้อมูลก่อนพักเพิ่ม" }
+        }
+    }
     var saving by workspace.saving
     var saveError by workspace.saveError
     var paymentFeedback by workspace.paymentFeedback
@@ -219,7 +235,9 @@ internal fun MobilePosSalePreview(
     val categories = if (liveSession == null) saleCategories
         else listOf("ทั้งหมด") + products.map { it.category }.distinct()
     val quantity = cart.values.sum()
-    val total = products.sumOf { it.price * (cart[it.id] ?: 0) }
+    val subtotal = products.sumOf { it.price * (cart[it.id] ?: 0) }
+    val discountAmount = discount.amount(subtotal)
+    val total = (subtotal - discountAmount).coerceAtLeast(0L)
     BackHandler(enabled = !showCart && !showMethods && !showHistory && !showLiveHistory &&
         payment == null && !showScannerNotice && pendingAction == null && !showCancelBillConfirm && !saving) {
         onBack()
@@ -324,6 +342,7 @@ internal fun MobilePosSalePreview(
                                     lines = snapshot,
                                     received = paid,
                                     saleId = billId,
+                                    expectedTotal = Satang.of(total),
                                     onOrderCreated = { orderId, orderNo ->
                                         withContext(Dispatchers.IO) {
                                             liveJournal.orderCreated(
@@ -347,6 +366,7 @@ internal fun MobilePosSalePreview(
                             kotlinx.coroutines.delay(950L)
                             // Clear ONLY after the server confirms payment (or demo SQLite commits).
                             cart.clear()
+                            discount = PosDiscount()
                             activeBillId = UUID.randomUUID().toString()
                             showCart = false
                             showMethods = false
@@ -427,7 +447,8 @@ internal fun MobilePosSalePreview(
                                 ) { "บิลนี้เคยส่งแล้ว ต้อง Reconcile ด้วยรหัสเดิม" }
                             }
                             val order = liveClient.createTakeawayOrder(
-                                session = liveSession, lines = snapshot, saleId = billId
+                                session = liveSession, lines = snapshot, saleId = billId,
+                                expectedTotal = Satang.of(total)
                             )
                             withContext(Dispatchers.IO) {
                                 liveJournal.orderCreated(
@@ -448,6 +469,7 @@ internal fun MobilePosSalePreview(
                             paymentFeedback = "success"
                             kotlinx.coroutines.delay(950L)
                             cart.clear()
+                            discount = PosDiscount()
                             activeBillId = UUID.randomUUID().toString()
                             showCart = false
                             showMethods = false
