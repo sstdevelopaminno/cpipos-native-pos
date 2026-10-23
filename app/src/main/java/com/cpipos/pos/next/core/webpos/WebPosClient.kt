@@ -1059,6 +1059,28 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
      * This endpoint is subject to the advanced_sales_reports feature gate
      * and owner / manager / IT admin role (verified by POS Web).
      */
+    /**
+     * PIN-authorize clearing an UNSENT takeaway cart. No server order exists
+     * yet, so this approval is audited but no cancel-order API is called.
+     * An already-submitted/uncertain sale must be reconciled instead.
+     */
+    suspend fun approveTakeawayDraftCancellation(
+        session: WebPosSession, draftSaleId: String, pin: String
+    ) {
+        requireSameLiveSession(session)
+        require(UUID.fromString(draftSaleId).toString() == draftSaleId)
+        require(pin.length in 4..12 && pin.all(Char::isDigit))
+        val result = call("POST", "/api/backoffice/approvals/pin", JSONObject()
+            .put("tenant_id", session.tenantId)
+            .put("branch_id", session.branchId)
+            .put("action", "cancel_bill")
+            .put("target_table", "orders")
+            .put("target_id", draftSaleId)
+            .put("manager_pin", pin))
+        if (!runCatching { UUID.fromString(result.optString("approval_id")) }.isSuccess)
+            throw WebPosApiException("draft_cancel_approval_missing", 409)
+    }
+
     suspend fun approveSalesRecordDelete(
         session: WebPosSession, orderId: String, pin: String
     ): String {
