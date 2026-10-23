@@ -556,9 +556,21 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         )
     }
 
-    suspend fun openShift(): WebPosSession {
-        call("POST", "/api/pos/shifts/open", JSONObject().put("opening_cash", 0))
-        return getSession()
+    /**
+     * Opens or reuses the POS Web shift bound to the same branch/device code.
+     * Opening cash is cashier-supplied baht, never the old hardcoded zero.
+     * Backend owns shift truth; an existing shift retains its original float.
+     */
+    suspend fun openShift(openingCash: Satang): WebPosSession {
+        require(openingCash >= Satang.ZERO)
+        require(openingCash.value <= 999999999L)
+        call(
+            "POST", "/api/pos/shifts/open",
+            JSONObject().put("opening_cash", BigDecimal(openingCash.bahtText()))
+        )
+        val current = getSession()
+        if (current.shiftId == null) throw WebPosApiException("shift_open_not_confirmed", 409)
+        return current
     }
 
     suspend fun products(session: WebPosSession): List<WebPosProduct> {
