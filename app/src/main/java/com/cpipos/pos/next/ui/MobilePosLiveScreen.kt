@@ -121,7 +121,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             busy = true
             error = null
             try {
-                val current = client.getSession()
+                val current = client.synchronizedShiftSession()
                 check(
                     current.id == verified.id &&
                         current.branchId == verified.branchId &&
@@ -182,7 +182,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         if (client.hasStoredPosSession() && step == "store") {
             step = "restoring"
             try {
-                val restored = client.getSession()
+                val restored = client.synchronizedShiftSession()
                 session = restored
                 refreshCatalog(restored)
             } catch (failure: WebPosApiException) {
@@ -205,7 +205,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             kotlinx.coroutines.delay(6000L)
             val previous = session ?: continue
             if (busy || takeaway.saving.value) continue
-            val remote = try { client.getSession() }
+            val remote = try { client.synchronizedShiftSession() }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { continue }
             if (remote.id != previous.id ||
@@ -438,7 +438,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                         } catch (failure: Exception) {
                             // An uncertain POST response may have created the shift.
                             // Read actual server state, never send a duplicate POST.
-                            val observed = runCatching { client.getSession() }.getOrNull()
+                            val observed = runCatching { client.synchronizedShiftSession() }.getOrNull()
                             if (observed != null && observed.id == verified.id &&
                                 observed.branchId == verified.branchId &&
                                 observed.deviceCode == verified.deviceCode &&
