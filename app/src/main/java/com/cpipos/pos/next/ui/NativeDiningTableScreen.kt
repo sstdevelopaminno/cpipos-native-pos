@@ -263,129 +263,137 @@ internal fun NativeDiningTableScreen(
     managing?.let { table ->
         val bill = managementBill
         val pending = journal.pending(session, table.id)
-        val hasItems = bill?.lines?.isNotEmpty() == true
-        val eligible = bill != null && bill.editable && !bill.paid &&
-            session.canManageTables && (!hasItems || session.canSell) &&
-            !managementLoading && !working && canManageTable(table.id) && pending == null
-        AlertDialog(
+        val canCancel = bill != null && bill.editable && !bill.paid &&
+            (if (bill.orderId != null) session.canSell else session.canManageTables) &&
+            !managementLoading && !working && canManageTable(table.id) &&
+            pending == null
+        if (!managePinOpen) AlertDialog(
             onDismissRequest = { if (!working) managing = null },
-            title = { Text("จัดการโต๊ะ " + table.name + " (" + table.code + ")",
-                color = diningInk, fontWeight = FontWeight.ExtraBold) },
+            title = {
+                Text("จัดการโต๊ะ " + table.name + " (" + table.code + ")",
+                    fontWeight = FontWeight.ExtraBold, color = diningInk)
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     if (managementLoading) CircularProgressIndicator(color = diningBlue)
-                    Text(if (hasItems) "บิลนี้มีรายการสินค้า ต้องยกเลิกบิลก่อนคืนสถานะโต๊ะ"
-                        else "ยกเลิกบิลว่างเพื่อให้โต๊ะกลับเป็นสถานะว่าง",
-                        color = Color(0xFF657994), fontSize = 13.sp)
-                    if (pending != null) Text(
-                        "มีคำขอยกเลิกที่ไม่แน่นอน กรุณากดตรวจสอบสถานะ " +
-                            "ห้ามส่งคำขอยกเลิกซ้ำ",
-                        color = Color(0xFFB33D4D), fontSize = 12.sp
+                    Text(
+                        "ยกเลิกบิลที่ยังไม่ได้รับชำระ แล้วคืนโต๊ะเป็นสถานะว่าง " +
+                            "โดยต้องได้รับอนุมัติ PIN ตาม CpIPOS หลัก",
+                        color = Color(0xFF667891), fontSize = 12.sp
                     )
-                    managementError?.let { Text(it, color = Color(0xFFB33D4D), fontSize = 12.sp) }
-                    if (!session.canManageTables || (hasItems && !session.canSell)) Text(
-                        "บัญชีพนักงานไม่มีสิทธิ์จัดการโต๊ะหรือยกเลิกรายการ " +
-                            "โปรดใช้ผู้มีสิทธิ์ที่ CpIPOS Web",
+                    if (bill?.paid == true) Text(
+                        "โต๊ะนี้ชำระเงินแล้ว ไม่อนุญาตให้ยกเลิกบิลซ้ำ",
                         color = Color(0xFFB33D4D), fontSize = 12.sp
                     )
                     if (!canManageTable(table.id)) Text(
-                        "มีตะกร้าหรือบิลค้างบนมือถือเครื่องนี้ " +
-                            "กรุณาตรวจสอบก่อนยกเลิก",
+                        "ยังมีรายการในมือถือที่ไม่ได้ส่งหรือสถานะไม่แน่นอน " +
+                            "โปรดตรวจสอบรายการเดิมก่อน",
                         color = Color(0xFFB33D4D), fontSize = 12.sp
                     )
-                    if (bill?.paid == true) Text(
-                        "บิลนี้ได้รับชำระแล้ว ไม่สามารถยกเลิกยอดขายโดยการเคลียร์โต๊ะ",
+                    if (bill != null && !session.canSell && bill.orderId != null) Text(
+                        "บัญชีไม่มีสิทธิ์ทำรายการขาย/ยกเลิกบิล",
                         color = Color(0xFFB33D4D), fontSize = 12.sp
                     )
-                }
-            },
-            confirmButton = {
-                Column(verticalArrangement = Arrangement.spacedBy(7.dp),
-                    modifier = Modifier.fillMaxWidth()) {
-                    if (pending != null) {
-                        Button(
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !working,
-                            onClick = {
-                                working = true
-                                scope.launch {
-                                    try {
-                                        val updated = client.diningTables(session)
-                                        val vacant = updated.tables.any {
-                                            it.id == table.id && it.status == "available" &&
-                                                it.sessionId == null
-                                        }
-                                        if (vacant && pending.requestId.isNotBlank()) {
-                                            journal.confirmed(session, table.id, pending.requestId)
-                                            managing = null
-                                            floor = updated
-                                        } else managementError =
-                                            "โต๊ะยังไม่ว่าง กรุณาตรวจบิลเดิมจาก POS Web ก่อนทำรายการอีกครั้ง"
-                                    } catch (e: Exception) {
-                                        managementError = "ยังตรวจสอบสถานะจากเซิร์ฟเวอร์ไม่ได้"
-                                    } finally { working = false }
-                                }
-                            }
-                        ) { Text("ตรวจสอบสถานะโต๊ะ") }
-                    } else {
-                        OutlinedButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = eligible && hasItems,
-                            onClick = {
-                                if (bill != null) {
-                                    working = true
-                                    managementError = null
-                                    scope.launch {
-                                        try {
-                                            val requestId = UUID.randomUUID().toString()
-                                            journal.prepare(session, table.id, "cancel",
-                                                bill.orderId, requestId, emptyMap())
-                                            val vacant = client.cancelDiningBill(session, table.id, bill)
-                                            if (!vacant) error("table_not_yet_vacant")
-                                            journal.confirmed(session, table.id, requestId)
-                                            managing = null
-                                            refresh()
-                                        } catch (e: Exception) {
-                                            managementError = "ยกเลิกบิลยังไม่ยืนยัน " +
-                                                "กรุณาตรวจสถานะโต๊ะ ห้ามส่งคำขอซ้ำ"
-                                        } finally { working = false }
-                                    }
-                                }
-                            }
-                        ) { Text("ยกเลิกบิลและรายการสินค้า") }
-                        Button(
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = eligible && !hasItems,
-                            onClick = {
-                                if (bill != null) {
-                                    working = true
-                                    managementError = null
-                                    scope.launch {
-                                        try {
-                                            val requestId = UUID.randomUUID().toString()
-                                            journal.prepare(session, table.id, "cancel",
-                                                bill.orderId, requestId, emptyMap())
-                                            val vacant = client.releaseEmptyDiningTable(session, table.id, bill)
-                                            if (!vacant) error("table_not_yet_vacant")
-                                            journal.confirmed(session, table.id, requestId)
-                                            managing = null
-                                            refresh()
-                                        } catch (e: Exception) {
-                                            managementError = "เคลียร์โต๊ะยังไม่ยืนยัน " +
-                                                "กรุณาตรวจสถานะโต๊ะ ห้ามส่งคำขอซ้ำ"
-                                        } finally { working = false }
-                                    }
-                                }
-                            }
-                        ) { Text("เคลียร์โต๊ะให้ว่าง") }
+                    if (bill != null && bill.orderId == null && !session.canManageTables) Text(
+                        "บัญชีไม่มีสิทธิ์จัดการโต๊ะว่าง",
+                        color = Color(0xFFB33D4D), fontSize = 12.sp
+                    )
+                    if (pending != null) Text(
+                        "มีคำขอยกเลิกที่ไม่แน่นอน ห้ามส่งซ้ำ " +
+                            "ตรวจสถานะโต๊ะเดิมก่อน",
+                        color = Color(0xFFB33D4D), fontSize = 12.sp
+                    )
+                    managementError?.let {
+                        Text(it, color = Color(0xFFB33D4D), fontSize = 12.sp)
                     }
                 }
             },
-            dismissButton = { TextButton(enabled = !working,
-                onClick = { managing = null }) { Text("กลับ") } }
+            confirmButton = {
+                if (pending != null) {
+                    Button(enabled = !working, onClick = {
+                        working = true
+                        scope.launch {
+                            try {
+                                val updated = client.diningTables(session)
+                                val vacant = updated.tables.any {
+                                    it.id == table.id && it.status == "available" &&
+                                        it.sessionId == null
+                                }
+                                if (vacant && pending.requestId.isNotBlank()) {
+                                    journal.confirmed(session, table.id, pending.requestId)
+                                    managing = null
+                                    floor = updated
+                                    managementError = null
+                                } else {
+                                    managementError = "โต๊ะยังไม่ว่าง " +
+                                        "โปรดตรวจบิลเดิมจาก CpIPOS หลักก่อน"
+                                }
+                            } catch (failure: Exception) {
+                                managementError = "ยังเชื่อมต่อเพื่อตรวจสถานะบิลไม่ได้"
+                            } finally { working = false }
+                        }
+                    }) { Text("ตรวจสอบสถานะโต๊ะ") }
+                } else {
+                    Button(
+                        enabled = canCancel,
+                        onClick = {
+                            managementError = null
+                            managePinOpen = true
+                        }
+                    ) { Text("ยกเลิกบิลด้วย PIN") }
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !working, onClick = { managing = null }) {
+                    Text("กลับ")
+                }
+            }
         )
     }
-
+    if (managePinOpen) NativeCancelBillPinDialog(
+        title = "ยืนยัน PIN เพื่อยกเลิกบิล",
+        busy = working,
+        error = managementError,
+        onDismiss = {
+            if (!working) {
+                managePinOpen = false
+                managementError = null
+            }
+        },
+        onApprove = { pin ->
+            val table = managing
+            val bill = managementBill
+            if (table != null && bill != null && !working &&
+                journal.pending(session, table.id) == null) {
+                working = true
+                managementError = null
+                scope.launch {
+                    var journalWritten = false
+                    try {
+                        val approvalId = client.approveDiningCancellation(session, bill, pin)
+                        val requestId = UUID.randomUUID().toString()
+                        journal.prepare(session, table.id, "cancel",
+                            bill.orderId, requestId, emptyMap())
+                        journalWritten = true
+                        val vacant = client.cancelDiningBill(session, table.id, bill, approvalId)
+                        if (!vacant) error("table_cancel_result_not_confirmed")
+                        journal.confirmed(session, table.id, requestId)
+                        managePinOpen = false
+                        managing = null
+                        managementError = null
+                        refresh()
+                    } catch (failure: Exception) {
+                        managementError = if (journalWritten)
+                            "ผลยกเลิกยังไม่แน่นอน ห้ามส่งซ้ำ " +
+                                "กรุณาตรวจสถานะโต๊ะใน CpIPOS หลัก"
+                        else "PIN ไม่ผ่านการอนุมัติ หรือสถานะบิลเปลี่ยน " +
+                            "โปรดตรวจสิทธิ์และลองใหม่"
+                        if (journalWritten) managePinOpen = false
+                    } finally { working = false }
+                }
+            }
+        }
+    )
 
 }
 
