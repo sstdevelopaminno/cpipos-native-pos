@@ -391,6 +391,7 @@ internal fun NativeSalesListScreen(
             busy = deleteBusy,
             error = deleteError,
             actionLabel = "อนุมัติลบบิล",
+            actionNote = "ลบแบบ Soft Delete คืนสต๊อก และบันทึก Audit ตาม CpIPOS หลัก",
             onDismiss = { if (!deleteBusy) deleteTarget = null },
             onApprove = { pin ->
                 deleteBusy = true
