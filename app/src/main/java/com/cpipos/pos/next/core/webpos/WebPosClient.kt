@@ -53,7 +53,7 @@ data class WebDiningLine(
 data class WebDiningBill(
     val sessionId: String?, val sessionStatus: String?,
     val orderId: String?, val orderNo: String?, val orderStatus: String?,
-    val lines: List<WebDiningLine>, val paid: Boolean
+    val lines: List<WebDiningLine>, val paid: Boolean, val total: Satang
 ) {
     val editable: Boolean get() =
         sessionId != null && sessionStatus in setOf("open", "ordering") &&
@@ -721,7 +721,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             lines = lines,
             paid = (0 until payments.length()).any { i ->
                 payments.optJSONObject(i)?.optDouble("amount", 0.0)?.let { it > 0.0 } == true
-            } || order?.optString("status") == "completed"
+            } || order?.optString("status") == "completed",
+            total = Satang.fromBaht(order?.optString("total_amount", "0") ?: "0")
         )
     }
 
@@ -771,6 +772,55 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         val result = call("POST", "/api/pos/sales", input, requestId)
         return result.optString("id").ifBlank { result.optString("order_id") }
             .takeIf { it.isNotBlank() } ?: throw WebPosApiException("dine_order_response_ambiguous", 503)
+    }
+
+
+    /**
+     * Settle the ORIGINAL dine-in order through the tablet's payment API.
+     * Its atomic payment transaction protects idempotency, and backend closes
+     * the table bill session and releases the dining table.
+     */
+    suspend fun settleDiningBill(
+        session: WebPosSession, tableId: String, expected: WebDiningBill,
+        method: String, cashReceived: Satang, requestId: String
+    ) {
+        require(method == "cash" || method == "bank_transfer")
+        require(UUID.fromString(requestId).toString() == requestId)
+        requireSameLiveSession(session)
+        val orderId = expected.orderId ?: error("table_order_missing")
+        check(expected.total > Satang.ZERO && !expected.paid &&
+            expected.orderStatus == "queued" &&
+            expected.sessionStatus in setOf("open", "ordering"))
+        if (method == "cash") check(cashReceived >= expected.total)
+        else check(cashReceived == Satang.ZERO)
+        val latest = diningBill(session, tableId)
+        if (latest.fingerprint() != expected.fingerprint() || latest.paid ||
+            latest.total != expected.total || !latest.editable) {
+            throw WebPosApiException("table_bill_changed_refresh_required", 409)
+        }
+        val locked = call(
+            "POST", "/api/pos/tables/$tableId/payment-lock",
+            JSONObject().put("order_id", orderId).put("locked", true)
+        )
+        if (locked.optString("order_id") != orderId ||
+            locked.optString("status") != "pending_payment")
+            throw WebPosApiException("table_payment_lock_uncertain", 503)
+        val body = JSONObject()
+            .put("order_id", orderId)
+            .put("payment_lines", JSONArray().put(JSONObject()
+                .put("method", method)
+                .put("amount", BigDecimal(expected.total.bahtText()))))
+        if (method == "cash") {
+            body.put("cash_received", BigDecimal(cashReceived.bahtText()))
+        } else {
+            // Cashier has explicitly attested that bank funds arrived.
+            // Displaying the QR alone never calls this function.
+            body.put("skip_transfer_verification", true)
+        }
+        val result = call("POST", "/api/pos/payments", body, requestId)
+        if (result.optBoolean("table_cleanup_ok", true) != true) {
+            throw WebPosApiException("table_payment_cleanup_needs_review", 503)
+        }
     }
 
     /**
