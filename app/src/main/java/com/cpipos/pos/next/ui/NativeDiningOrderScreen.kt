@@ -70,7 +70,6 @@ internal fun NativeDiningOrderScreen(
     var error by remember(session.id, table.id) { mutableStateOf<String?>(null) }
     var stale by remember(session.id, table.id) { mutableStateOf(false) }
     var cartOpen by remember(session.id, table.id) { mutableStateOf(false) }
-    var showExisting by remember(session.id, table.id) { mutableStateOf(false) }
     var showClear by remember(session.id, table.id) { mutableStateOf(false) }
     var showMethods by remember(session.id, table.id) { mutableStateOf(false) }
     var selectedPaymentMethod by remember(session.id, table.id) { mutableStateOf(PreviewPayment.Cash) }
@@ -142,8 +141,13 @@ internal fun NativeDiningOrderScreen(
     }
     val count = draft.items.values.sum()
     val subtotal = entries.sumOf { it.price * (draft.items[it.id] ?: 0) }
-    val savedTotal = bill?.lines.orEmpty().sumOf { it.unitPrice.value * it.quantity }
     val existing = bill
+    val storedQuantities = existing?.let(::billQuantities).orEmpty()
+    val combinedCart = storedQuantities.toMutableMap().apply {
+        draft.items.forEach { (id, quantity) -> put(id, (get(id) ?: 0) + quantity) }
+    }
+    val combinedCount = combinedCart.values.sum()
+    val combinedTotal = (existing?.total?.value ?: 0L) + subtotal
     val custom = existing?.lines.orEmpty().any { item ->
         val product = products.find { it.id == item.productId }
         item.quantity <= 0 || item.hasCustomMetadata || !item.notes.isNullOrBlank() ||
@@ -151,6 +155,10 @@ internal fun NativeDiningOrderScreen(
     }
     val canSubmit = existing?.editable == true && !custom && !stale &&
         !draft.busy && !draft.uncertain && count > 0
+    val canPayExisting = existing?.editable == true && existing.orderId != null &&
+        existing.total > Satang.ZERO && !custom && !stale &&
+        !draft.busy && !draft.uncertain && count == 0
+    val canCheckout = canSubmit || canPayExisting
 
     fun save() {
         val initial = bill ?: return
@@ -187,6 +195,8 @@ internal fun NativeDiningOrderScreen(
                 draft.requestId = null
                 draft.uncertain = false
                 stale = false
+                feedback = "idle"
+                showMethods = true
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -315,8 +325,12 @@ internal fun NativeDiningOrderScreen(
                     Spacer(Modifier.width(6.dp))
                     Text("CpIPOS", color = dineInk, fontSize = 17.sp,
                         fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-                    Text("โต๊ะ " + table.name, color = dineBlue,
-                        fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("โต๊ะ " + table.name, color = dineBlue,
+                            fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                        Text("เลขที่โต๊ะ " + table.code, color = Color(0xFF6B80A0),
+                            fontSize = 11.sp, maxLines = 1)
+                    }
                 }
                 Row(
                     Modifier.fillMaxWidth().padding(bottom = 12.dp),
@@ -327,38 +341,8 @@ internal fun NativeDiningOrderScreen(
                     DiningTopAction(R.drawable.ic_nav_tables, "เลือกโต๊ะ", !draft.busy) { onTables() }
                     DiningTopAction(R.drawable.ic_nav_select_mode, "เลือกโหมด", !draft.busy, onMode)
                     DiningTopAction(R.drawable.ic_nav_cart, "ตะกร้า" +
-                        if (count > 0) " ($count)" else "", !draft.busy) { cartOpen = true }
-                }
-                Surface(shape = RoundedCornerShape(17.dp), color = Color.White) {
-                    Row(Modifier.fillMaxWidth().padding(13.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column {
-                            Text("บิล: " + (existing?.orderNo ?: "ยังไม่ส่งรายการ"),
-                                fontSize = 12.sp, fontWeight = FontWeight.Bold, color = dineInk)
-                            Text("บิลเดิม " + existing?.lines.orEmpty().sumOf { it.quantity } +
-                                " ชิ้น · ตะกร้าใหม่ " + count + " ชิ้น",
-                                fontSize = 11.sp, color = Color(0xFF74849C))
-                        }
-                        Text("฿" + Satang.of(savedTotal + subtotal).bahtText(),
-                            color = dineBlue, fontWeight = FontWeight.ExtraBold)
-                    }
-                }
-                if (existing?.orderId != null && existing.editable &&
-                    existing.total > Satang.ZERO) {
-                    Button(
-                        onClick = {
-                            if (!draft.busy && draft.items.isEmpty() && !stale &&
-                                !draft.uncertain) showMethods = true
-                        },
-                        enabled = !draft.busy && draft.items.isEmpty() &&
-                            !stale && !draft.uncertain && !custom,
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        shape = RoundedCornerShape(15.dp)
-                    ) { Text("ชำระเงิน / เคลียร์บิลโต๊ะ", fontWeight = FontWeight.Bold) }
-                }
-                if (existing?.lines?.isNotEmpty() == true) {
-                    TextButton(onClick = { showExisting = true }) {
-                        Text("ดูรายการในบิลจาก POS หลัก ›", fontSize = 12.sp)
+                        if (combinedCount > 0) " ($combinedCount)" else "", !draft.busy) {
+                        cartOpen = true
                     }
                 }
                 if (error != null || custom || draft.uncertain || stale) {
@@ -469,20 +453,34 @@ internal fun NativeDiningOrderScreen(
         return
     }
     if (cartOpen) PreviewCartBottomSheet(
-        products = entries, cart = draft.items, quantity = count, total = subtotal,
+        products = entries, cart = combinedCart,
+        quantity = combinedCount, total = combinedTotal,
         onDismiss = { cartOpen = false },
-        onAdd = { if (!draft.uncertain && !stale) draft.items[it] = (draft.items[it] ?: 0) + 1 },
+        onAdd = {
+            if (existing?.editable == true && !draft.uncertain && !draft.busy &&
+                !stale && !custom) {
+                draft.items[it] = (draft.items[it] ?: 0) + 1
+            }
+        },
         onRemove = {
-            if (!draft.uncertain) {
+            if (!draft.uncertain && !draft.busy && !stale && !custom) {
                 val value = (draft.items[it] ?: 0) - 1
                 if (value <= 0) draft.items.remove(it) else draft.items[it] = value
             }
         },
-        onDelete = { if (!draft.uncertain) draft.items.remove(it) },
+        onDelete = { if (!draft.uncertain && !draft.busy && !stale && !custom) draft.items.remove(it) },
         onCancelBill = { showClear = true },
-        onCheckout = { save() }, onFeatureClick = {},
-        checkoutLabel = "บันทึกรายการลงโต๊ะ", tableMode = true,
-        checkoutEnabled = canSubmit
+        onCheckout = {
+            if (canCheckout) {
+                cartOpen = false
+                if (draft.items.isNotEmpty()) save()
+                else showMethods = true
+            }
+        },
+        onFeatureClick = {},
+        checkoutLabel = "ชำระเงิน", tableMode = true,
+        checkoutEnabled = canCheckout,
+        lockedQuantities = storedQuantities
     )
     if (showClear) AlertDialog(
         onDismissRequest = { showClear = false },
@@ -493,21 +491,6 @@ internal fun NativeDiningOrderScreen(
             showClear = false
         }) { Text("ล้างตะกร้า") } },
         dismissButton = { TextButton(onClick = { showClear = false }) { Text("กลับ") } }
-    )
-    if (showExisting) AlertDialog(
-        onDismissRequest = { showExisting = false },
-        title = { Text("บิลโต๊ะ " + table.name) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                existing?.lines.orEmpty().forEach { item ->
-                    Text(item.name + " ×" + item.quantity + "  ฿" +
-                        Satang.of(item.unitPrice.value * item.quantity).bahtText(), fontSize = 12.sp)
-                }
-                Text("ระบบใช้บิลเดียวกันกับ CpIPOS Web", fontSize = 11.sp,
-                    color = Color(0xFF74849C))
-            }
-        },
-        confirmButton = { TextButton(onClick = { showExisting = false }) { Text("ปิด") } }
     )
     PaymentFeedbackOverlay(feedback)
 }
