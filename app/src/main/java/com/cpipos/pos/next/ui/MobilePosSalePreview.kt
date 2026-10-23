@@ -550,7 +550,28 @@ internal fun MobilePosSalePreview(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
+                    if (liveSession != null) {
+                        Box(
+                            modifier = Modifier.size(48.dp).shadow(2.dp, CircleShape)
+                                .clip(CircleShape).background(Color.White)
+                                .clickable(enabled = !saving, onClickLabel = "บิลพัก") {
+                                    runCatching { holdStore.all(liveSession) }
+                                        .onSuccess { heldDrafts = it; showHeldBills = true }
+                                        .onFailure { notice = "อ่านบิลพักไม่ได้ ตรวจสอบข้อมูลในเครื่อง" }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("▤", color = saleBlue, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                            if (heldDrafts.isNotEmpty()) Box(
+                                modifier = Modifier.align(Alignment.TopEnd).size(19.dp)
+                                    .clip(CircleShape).background(saleBlue),
+                                contentAlignment = Alignment.Center
+                            ) { Text(heldDrafts.size.toString(), color = Color.White,
+                                fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                        }
+                        Spacer(modifier = Modifier.width(5.dp))
+                    }
                     // Badge is outside the clipped button so it cannot be cut off.
                     Box(
                         modifier = Modifier.size(54.dp),
@@ -728,19 +749,135 @@ internal fun MobilePosSalePreview(
             onAdd = { add(it) },
             onRemove = { remove(it) },
             onDelete = { cart.remove(it) },
-            onCancelBill = { showCancelBillConfirm = true },
+            onCancelBill = { showCart = false; showCancelBillConfirm = true },
             onCheckout = {
-                if (quantity > 0) {
+                if (quantity > 0 && total > 0L) {
                     selectedMethod = PreviewPayment.Cash
                     showCart = false
                     showMethods = true
                 }
             },
-            onFeatureClick = { pendingAction = it }
+            onFeatureClick = { if (it == "ส่วนลด") showDiscount = true else pendingAction = it },
+            discountAmount = discountAmount,
+            onHoldBill = if (liveSession == null) null else {
+                {
+                    if (!saving && quantity > 0 && liveJournal != null) {
+                        runCatching {
+                            check(liveJournal.unresolved(liveSession).isEmpty()) {
+                                "มีบิลที่ต้อง Reconcile ก่อนพักบิล"
+                            }
+                            val saved = holdStore.hold(
+                                liveSession, activeBillId, cart.toMap(),
+                                discount.kind, discount.input
+                            )
+                            cart.clear()
+                            discount = PosDiscount()
+                            activeBillId = UUID.randomUUID().toString()
+                            heldDrafts = holdStore.all(liveSession)
+                            showCart = false
+                            notice = "พักรายการเรียบร้อย: " + saved.id.take(8)
+                        }.onFailure {
+                            notice = it.message ?: "พักบิลไม่ได้ กรุณาตรวจข้อมูลในเครื่อง"
+                        }
+                    }
+                }
+            }
+        )
+    }
+    if (showDiscount) NativeDiscountDialog(
+        subtotal = subtotal, current = discount,
+        onDismiss = { showDiscount = false },
+        onConfirm = { next ->
+            discount = next
+            showDiscount = false
+        }
+    )
+
+    if (showHeldBills && liveSession != null) {
+        AlertDialog(
+            onDismissRequest = { showHeldBills = false },
+            shape = RoundedCornerShape(24.dp),
+            title = { Text("รายการบิลพัก (" + heldDrafts.size + ")", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (heldDrafts.isEmpty()) Text("ไม่มีรายการบิลพักในเครื่องนี้")
+                    heldDrafts.take(12).forEach { entry ->
+                        Surface(
+                            color = Color(0xFFEDF4FF),
+                            shape = RoundedCornerShape(15.dp),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                if (cart.isNotEmpty() || saving) {
+                                    notice = "กรุณาพักหรือเคลียร์ตะกร้าปัจจุบันก่อนเรียกบิล"
+                                } else {
+                                    runCatching {
+                                        check(liveJournal?.unresolved(liveSession)?.isEmpty() == true) {
+                                            "มีบิลค้างตรวจสอบ ห้ามเรียกบิลพัก"
+                                        }
+                                        entry.items.forEach { (id, count) ->
+                                            check(products.any { it.id == id }) {
+                                                "สินค้าของบิลพักไม่อยู่ในรายการปัจจุบัน"
+                                            }
+                                            check(count > 0)
+                                        }
+                                        cart.putAll(entry.items)
+                                        discount = PosDiscount(entry.discountKind, entry.discountInput)
+                                        activeBillId = entry.saleId
+                                        holdStore.remove(liveSession, entry.id)
+                                        heldDrafts = holdStore.all(liveSession)
+                                        showHeldBills = false
+                                        showCart = true
+                                    }.onFailure { notice = it.message ?: "เรียกบิลพักไม่สำเร็จ" }
+                                }
+                            }
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("เลขพักบิล " + entry.id.take(8),
+                                    fontWeight = FontWeight.Bold, color = saleInk)
+                                Text("สินค้า " + entry.items.values.sum() + " ชิ้น • แตะเพื่อเรียกคืน",
+                                    fontSize = 12.sp, color = saleMuted)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showHeldBills = false }) { Text("ปิด") } }
         )
     }
 
-    if (showCancelBillConfirm) {
+    if (showCancelBillConfirm && liveSession != null && liveClient != null) {
+        NativeCancelBillPinDialog(
+            title = "อนุมัติยกเลิกบิลกลับบ้าน",
+            busy = saving,
+            error = saveError,
+            onDismiss = { if (!saving) { showCancelBillConfirm = false; showCart = true } },
+            onApprove = { pin ->
+                if (!saving) {
+                    saving = true
+                    saveError = null
+                    val draftId = activeBillId
+                    scope.launch {
+                        try {
+                            check(liveJournal?.unresolved(liveSession)?.isEmpty() == true) {
+                                "มีรายการที่ยังไม่ได้ตรวจสอบผลบิล ห้ามล้างตะกร้า"
+                            }
+                            liveClient.approveTakeawayDraftCancellation(liveSession, draftId, pin)
+                            cart.clear()
+                            discount = PosDiscount()
+                            activeBillId = UUID.randomUUID().toString()
+                            showCancelBillConfirm = false
+                            showCart = false
+                            notice = "ยกเลิกตะกร้าที่ยังไม่ส่งแล้ว"
+                        } catch (failure: Exception) {
+                            saveError = "ยกเลิกไม่สำเร็จ: " +
+                                (failure.message ?: "PIN หรือสิทธิ์ไม่ถูกต้อง").take(90)
+                        } finally { saving = false }
+                    }
+                }
+            }
+        )
+    }
+
+    if (showCancelBillConfirm && liveSession == null) {
         AlertDialog(
             onDismissRequest = { showCancelBillConfirm = false },
             title = {
