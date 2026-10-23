@@ -214,8 +214,12 @@ internal fun NativeSalesListScreen(
                         color = salesInk, fontSize = 14.sp)
                     Text("รวม ${history?.total ?: 0} บิล", fontSize = 12.sp, color = salesMuted)
                 }
-                Surface(shape = RoundedCornerShape(18.dp), color = Color.White) {
-                    Column {
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color.White
+                ) {
+                    Column(Modifier.fillMaxSize()) {
                         Row(
                             modifier = Modifier.fillMaxWidth().background(Color(0xFFE7F0FE))
                                 .padding(horizontal = 8.dp, vertical = 11.dp),
@@ -239,7 +243,7 @@ internal fun NativeSalesListScreen(
                                     color = salesMuted, fontSize = 13.sp)
                             }
                             else -> LazyColumn(
-                                modifier = Modifier.weight(1f, fill = false),
+                                modifier = Modifier.weight(1f),
                             ) {
                                 items(records, key = { it.orderId }) { record ->
                                     var drag by remember(record.orderId) { mutableFloatStateOf(0f) }
