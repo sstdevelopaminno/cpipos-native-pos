@@ -20,11 +20,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cpipos.pos.next.R
 import com.cpipos.pos.next.core.pos.Satang
+import com.cpipos.pos.next.core.webpos.DiningMutationJournal
 import com.cpipos.pos.next.core.webpos.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -59,6 +61,10 @@ internal fun NativeDiningOrderScreen(
     onTables: () -> Unit, onMode: () -> Unit, onMainMenu: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val mutationJournal = remember(context.applicationContext) {
+        DiningMutationJournal(context.applicationContext)
+    }
     var bill by remember(session.id, table.id) { mutableStateOf<WebDiningBill?>(null) }
     var loading by remember(session.id, table.id) { mutableStateOf(true) }
     var error by remember(session.id, table.id) { mutableStateOf<String?>(null) }
@@ -87,7 +93,8 @@ internal fun NativeDiningOrderScreen(
             if (!remote.editable) {
                 if (draft.items.isNotEmpty() || draft.pendingQuantities.isNotEmpty()) draft.uncertain = true
                 if (remote.paid || remote.sessionStatus in listOf("closed", "cancelled")) {
-                    if (draft.items.isEmpty() && draft.pendingQuantities.isEmpty()) {
+                    if (draft.items.isEmpty() && draft.pendingQuantities.isEmpty() &&
+                        mutationJournal.pending(session, table.id) == null) {
                         onTables()
                     } else {
                         bill = remote
@@ -104,6 +111,16 @@ internal fun NativeDiningOrderScreen(
         } finally { loading = false }
     }
     LaunchedEffect(client, session.id, table.id) {
+        mutationJournal.pending(session, table.id)?.let { pending ->
+            draft.uncertain = true
+            if (pending.kind == "items") {
+                draft.requestId = pending.requestId
+                draft.pendingQuantities = pending.quantities
+            } else if (pending.kind == "payment") {
+                draft.paymentRequestId = pending.requestId
+            }
+            error = "มีรายการโต๊ะที่ผลตอบกลับไม่แน่นอน กรุณาตรวจบิลเดิมก่อน"
+        }
         refresh(true)
         while (true) {
             delay(6000L)
@@ -140,8 +157,16 @@ internal fun NativeDiningOrderScreen(
         if (!canSubmit) return
         val desired = billQuantities(initial).toMutableMap()
         draft.items.forEach { (id, qty) -> desired[id] = (desired[id] ?: 0) + qty }
+        val requestId = UUID.randomUUID().toString()
+        try {
+            mutationJournal.prepare(session, table.id, "items", initial.orderId, requestId, desired)
+        } catch (failure: Exception) {
+            draft.uncertain = true
+            error = "มีรายการที่ต้องตรวจสอบในเครื่อง ห้ามบันทึกซ้ำ"
+            return
+        }
         draft.pendingQuantities = desired
-        draft.requestId = UUID.randomUUID().toString()
+        draft.requestId = requestId
         draft.busy = true
         cartOpen = false
         feedback = "saving"
@@ -153,6 +178,7 @@ internal fun NativeDiningOrderScreen(
                 val verified = client.diningBill(session, table.id)
                 if (billQuantities(verified) != desired || verified.orderId.isNullOrBlank())
                     throw IllegalStateException("table_order_acknowledgement_not_confirmed")
+                mutationJournal.confirmed(session, table.id, requestId)
                 bill = verified
                 feedback = "success"
                 delay(850L)
@@ -165,7 +191,8 @@ internal fun NativeDiningOrderScreen(
                 throw cancelled
             } catch (failure: Exception) {
                 val api = failure as? WebPosApiException
-                if (api != null && api.status in 400..499) {
+                if (api != null && api.status in 400..499 &&
+                    runCatching { mutationJournal.confirmed(session, table.id, requestId) }.isSuccess) {
                     draft.requestId = null
                     draft.pendingQuantities = emptyMap()
                     stale = true
@@ -190,15 +217,26 @@ internal fun NativeDiningOrderScreen(
             try {
                 val remote = client.diningBill(session, table.id)
                 bill = remote
-                if (draft.pendingQuantities.isNotEmpty() &&
-                    billQuantities(remote) == draft.pendingQuantities &&
-                    !remote.orderId.isNullOrBlank()) {
+                val pending = mutationJournal.pending(session, table.id)
+                val resolved = pending != null && when (pending.kind) {
+                    "items" -> pending.quantities.isNotEmpty() &&
+                        billQuantities(remote) == pending.quantities &&
+                        !remote.orderId.isNullOrBlank()
+                    "payment" -> remote.paid && remote.sessionStatus == "closed" &&
+                        remote.orderId == pending.orderId
+                    else -> false
+                }
+                if (resolved && pending != null) {
+                    mutationJournal.confirmed(session, table.id, pending.requestId)
                     draft.items.clear()
                     draft.pendingQuantities = emptyMap()
                     draft.requestId = null
+                    draft.paymentRequestId = null
+                    draft.paymentMethod = null
                     draft.uncertain = false
                     stale = false
                     error = null
+                    if (pending.kind == "payment") onTables()
                 } else {
                     draft.uncertain = true
                     error = "จำนวนสินค้าไม่ตรงกับที่ส่ง ห้ามส่งซ้ำ โปรดตรวจใน POS Web"
@@ -222,8 +260,16 @@ internal fun NativeDiningOrderScreen(
             if (parsed < reference.total) return
             parsed
         } else Satang.ZERO
-        if (draft.paymentRequestId == null)
-            draft.paymentRequestId = UUID.randomUUID().toString()
+        val requestId = draft.paymentRequestId ?: UUID.randomUUID().toString()
+        try {
+            mutationJournal.prepare(session, table.id, "payment", reference.orderId,
+                requestId, emptyMap())
+        } catch (failure: Exception) {
+            draft.uncertain = true
+            error = "มีรายการชำระเงินที่ต้องตรวจสอบ ห้ามชำระซ้ำ"
+            return
+        }
+        draft.paymentRequestId = requestId
         draft.busy = true
         feedback = "saving"
         error = null
@@ -235,6 +281,7 @@ internal fun NativeDiningOrderScreen(
                 val verification = client.diningBill(session, table.id)
                 if (!verification.paid || verification.sessionStatus != "closed")
                     throw IllegalStateException("payment_or_table_cleanup_unconfirmed")
+                mutationJournal.confirmed(session, table.id, requestId)
                 bill = verification
                 feedback = "success"
                 delay(900L)
