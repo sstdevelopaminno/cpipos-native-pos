@@ -232,10 +232,10 @@ internal fun NativeDiningTableScreen(
     managing?.let { table ->
         val bill = managementBill
         val pending = journal.pending(session, table.id)
+        val hasItems = bill?.lines?.isNotEmpty() == true
         val eligible = bill != null && bill.editable && !bill.paid &&
             session.canManageTables && (!hasItems || session.canSell) &&
             !managementLoading && !working && canManageTable(table.id) && pending == null
-        val hasItems = bill?.lines?.isNotEmpty() == true
         AlertDialog(
             onDismissRequest = { if (!working) managing = null },
             title = { Text("จัดการโต๊ะ " + table.name + " (" + table.code + ")",
