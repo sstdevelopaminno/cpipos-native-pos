@@ -526,6 +526,12 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 onEnterTable = { table ->
                     selectedDiningTable = table
                     step = "dine_order"
+                },
+                canManageTable = { tableId ->
+                    val draft = dineWorkspace.drafts[tableId]
+                    draft == null || (!draft.busy && !draft.uncertain &&
+                        draft.items.isEmpty() && draft.pendingQuantities.isEmpty() &&
+                        draft.paymentRequestId == null)
                 }
             )
         }
