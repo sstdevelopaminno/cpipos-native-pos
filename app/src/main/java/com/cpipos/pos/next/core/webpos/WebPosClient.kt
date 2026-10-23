@@ -59,6 +59,7 @@ data class WebDiningBill(
         sessionId != null && sessionStatus in setOf("open", "ordering") &&
             (orderId == null || orderStatus == "queued") && !paid
     fun fingerprint(): String = listOf(sessionId, sessionStatus, orderId, orderStatus,
+        paid, total.value,
         lines.joinToString("|") { "${it.productId}:${it.quantity}:${it.unitPrice.value}:${it.notes.orEmpty()}:${it.hasCustomMetadata}" }
     ).joinToString("#")
 }
