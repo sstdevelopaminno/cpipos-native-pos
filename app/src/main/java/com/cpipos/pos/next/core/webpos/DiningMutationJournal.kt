@@ -49,7 +49,7 @@ internal class DiningMutationJournal(context: Context) {
     ) {
         require(UUID.fromString(tableId).toString() == tableId)
         require(UUID.fromString(requestId).toString() == requestId)
-        require(kind in setOf("items", "payment"))
+        require(kind in setOf("items", "payment", "cancel"))
         require(pending(s, tableId) == null) { "unresolved_dining_mutation" }
         val q = JSONObject()
         quantities.forEach { (id, count) -> q.put(id, count) }
