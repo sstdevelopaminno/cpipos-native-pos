@@ -28,6 +28,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -41,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import com.cpipos.pos.next.R
 import com.cpipos.pos.next.core.webpos.WebBranch
 import com.cpipos.pos.next.core.webpos.WebPosSession
+import com.cpipos.pos.next.core.pos.Satang
 
 private val brandBlue = Color(0xFF1F75D6)
 private val brandInk = Color(0xFF113C73)
@@ -427,40 +432,95 @@ internal fun LiveShiftScreen(
     session: WebPosSession,
     busy: Boolean,
     error: String?,
-    onOpen: () -> Unit,
-    onRefresh: () -> Unit,
+    onOpen: (Satang) -> Unit,
     onBack: () -> Unit
 ) {
+    var enteringFloat by remember(session.id) { mutableStateOf(false) }
+    var openingCash by remember(session.id) { mutableStateOf("0") }
+    val validInput = openingCash.matches(Regex("\\d{1,7}(\\.\\d{1,2})?"))
+    val amount = if (validInput) runCatching { Satang.fromBaht(openingCash) }.getOrNull() else null
+    val canSubmit = amount != null && amount >= Satang.ZERO
+
     LiveAuthCard {
         Text(
             "เปิดกะขาย • ${session.branchName}",
             modifier = Modifier.fillMaxWidth(),
             color = brandInk, style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.ExtraBold
         )
+        Spacer(modifier = Modifier.height(7.dp))
         Text(
             "ผู้ขาย: ${session.cashierName}  •  เครื่อง: ${session.deviceCode}",
             color = Color(0xFF627791), fontSize = 12.sp
         )
-        Spacer(modifier = Modifier.height(13.dp))
-        Text(
-            "กะขายต้องเปิดอยู่ และระบบต้องตรวจสอบสิทธิ์เครื่องและพนักงานสำเร็จ",
-            color = Color(0xFF627791),
-            fontSize = 11.sp,
-            modifier = Modifier.fillMaxWidth()
-        )
+        Spacer(modifier = Modifier.height(15.dp))
+        if (!enteringFloat) {
+            Text(
+                "กะขายเชื่อมกับ CpIPOS หลักของสาขาและเครื่องขายเดียวกัน " +
+                    "เปิดหรือปิดกะบนฝั่งใด อีกฝั่งจะใช้สถานะเดียวกัน",
+                color = Color(0xFF627791), fontSize = 12.sp,
+                lineHeight = 18.sp,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(13.dp))
+            LiveAction(
+                if (busy) "กำลังตรวจสอบกะ..." else "เปิดกะขาย",
+                enabled = !busy && session.canOpenShift && session.canSell,
+                onClick = { enteringFloat = true }
+            )
+            if (!session.canOpenShift || !session.canSell) {
+                Text("ไม่มีสิทธิ์เปิดกะขาย โปรดติดต่อผู้จัดการร้าน",
+                    color = Color(0xFFB73F43), fontSize = 11.sp)
+            }
+        } else {
+            Text(
+                "ระบุเงินทอนเริ่มต้นในลิ้นชัก",
+                fontSize = 16.sp, color = brandInk,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                "ยอดนี้จะบันทึกเป็น opening_cash ในกะขายจริงของ CpIPOS",
+                fontSize = 11.sp, color = Color(0xFF6D819C),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedTextField(
+                value = openingCash,
+                onValueChange = { raw ->
+                    if (!busy && raw.length <= 10 &&
+                        (raw.isEmpty() || raw.matches(Regex("\\d{0,7}(\\.\\d{0,2})?")))) {
+                        openingCash = raw
+                    }
+                },
+                label = { Text("เงินทอนเริ่มต้น (บาท)") },
+                prefix = { Text("฿ ") },
+                placeholder = { Text("0.00") },
+                singleLine = true, enabled = !busy,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                shape = RoundedCornerShape(14.dp),
+                colors = brandedTextFieldColors(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                "หากมีการเปิดกะของเครื่องนี้ไว้บน POS หลักแล้ว " +
+                    "ระบบจะใช้กะเดิมโดยไม่เปลี่ยนเงินทอนเริ่มต้น",
+                color = Color(0xFF71839B), fontSize = 11.sp,
+                lineHeight = 16.sp,
+                modifier = Modifier.fillMaxWidth().padding(top = 7.dp)
+            )
+            Spacer(modifier = Modifier.height(13.dp))
+            LiveAction(
+                if (busy) "กำลังบันทึกและตรวจสอบกะ..." else "ยืนยันเปิดกะขาย",
+                enabled = !busy && canSubmit,
+                onClick = { amount?.let(onOpen) }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            LiveBack("กลับ", onClick = { if (!busy) enteringFloat = false })
+        }
         LiveError(error)
         Spacer(modifier = Modifier.height(10.dp))
-        if (session.canOpenShift && session.shiftId == null && session.canSell) {
-            LiveAction(
-                if (busy) "กำลังเปิดกะ..." else "เปิดกะขาย (เงินเปิดกะ ฿0)",
-                enabled = !busy, onClick = onOpen
-            )
-            Spacer(modifier = Modifier.height(9.dp))
-        }
-        LiveAction("ตรวจสอบกะและโหลดสินค้า", enabled = !busy, onClick = onRefresh)
-        Spacer(modifier = Modifier.height(8.dp))
-        LiveBack("กลับหน้าเข้าสู่ระบบ", onClick = onBack)
+        LiveBack("กลับหน้าเข้าสู่ระบบ", onClick = { if (!busy) onBack() })
     }
 }
 
