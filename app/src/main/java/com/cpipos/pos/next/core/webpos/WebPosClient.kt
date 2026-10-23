@@ -336,6 +336,47 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         return confirmed
     }
 
+    /**
+     * Use the same server-owned POS logout/switch flow as tablet POS.
+     * This ends the old device session and creates a short-lived, scoped
+     * pre-entry cookie for /api/auth/branches -> employee -> device.
+     * It does not use a new authorization mechanism or copy a PIN.
+     */
+    suspend fun switchToBranchChooser(): WebStore {
+        try {
+            val switched = call(
+                "POST", "/api/auth/session/logout",
+                JSONObject().put("mode", "switch_branch")
+            )
+            if (switched.optString("mode") != "switch_branch") {
+                throw WebPosApiException("switch_branch_not_confirmed", 409)
+            }
+            // Clear ONLY the persisted POS SSO secret. The server-provided
+            // pre-entry cookie must stay in CookieManager for branch selection.
+            secureSessionStore?.clear()
+            val listing = call("GET", "/api/auth/branches")
+            val tenant = listing.getJSONObject("tenant")
+            val branches = listing.optJSONArray("branches") ?: JSONArray()
+            return WebStore(
+                tenantId = "",
+                name = tenant.optString("name"),
+                branches = (0 until branches.length()).map { index ->
+                    val item = branches.getJSONObject(index)
+                    WebBranch(
+                        id = item.getString("id"),
+                        name = item.optString("name"),
+                        code = item.optString("code")
+                    )
+                }
+            )
+        } catch (failure: Exception) {
+            // If response was lost after server revocation, fail closed and
+            // start normal store verification, never silently reuse old SSO.
+            clearStoredPosSession()
+            throw failure
+        }
+    }
+
     private suspend fun call(
         method: String, path: String, json: JSONObject? = null, key: String? = null
     ): JSONObject = withContext(Dispatchers.IO) {
