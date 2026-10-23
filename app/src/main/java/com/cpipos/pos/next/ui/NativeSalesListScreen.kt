@@ -93,6 +93,7 @@ internal fun NativeSalesListScreen(
     LaunchedEffect(client, session.id, mode, window.start, window.end, page, refresh) {
         loading = true
         error = null
+        visibleDeleteId = null
         try {
             history = client.receiptHistory(
                 session = session,
@@ -236,7 +237,7 @@ internal fun NativeSalesListScreen(
                             SalesCell("ยอด", .95f, true, true)
                         }
                         when {
-                            loading && history == null -> Box(
+                            loading -> Box(
                                 modifier = Modifier.fillMaxWidth().height(190.dp),
                                 contentAlignment = Alignment.Center
                             ) { CircularProgressIndicator(color = salesBlue) }
