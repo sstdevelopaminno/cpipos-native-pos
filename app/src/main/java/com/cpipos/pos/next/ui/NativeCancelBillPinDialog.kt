@@ -48,7 +48,8 @@ internal fun NativeCancelBillPinDialog(
     error: String?,
     onDismiss: () -> Unit,
     onApprove: (String) -> Unit,
-    actionLabel: String = "ยืนยันการยกเลิก"
+    actionLabel: String = "ยืนยันการยกเลิก",
+    actionNote: String = "ระบบจะตรวจสิทธิ์จากเซิร์ฟเวอร์ก่อนเปลี่ยนสถานะบิล"
 ) {
     var pin by remember(title) { mutableStateOf("") }
     val ink = Color(0xFF172749)
@@ -141,7 +142,7 @@ internal fun NativeCancelBillPinDialog(
                         fontSize = 12.sp, textAlign = TextAlign.Center)
                 }
                 Text(
-                    "ระบบจะตรวจสิทธิ์จากเซิร์ฟเวอร์ก่อนเปลี่ยนสถานะบิล",
+                    actionNote,
                     fontSize = 11.sp, color = Color(0xFF8091A6),
                     textAlign = TextAlign.Center
                 )
