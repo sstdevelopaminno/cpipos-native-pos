@@ -135,7 +135,7 @@ private val saleInk = Color(0xFF152544)
 private val saleMuted = Color(0xFF7A8BA3)
 private val saleCategories = listOf("ทั้งหมด", "เครื่องดื่ม", "อาหาร", "ของหวาน", "โปรโมชัน")
 
-private enum class PreviewPayment { Cash, Transfer }
+internal enum class PreviewPayment { Cash, Transfer }
 
 /** Retains an in-progress takeaway checkout while the cashier visits the mode menu. */
 internal class TakeawayWorkspace {
@@ -220,7 +220,7 @@ internal fun MobilePosSalePreview(
     val quantity = cart.values.sum()
     val total = products.sumOf { it.price * (cart[it.id] ?: 0) }
     BackHandler(enabled = !showCart && !showMethods && !showHistory && !showLiveHistory &&
-        payment == null && !showScannerNotice && pendingAction == null && !showCancelBillConfirm) {
+        payment == null && !showScannerNotice && pendingAction == null && !showCancelBillConfirm && !saving) {
         onBack()
     }
 
@@ -377,6 +377,7 @@ internal fun MobilePosSalePreview(
                 }
             }
         )
+        PaymentFeedbackOverlay(paymentFeedback)
         return
     }
 
@@ -472,6 +473,7 @@ internal fun MobilePosSalePreview(
                 }
             }
         )
+        PaymentFeedbackOverlay(paymentFeedback)
         return
     }
 
@@ -515,7 +517,7 @@ internal fun MobilePosSalePreview(
                                 .shadow(2.dp, CircleShape)
                                 .clip(CircleShape)
                                 .background(Color.White)
-                                .clickable(onClickLabel = "เลือกโหมด") { onSelectMode() },
+                                .clickable(enabled = !saving, onClickLabel = "เลือกโหมด") { onSelectMode() },
                             contentAlignment = Alignment.Center
                         ) {
                             Image(
