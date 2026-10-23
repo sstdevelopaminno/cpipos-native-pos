@@ -129,6 +129,23 @@ class LiveSaleJournal(context: Context) : SQLiteOpenHelper(
     }
 
     /**
+     * Includes confirmed attempts, unlike unresolved(). A recovered parked
+     * draft must NEVER be resubmitted after the server has seen this sale UUID.
+     */
+    fun stage(session: WebPosSession, billId: String): String? {
+        require(UUID.fromString(billId).toString() == billId)
+        readableDatabase.query(
+            "live_attempts",
+            arrayOf("stage"),
+            "id=? AND tenant_id=? AND branch_id=? AND device_code=?",
+            arrayOf(billId, session.tenantId, session.branchId, session.deviceCode),
+            null, null, null, "1"
+        ).use { cursor ->
+            return if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    }
+
+    /**
      * Returns false when the exact bill UUID already exists.
      * A different unresolved bill on the same terminal blocks a new checkout.
      */
