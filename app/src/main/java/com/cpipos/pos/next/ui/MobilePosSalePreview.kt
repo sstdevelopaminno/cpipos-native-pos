@@ -148,6 +148,7 @@ internal class TakeawayWorkspace {
     val payment = mutableStateOf<PreviewPayment?>(null)
     val cashInput = mutableStateOf("")
     val activeBillId = mutableStateOf(UUID.randomUUID().toString())
+    val activeHeldId = mutableStateOf<String?>(null)
     val saving = mutableStateOf(false)
     val saveError = mutableStateOf<String?>(null)
     val paymentFeedback = mutableStateOf("idle")
@@ -192,6 +193,7 @@ internal fun MobilePosSalePreview(
     var liveHistoryLoading by remember { mutableStateOf(false) }
     var liveHistoryError by remember { mutableStateOf<String?>(null) }
     var activeBillId by workspace.activeBillId
+    var activeHeldId by workspace.activeHeldId
     var discount by workspace.discount
     var showDiscount by remember { mutableStateOf(false) }
     var showHeldBills by remember { mutableStateOf(false) }
@@ -248,10 +250,42 @@ internal fun MobilePosSalePreview(
             (search.isBlank() || product.name.contains(search.trim(), ignoreCase = true) || product.id.contains(search.trim(), ignoreCase = true))
     }
 
-    fun add(id: String) { cart[id] = (cart[id] ?: 0) + 1; notice = "" }
+    // Keep edits to a restored hold bill durable BEFORE updating visible cart.
+    // Never change its original sale UUID or delete its held snapshot on restore.
+    fun setCartItems(next: Map<String, Int>) {
+        val active = activeHeldId
+        if (active != null && liveSession != null) {
+            val saved = runCatching {
+                if (next.isEmpty()) {
+                    holdStore.remove(liveSession, active)
+                } else {
+                    holdStore.update(
+                        liveSession, active, next,
+                        discount.kind, discount.input
+                    )
+                }
+            }
+            if (saved.isFailure) {
+                notice = "บันทึกการแก้ไขบิลพักไม่สำเร็จ ตะกร้ายังไม่เปลี่ยน"
+                return
+            }
+            if (next.isEmpty()) activeHeldId = null
+            heldDrafts = holdStore.all(liveSession)
+        }
+        cart.clear()
+        cart.putAll(next)
+        notice = ""
+    }
+    fun add(id: String) {
+        setCartItems(cart.toMutableMap().apply {
+            put(id, (get(id) ?: 0) + 1)
+        })
+    }
     fun remove(id: String) {
-        val next = (cart[id] ?: 0) - 1
-        if (next <= 0) cart.remove(id) else cart[id] = next
+        setCartItems(cart.toMutableMap().apply {
+            val value = (get(id) ?: 0) - 1
+            if (value <= 0) remove(id) else put(id, value)
+        })
     }
     fun loadLiveReceiptHistory() {
         val client = liveClient ?: return
@@ -748,7 +782,9 @@ internal fun MobilePosSalePreview(
             onDismiss = { showCart = false },
             onAdd = { add(it) },
             onRemove = { remove(it) },
-            onDelete = { cart.remove(it) },
+            onDelete = { id ->
+                setCartItems(cart.toMutableMap().apply { remove(id) })
+            },
             onCancelBill = { showCart = false; showCancelBillConfirm = true },
             onCheckout = {
                 if (quantity > 0 && total > 0L) {
