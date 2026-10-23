@@ -61,12 +61,11 @@ internal fun NativeDiningTableScreen(
     var loading by remember(session.id) { mutableStateOf(true) }
     var error by remember(session.id) { mutableStateOf<String?>(null) }
     var working by remember(session.id) { mutableStateOf(false) }
-    var selected by remember(session.id) { mutableStateOf<WebDiningTable?>(null) }
-    var detail by remember(session.id) { mutableStateOf<WebTableBillSummary?>(null) }
     var managing by remember(session.id) { mutableStateOf<WebDiningTable?>(null) }
     var managementBill by remember(session.id) { mutableStateOf<WebDiningBill?>(null) }
     var managementError by remember(session.id) { mutableStateOf<String?>(null) }
     var managementLoading by remember(session.id) { mutableStateOf(false) }
+    var managePinOpen by remember(session.id) { mutableStateOf(false) }
     // A timed-out open-bill request may have reached the server: block re-open
     // until a fresh server snapshot confirms this table is no longer available.
     var uncertainOpens by remember(session.id) { mutableStateOf(setOf<String>()) }
@@ -89,11 +88,11 @@ internal fun NativeDiningTableScreen(
     }
     LaunchedEffect(client, session.id) {
         while (true) {
-            if (!working && selected == null) refresh()
+            if (!working && managing == null) refresh()
             delay(8000)
         }
     }
-    BackHandler(enabled = !working) { if (selected == null) onBack() else selected = null }
+    BackHandler(enabled = !working) { if (managing == null) onBack() else managing = null }
 
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Box(Modifier.fillMaxSize()) {
@@ -156,16 +155,48 @@ internal fun NativeDiningTableScreen(
                             modifier = Modifier.fillMaxWidth().combinedClickable(
                                 enabled = !working,
                                 onClick = {
-                                    if (table.sessionId != null &&
-                                        table.status in setOf("occupied", "ordering", "pending_payment")) {
-                                        onEnterTable(table)
-                                    } else {
-                                        selected = table
-                                        detail = null
-                                        if (table.status != "available") {
+                                    when {
+                                        uncertainOpens.contains(table.id) -> {
+                                            error = "โต๊ะนี้มีคำขอเปิดที่ผลยังไม่แน่นอน " +
+                                                "กรุณาตรวจสอบสถานะจาก CpIPOS หลักก่อน"
+                                        }
+                                        table.sessionId != null -> onEnterTable(table)
+                                        else -> {
+                                            // One tap = open the actual server session, then enter.
+                                            // Do not show an intermediate confirmation dialog.
+                                            working = true
+                                            if (table.status == "available")
+                                                uncertainOpens = uncertainOpens + table.id
                                             scope.launch {
-                                                runCatching { client.tableBill(session, table.id) }
-                                                    .onSuccess { detail = it }
+                                                try {
+                                                    if (table.status == "available")
+                                                        client.openDiningTable(session, table.id)
+                                                    val remote = client.diningBill(session, table.id)
+                                                    if (remote.sessionId != null && !remote.paid &&
+                                                        remote.sessionStatus in setOf("open", "ordering", "pending_payment")) {
+                                                        uncertainOpens = uncertainOpens - table.id
+                                                        onEnterTable(table)
+                                                    } else {
+                                                        error = "โต๊ะยังไม่พร้อมใช้งาน กรุณารีเฟรชสถานะจากเซิร์ฟเวอร์"
+                                                    }
+                                                } catch (failure: Exception) {
+                                                    // If another cashier opened it first, join
+                                                    // the same bill. Never send a second open POST.
+                                                    val found = runCatching {
+                                                        client.diningBill(session, table.id)
+                                                    }.getOrNull()
+                                                    if (found?.sessionId != null && !found.paid) {
+                                                        uncertainOpens = uncertainOpens - table.id
+                                                        onEnterTable(table)
+                                                    } else {
+                                                        if (failure is WebPosApiException &&
+                                                            failure.status in 400..499)
+                                                            uncertainOpens = uncertainOpens - table.id
+                                                        error = "เปิดโต๊ะยังไม่ยืนยัน โปรดรีเฟรชและตรวจใน POS หลัก ห้ามเปิดซ้ำ"
+                                                    }
+                                                } finally {
+                                                    working = false
+                                                }
                                             }
                                         }
                                     }
@@ -355,71 +386,7 @@ internal fun NativeDiningTableScreen(
         )
     }
 
-    selected?.let { table ->
-        val canOpen = table.status == "available" && table.sessionId == null &&
-            !uncertainOpens.contains(table.id)
-        AlertDialog(
-            onDismissRequest = { if (!working) { selected = null; detail = null } },
-            title = { Text(table.name, color = diningInk, fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("สถานะ: " + diningStatus(table.status).first)
-                    detail?.orderNo?.let { Text("เลขบิล: " + it, color = diningBlue) }
-                    if (!canOpen) Text(
-                        if (uncertainOpens.contains(table.id))
-                            "สถานะเปิดโต๊ะยังไม่แน่นอน กรุณารีเฟรชตรวจสอบเซิร์ฟเวอร์ก่อนเปิดอีกครั้ง"
-                        else "โต๊ะนี้มีสถานะที่บันทึกบน POS Web แล้ว กรุณาตรวจสอบบิลเดิม",
-                        fontSize = 12.sp, color = Color(0xFF72829A)
-                    )
-                }
-            },
-            confirmButton = {
-                if (canOpen) {
-                    Button(enabled = !working, onClick = {
-                        working = true
-                        uncertainOpens = uncertainOpens + table.id
-                        scope.launch {
-                            try {
-                                client.openDiningTable(session, table.id)
-                                val opened = client.diningBill(session, table.id)
-                                check(!opened.sessionId.isNullOrBlank()) { "table_open_needs_review" }
-                                selected = null
-                                detail = null
-                                refresh()
-                                onEnterTable(table)
-                            } catch (e: Exception) {
-                                // Another cashier may have won a simultaneous
-                                // open. If their session exists, JOIN that exact
-                                // server-owned bill instead of opening another.
-                                val existing = runCatching { client.diningBill(session, table.id) }.getOrNull()
-                                if (existing?.sessionId != null && existing.editable) {
-                                    selected = null
-                                    detail = null
-                                    uncertainOpens = uncertainOpens - table.id
-                                    onEnterTable(table)
-                                } else {
-                                    if (e is WebPosApiException && e.status in 400..499)
-                                        uncertainOpens = uncertainOpens - table.id
-                                    error = "สถานะเปิดโต๊ะไม่แน่นอน โปรดรีเฟรชบิลเดิม ห้ามกดเปิดซ้ำ"
-                                    selected = null
-                                }
-                            } finally { working = false }
-                        }
-                    }) { Text(if (working) "กำลังเปิดโต๊ะ" else "เปิดโต๊ะ") }
-                } else if (detail?.sessionId != null &&
-                    table.status in setOf("occupied", "ordering", "pending_payment")) {
-                    TextButton(onClick = { selected = null; onEnterTable(table) }) {
-                        Text("เข้าบิลโต๊ะนี้")
-                    }
-                } else TextButton(onClick = { selected = null }) { Text("ปิด") }
-            },
-            dismissButton = {
-                if (canOpen) TextButton(onClick = { if (!working) selected = null }) {
-                    Text("กลับ")
-                }
-            }
-        )
-    }
+
 }
 
 @Composable
