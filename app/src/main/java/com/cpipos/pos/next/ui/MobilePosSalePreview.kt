@@ -827,6 +827,9 @@ internal fun MobilePosSalePreview(
                             check(liveJournal.unresolved(liveSession).isEmpty()) {
                                 "มีบิลที่ต้อง Reconcile ก่อนพักบิล"
                             }
+                            check(liveJournal.stage(liveSession, activeBillId) == null) {
+                                "รหัสบิลนี้เคยส่งเซิร์ฟเวอร์แล้ว ห้ามพักและส่งซ้ำ"
+                            }
                             val savedId = if (activeHeldId != null) {
                                 val existingId = requireNotNull(activeHeldId)
                                 holdStore.update(
@@ -894,6 +897,10 @@ internal fun MobilePosSalePreview(
                                     runCatching {
                                         check(liveJournal?.unresolved(liveSession)?.isEmpty() == true) {
                                             "มีบิลค้างตรวจสอบ ห้ามเรียกบิลพัก"
+                                        }
+                                        check(liveJournal.stage(liveSession, entry.saleId) == null) {
+                                            "บิลพักนี้เคยส่งถึงเซิร์ฟเวอร์แล้ว " +
+                                                "ห้ามเรียกขายซ้ำ กรุณาตรวจ POS Web"
                                         }
                                         entry.items.forEach { (id, count) ->
                                             check(products.any { it.id == id }) {
