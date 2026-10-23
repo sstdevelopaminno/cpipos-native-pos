@@ -46,6 +46,23 @@ data class WebDiningTable(
 )
 data class WebTableFloor(val zones: List<WebTableZone>, val tables: List<WebDiningTable>)
 data class WebTableBillSummary(val sessionId: String?, val orderNo: String?, val status: String?, val itemCount: Int)
+data class WebDiningLine(
+    val productId: String, val name: String, val quantity: Int,
+    val unitPrice: Satang, val notes: String?, val hasCustomMetadata: Boolean
+)
+data class WebDiningBill(
+    val sessionId: String?, val sessionStatus: String?,
+    val orderId: String?, val orderNo: String?, val orderStatus: String?,
+    val lines: List<WebDiningLine>, val paid: Boolean
+) {
+    val editable: Boolean get() =
+        sessionId != null && sessionStatus in setOf("open", "ordering") &&
+            (orderId == null || orderStatus == "queued") && !paid
+    fun fingerprint(): String = listOf(sessionId, sessionStatus, orderId, orderStatus,
+        lines.joinToString("|") { "${it.productId}:${it.quantity}:${it.unitPrice.value}:${it.notes.orEmpty()}:${it.hasCustomMetadata}" }
+    ).joinToString("#")
+}
+
 
 data class WebPaymentAccount(
     val id: String,
@@ -667,6 +684,93 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             status = entry?.optString("status"),
             itemCount = data.optJSONArray("items")?.length() ?: 0
         )
+    }
+
+
+    /**
+     * Canonical table bill: server is sole source of order, items, payments.
+     * Refresh bypasses the small POS Web cache; no database credentials in APK.
+     */
+    suspend fun diningBill(session: WebPosSession, tableId: String): WebDiningBill {
+        require(UUID.fromString(tableId).toString() == tableId)
+        requireSameLiveSession(session)
+        val data = call("GET", "/api/pos/tables/$tableId/bill?refresh=1")
+        val bill = data.optJSONObject("session")
+        val order = data.optJSONObject("order")
+        val rows = data.optJSONArray("items") ?: JSONArray()
+        val payments = data.optJSONArray("payments") ?: JSONArray()
+        val lines = (0 until rows.length()).map { i ->
+            val row = rows.getJSONObject(i)
+            val details = row.optJSONObject("metadata")
+            val product = row.optJSONObject("products")
+            WebDiningLine(
+                productId = row.optString("product_id"),
+                name = product?.optString("name").orEmpty().ifBlank { row.optString("product_id") },
+                quantity = row.optInt("quantity"),
+                unitPrice = Satang.fromBaht(row.get("unit_price").toString()),
+                notes = row.optString("notes").takeIf { it.isNotBlank() && it != "null" },
+                hasCustomMetadata = details != null && details.length() > 0
+            )
+        }
+        return WebDiningBill(
+            sessionId = bill?.optString("id")?.takeIf { it.isNotBlank() },
+            sessionStatus = bill?.optString("status"),
+            orderId = order?.optString("id")?.takeIf { it.isNotBlank() },
+            orderNo = order?.optString("order_no"),
+            orderStatus = order?.optString("status"),
+            lines = lines,
+            paid = (0 until payments.length()).any { i ->
+                payments.optJSONObject(i)?.optDouble("amount", 0.0)?.let { it > 0.0 } == true
+            } || order?.optString("status") == "completed"
+        )
+    }
+
+    /**
+     * Existing authenticated POS Web dine-in sale endpoint only. Always send
+     * the full desired bill state with ORIGINAL order_id when editing, so
+     * Takeaway UUIDs are never used for a table. Caller verifies a fresh
+     * preflight snapshot and blocks uncertain responses rather than retrying.
+     */
+    suspend fun saveDiningOrder(
+        session: WebPosSession, tableId: String, base: WebDiningBill,
+        quantities: Map<String, Int>, products: List<WebPosProduct>,
+        requestId: String
+    ): String {
+        require(UUID.fromString(tableId).toString() == tableId)
+        require(UUID.fromString(requestId).toString() == requestId)
+        requireSameLiveSession(session)
+        check(session.shiftId != null && session.canSell && base.editable)
+        check(quantities.isNotEmpty() && quantities.values.all { it > 0 && it <= 999 })
+        val priceById = products.associateBy { it.id }
+        val payloadLines = JSONArray()
+        var total = Satang.ZERO
+        quantities.toSortedMap().forEach { (id, quantity) ->
+            val product = priceById[id] ?: error("product_removed_refresh_table")
+            require(product.price >= Satang.ZERO)
+            total += Satang.of(product.price.value * quantity.toLong())
+            payloadLines.put(JSONObject()
+                .put("product_id", id)
+                .put("quantity", quantity)
+                .put("unit_price", BigDecimal(product.price.bahtText())))
+        }
+        // A current server snapshot guards against applying a stale full-cart
+        // overwrite. The DB's replace_queued_dine_in_order_tx serializes writes,
+        // but does not offer an atomic If-Match revision yet.
+        val current = diningBill(session, tableId)
+        if (!current.editable || current.fingerprint() != base.fingerprint()) {
+            throw WebPosApiException("table_bill_changed_refresh_required", 409)
+        }
+        val input = JSONObject()
+            .put("shift_id", session.shiftId)
+            .put("order_type", "dine_in")
+            .put("channel", "pos")
+            .put("table_id", tableId)
+            .put("app_total_amount", BigDecimal(total.bahtText()))
+            .put("items", payloadLines)
+        base.orderId?.let { input.put("order_id", it) }
+        val result = call("POST", "/api/pos/sales", input, requestId)
+        return result.optString("id").ifBlank { result.optString("order_id") }
+            .takeIf { it.isNotBlank() } ?: throw WebPosApiException("dine_order_response_ambiguous", 503)
     }
 
     /**
