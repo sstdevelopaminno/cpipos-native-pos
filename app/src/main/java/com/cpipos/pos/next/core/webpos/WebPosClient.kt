@@ -827,55 +827,70 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
 
+
     /**
-     * Manager-confirmed cancellation: clear only the exact queued dine-in order
-     * attached to this table, then ask the canonical table RPC to close the
-     * now-empty session. Never delete a completed or paid sale.
-     * Returning an error after the first step is deliberately ambiguous:
-     * callers MUST read server state, not send a second destructive request.
+     * The same branch-scoped PIN approval flow as CpIPOS tablet POS.
+     * The backend validates manager/owner or explicitly granted staff PINs;
+     * the PIN itself is sent once over the authenticated HTTPS session and is
+     * never persisted, logged or embedded in the APK.
+     */
+    suspend fun approveDiningCancellation(
+        session: WebPosSession, expected: WebDiningBill, pin: String
+    ): String {
+        requireSameLiveSession(session)
+        require(pin.length in 4..12 && pin.all { it.isDigit() })
+        val targetId = expected.orderId ?: expected.sessionId
+            ?: throw WebPosApiException("table_bill_missing", 409)
+        require(UUID.fromString(targetId).toString() == targetId)
+        val result = call("POST", "/api/backoffice/approvals/pin", JSONObject()
+            .put("tenant_id", session.tenantId)
+            .put("branch_id", session.branchId)
+            .put("action", "cancel_bill")
+            .put("target_table", if (expected.orderId != null) "orders" else "table_bill_sessions")
+            .put("target_id", targetId)
+            .put("manager_pin", pin))
+        val approvalId = result.optString("approval_id")
+        require(runCatching { UUID.fromString(approvalId) }.isSuccess) {
+            "pin_approval_id_missing"
+        }
+        return approvalId
+    }
+
+    /**
+     * Cancel the original queued dine-in order via exactly the same
+     * server-enforced cancellation_approval_id endpoint used by POS Web.
+     * This is a cancellation, not a paid receipt deletion or item reset.
+     *
+     * An empty table with no order uses the existing table-management API,
+     * after a server-validated PIN approval and permission check. That older
+     * endpoint still enforces tables:manage rather than the approval ID.
+     * Responses are checked against the authoritative table floor; callers
+     * preserve their journal entry if the result is uncertain.
      */
     suspend fun cancelDiningBill(
-        session: WebPosSession, tableId: String, expected: WebDiningBill
+        session: WebPosSession, tableId: String, expected: WebDiningBill,
+        approvalId: String
     ): Boolean {
         requireSameLiveSession(session)
-        check(session.canManageTables && session.canSell) {
-            "table_management_permission_required"
-        }
         require(UUID.fromString(tableId).toString() == tableId)
+        require(UUID.fromString(approvalId).toString() == approvalId)
         val current = diningBill(session, tableId)
         if (!current.editable || current.paid || current.sessionId != expected.sessionId ||
             current.fingerprint() != expected.fingerprint()) {
             throw WebPosApiException("table_changed_cancel_requires_refresh", 409)
         }
-        if (current.lines.isNotEmpty()) {
-            val orderId = current.orderId
-                ?: throw WebPosApiException("table_order_missing", 409)
-            call("POST", "/api/pos/sales/clear-dine-in",
-                JSONObject().put("order_id", orderId).put("table_id", tableId))
-            val cleared = diningBill(session, tableId)
-            if (cleared.sessionId != current.sessionId || cleared.paid ||
-                cleared.lines.isNotEmpty()) {
-                throw WebPosApiException("table_clear_needs_review", 409)
+        val orderId = current.orderId
+        if (orderId != null) {
+            check(session.canSell) { "sale_cancel_permission_required" }
+            call("POST", "/api/pos/orders/$orderId/cancel", JSONObject()
+                .put("reason", "ยกเลิกบิลโต๊ะผ่าน CpIPOS Native POS")
+                .put("cancellation_approval_id", approvalId))
+        } else {
+            check(current.lines.isEmpty() && session.canManageTables) {
+                "empty_table_management_permission_required"
             }
+            call("POST", "/api/pos/tables/$tableId/cancel-empty-bill", JSONObject())
         }
-        call("POST", "/api/pos/tables/$tableId/cancel-empty-bill", JSONObject())
-        return diningTables(session).tables.any { it.id == tableId &&
-            it.status == "available" && it.sessionId == null }
-    }
-
-    /** Pure table release is permitted only for an empty, unpaid table bill. */
-    suspend fun releaseEmptyDiningTable(
-        session: WebPosSession, tableId: String, expected: WebDiningBill
-    ): Boolean {
-        requireSameLiveSession(session)
-        check(session.canManageTables) { "table_management_permission_required" }
-        require(UUID.fromString(tableId).toString() == tableId)
-        val current = diningBill(session, tableId)
-        if (!current.editable || current.paid || current.lines.isNotEmpty() ||
-            current.fingerprint() != expected.fingerprint()) {
-            throw WebPosApiException("table_not_empty_or_changed", 409)
-        }
-        call("POST", "/api/pos/tables/$tableId/cancel-empty-bill", JSONObject())
         return diningTables(session).tables.any { it.id == tableId &&
             it.status == "available" && it.sessionId == null }
     }
