@@ -45,7 +45,10 @@ import com.cpipos.pos.next.R
  * Animated arcs have no timers, extra API requests or session side effects.
  */
 @Composable
-internal fun CpiposSessionRestoringScreen() {
+internal fun CpiposSessionRestoringScreen(
+    headline: String = "กำลังตรวจสอบการเข้าสู่ระบบ",
+    subtitle: String = "เชื่อมต่อบัญชีร้านและสิทธิ์การใช้งาน..."
+) {
     val animation = rememberInfiniteTransition(label = "cpipos-session-loader")
     val rotation by animation.animateFloat(
         initialValue = 0f,
@@ -137,13 +140,13 @@ internal fun CpiposSessionRestoringScreen() {
                     fontSize = 24.sp
                 )
                 Text(
-                    "กำลังตรวจสอบการเข้าสู่ระบบ",
+                    headline,
                     color = Color(0xFF223A5C),
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 17.sp
                 )
                 Text(
-                    "เชื่อมต่อบัญชีร้านและสิทธิ์การใช้งาน...",
+                    subtitle,
                     color = Color(0xFF7386A1),
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center
