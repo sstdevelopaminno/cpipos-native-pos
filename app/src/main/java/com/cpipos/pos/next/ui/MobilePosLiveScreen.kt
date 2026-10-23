@@ -91,11 +91,13 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     // Single workspace for the authenticated register. Switching to the mode
     // chooser never disposes its cart, entered cash or checkout step.
     val takeaway = remember(session?.id) { TakeawayWorkspace() }
+    val dineWorkspace = remember(session?.id) { DiningWorkspace() }
+    var selectedDiningTable by remember(session?.id) { mutableStateOf<com.cpipos.pos.next.core.webpos.WebDiningTable?>(null) }
     var mainTab by remember { mutableStateOf("history") }
     var tabRevision by remember { mutableStateOf(0) }
 
     fun navigateTab(tab: String) {
-        if (takeaway.saving.value) return
+        if (takeaway.saving.value || dineWorkspace.drafts.values.any { it.busy }) return
         if (tab == "sale") {
             step = "mode"  // selecting Sale always shows the mode chooser root
         } else {
@@ -201,10 +203,10 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     // browsing; never re-issue an open/close request and never interrupt a
     // payment currently being committed to its original UUID.
     LaunchedEffect(client, session?.id, step) {
-        while (step in setOf("shift", "mode", "sale", "dine", "tab")) {
+        while (step in setOf("shift", "mode", "sale", "dine", "dine_order", "tab")) {
             kotlinx.coroutines.delay(6000L)
             val previous = session ?: continue
-            if (busy || takeaway.saving.value) continue
+            if (busy || takeaway.saving.value || dineWorkspace.drafts.values.any { it.busy }) continue
             val remote = try { client.synchronizedShiftSession() }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { continue }
@@ -520,8 +522,27 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 client = client,
                 session = verified,
                 onBack = { step = "mode" },
-                onMainMenu = { tab -> navigateTab(tab) }
+                onMainMenu = { tab -> navigateTab(tab) },
+                onEnterTable = { table ->
+                    selectedDiningTable = table
+                    step = "dine_order"
+                }
             )
+        }
+        "dine_order" -> session?.let { verified ->
+            selectedDiningTable?.let { table ->
+                val draft = dineWorkspace.drafts.getOrPut(table.id) { DiningDraft() }
+                NativeDiningOrderScreen(
+                    client = client,
+                    session = verified,
+                    table = table,
+                    products = catalog,
+                    draft = draft,
+                    onTables = { step = "dine" },
+                    onMode = { step = "mode" },
+                    onMainMenu = { tab -> navigateTab(tab) }
+                )
+            }
         }
         "tab" -> session?.let { verified ->
             androidx.compose.runtime.key(verified.id, mainTab, tabRevision) {
