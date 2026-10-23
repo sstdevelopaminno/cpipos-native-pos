@@ -1051,6 +1051,47 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         return parseHistory(call("GET", path), session)
     }
 
+
+    /**
+     * The existing sales-list deletion is an auditable SOFT DELETE + stock
+     * restoration, not a hard database delete. Approval is scoped to the exact
+     * order with action=sales_record_delete and enforced again server-side.
+     * This endpoint is subject to the advanced_sales_reports feature gate
+     * and owner / manager / IT admin role (verified by POS Web).
+     */
+    suspend fun approveSalesRecordDelete(
+        session: WebPosSession, orderId: String, pin: String
+    ): String {
+        requireSameLiveSession(session)
+        require(UUID.fromString(orderId).toString() == orderId)
+        require(pin.length in 4..12 && pin.all(Char::isDigit))
+        val data = call("POST", "/api/backoffice/approvals/pin", JSONObject()
+            .put("tenant_id", session.tenantId)
+            .put("branch_id", session.branchId)
+            .put("action", "sales_record_delete")
+            .put("target_table", "orders")
+            .put("target_id", orderId)
+            .put("manager_pin", pin))
+        val approvalId = data.optString("approval_id")
+        require(runCatching { UUID.fromString(approvalId) }.isSuccess) {
+            "delete_approval_not_confirmed"
+        }
+        return approvalId
+    }
+
+    suspend fun deleteSalesRecord(
+        session: WebPosSession, orderId: String, approvalId: String
+    ) {
+        requireSameLiveSession(session)
+        require(UUID.fromString(orderId).toString() == orderId)
+        require(UUID.fromString(approvalId).toString() == approvalId)
+        val result = call("DELETE", "/api/pos/sales-list",
+            JSONObject().put("order_id", orderId).put("approval_id", approvalId))
+        if (!result.optBoolean("deleted", false)) {
+            throw WebPosApiException("sales_record_delete_unconfirmed", 503)
+        }
+    }
+
     /**
      * New recovery endpoint does not require the original shift to remain open.
      * Native callers should fall back to current-shift/history APIs while the
