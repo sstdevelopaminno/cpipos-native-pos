@@ -824,6 +824,56 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         }
     }
 
+
+    /**
+     * Manager-confirmed cancellation: clear only the exact queued dine-in order
+     * attached to this table, then ask the canonical table RPC to close the
+     * now-empty session. Never delete a completed or paid sale.
+     * Returning an error after the first step is deliberately ambiguous:
+     * callers MUST read server state, not send a second destructive request.
+     */
+    suspend fun cancelDiningBill(
+        session: WebPosSession, tableId: String, expected: WebDiningBill
+    ): Boolean {
+        requireSameLiveSession(session)
+        require(UUID.fromString(tableId).toString() == tableId)
+        val current = diningBill(session, tableId)
+        if (!current.editable || current.paid || current.sessionId != expected.sessionId ||
+            current.fingerprint() != expected.fingerprint()) {
+            throw WebPosApiException("table_changed_cancel_requires_refresh", 409)
+        }
+        if (current.lines.isNotEmpty()) {
+            val orderId = current.orderId
+                ?: throw WebPosApiException("table_order_missing", 409)
+            call("POST", "/api/pos/sales/clear-dine-in",
+                JSONObject().put("order_id", orderId).put("table_id", tableId))
+            val cleared = diningBill(session, tableId)
+            if (cleared.sessionId != current.sessionId || cleared.paid ||
+                cleared.lines.isNotEmpty()) {
+                throw WebPosApiException("table_clear_needs_review", 409)
+            }
+        }
+        call("POST", "/api/pos/tables/$tableId/cancel-empty-bill", JSONObject())
+        return diningTables(session).tables.any { it.id == tableId &&
+            it.status == "available" && it.sessionId == null }
+    }
+
+    /** Pure table release is permitted only for an empty, unpaid table bill. */
+    suspend fun releaseEmptyDiningTable(
+        session: WebPosSession, tableId: String, expected: WebDiningBill
+    ): Boolean {
+        requireSameLiveSession(session)
+        require(UUID.fromString(tableId).toString() == tableId)
+        val current = diningBill(session, tableId)
+        if (!current.editable || current.paid || current.lines.isNotEmpty() ||
+            current.fingerprint() != expected.fingerprint()) {
+            throw WebPosApiException("table_not_empty_or_changed", 409)
+        }
+        call("POST", "/api/pos/tables/$tableId/cancel-empty-bill", JSONObject())
+        return diningTables(session).tables.any { it.id == tableId &&
+            it.status == "available" && it.sessionId == null }
+    }
+
     /**
      * Read-only cashier view of the SAME active payment account configured in
      * tablet POS settings. The server scopes tenant/branch and role.
