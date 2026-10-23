@@ -402,7 +402,7 @@ internal fun NativeDiningOrderScreen(
                 ) {
                     DiningTopAction(R.drawable.ic_nav_back, "กลับ", !draft.busy) { onTables() }
                     DiningTopAction(R.drawable.ic_nav_tables, "เลือกโต๊ะ", !draft.busy) { onTables() }
-                    DiningTopAction(R.drawable.ic_nav_select_mode, "เลือกโหมด", !draft.busy, onMode)
+                    DiningTopAction(R.drawable.ic_nav_select_mode, "เลือกโหมด", !draft.busy, onClick = onMode)
                     DiningTopAction(
                         R.drawable.ic_nav_cart, "ตะกร้า", !draft.busy,
                         count = combinedCount
