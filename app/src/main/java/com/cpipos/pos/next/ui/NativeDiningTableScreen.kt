@@ -2,6 +2,7 @@ package com.cpipos.pos.next.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -15,6 +16,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import com.cpipos.pos.next.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -148,7 +151,11 @@ internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSessio
                                         .background(accent.copy(alpha = 0.12f), RoundedCornerShape(19.dp)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text("▣", fontSize = 47.sp, color = accent)
+                                    Image(
+                                        painter = painterResource(R.drawable.ic_mode_table),
+                                        contentDescription = "รูปโต๊ะ",
+                                        modifier = Modifier.size(60.dp)
+                                    )
                                 }
                                 Text(table.name, color = diningInk,
                                     fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
