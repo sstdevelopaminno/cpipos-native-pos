@@ -1149,7 +1149,9 @@ internal fun PreviewCartBottomSheet(
     checkoutLabel: String = "ชำระเงิน",
     tableMode: Boolean = false,
     checkoutEnabled: Boolean = true,
-    lockedQuantities: Map<String, Int> = emptyMap()
+    lockedQuantities: Map<String, Int> = emptyMap(),
+    discountAmount: Long = 0L,
+    onHoldBill: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -1314,7 +1316,7 @@ internal fun PreviewCartBottomSheet(
             }
 
             Spacer(modifier = Modifier.height(9.dp))
-            if (!tableMode) Row(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(15.dp))
@@ -1342,12 +1344,13 @@ internal fun PreviewCartBottomSheet(
                     .padding(horizontal = 14.dp, vertical = 15.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "ยอดรวม",
-                    color = saleInk,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f)
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("ยอดรวม", color = saleInk, fontWeight = FontWeight.Medium)
+                    if (discountAmount > 0) Text(
+                        "ส่วนลด −฿" + amount(discountAmount),
+                        color = Color(0xFF18815B), fontSize = 12.sp
+                    )
+                }
                 Text(
                     "฿" + amount(total),
                     color = Color(0xFF126BE5),
@@ -1358,9 +1361,9 @@ internal fun PreviewCartBottomSheet(
             Spacer(modifier = Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 if (!tableMode) CartSecondaryButton(
-                    title = "พิมพ์บิล",
+                    title = if (onHoldBill != null) "พักบิล" else "พิมพ์บิล",
                     modifier = Modifier.weight(1f),
-                    onClick = { onFeatureClick("พิมพ์บิล") }
+                    onClick = { if (onHoldBill != null) onHoldBill() else onFeatureClick("พิมพ์บิล") }
                 )
                 CartSecondaryButton(
                     title = "ยกเลิกบิล",
