@@ -37,6 +37,7 @@ internal data class PosDiscount(val kind: String = "amount", val input: String =
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NativeDiscountDialog(
     subtotal: Long,
