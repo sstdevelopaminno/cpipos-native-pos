@@ -112,7 +112,7 @@ internal enum class MockSaleMode(val title: String) {
     DineIn("โหมดนั่งโต๊ะ")
 }
 
-private data class DemoMenuItem(
+internal data class DemoMenuItem(
     val id: String,
     val name: String,
     val category: String,
@@ -1028,7 +1028,7 @@ private fun PaymentMethodTile(
  * All decrement and delete actions are contained in the cart sheet.
  */
 @Composable
-private fun DemoProductCard(
+internal fun DemoProductCard(
     product: DemoMenuItem,
     quantity: Int,
     onAdd: () -> Unit
@@ -1112,7 +1112,7 @@ private fun DemoProductCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PreviewCartBottomSheet(
+internal fun PreviewCartBottomSheet(
     products: List<DemoMenuItem>,
     cart: Map<String, Int>,
     quantity: Int,
@@ -1123,7 +1123,9 @@ private fun PreviewCartBottomSheet(
     onDelete: (String) -> Unit,
     onCancelBill: () -> Unit,
     onCheckout: () -> Unit,
-    onFeatureClick: (String) -> Unit
+    onFeatureClick: (String) -> Unit,
+    checkoutLabel: String = "ชำระเงิน",
+    tableMode: Boolean = false
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -1282,7 +1284,7 @@ private fun PreviewCartBottomSheet(
             }
 
             Spacer(modifier = Modifier.height(9.dp))
-            Row(
+            if (!tableMode) Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(15.dp))
@@ -1325,13 +1327,13 @@ private fun PreviewCartBottomSheet(
             }
             Spacer(modifier = Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                CartSecondaryButton(
+                if (!tableMode) CartSecondaryButton(
                     title = "พิมพ์บิล",
                     modifier = Modifier.weight(1f),
                     onClick = { onFeatureClick("พิมพ์บิล") }
                 )
                 CartSecondaryButton(
-                    title = "ยกเลิกบิล",
+                    title = if (tableMode) "ล้างรายการที่ยังไม่ส่ง" else "ยกเลิกบิล",
                     modifier = Modifier.weight(1f),
                     onClick = onCancelBill,
                     destructive = true
@@ -1347,7 +1349,7 @@ private fun PreviewCartBottomSheet(
                 shape = RoundedCornerShape(17.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = saleBlue)
             ) {
-                Text("▣  ชำระเงิน", fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                Text("▣  " + checkoutLabel, fontWeight = FontWeight.Bold, fontSize = 19.sp)
             }
             Spacer(modifier = Modifier.height(12.dp))
         }
