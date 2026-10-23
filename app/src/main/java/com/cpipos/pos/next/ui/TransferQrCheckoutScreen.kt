@@ -97,31 +97,123 @@ internal fun TransferQrCheckoutScreen(
     BackHandler(enabled = !saving) { onCancel() }
     val ink = Color(0xFF152544)
     val muted = Color(0xFF71819B)
-    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF3F7FE)) {
+    val blue = Color(0xFF176DED)
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Column(
             modifier = Modifier.fillMaxSize()
                 .statusBarsPadding().navigationBarsPadding()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 17.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("สแกน QR เพื่อชำระเงิน", fontSize = 21.sp,
+                        fontWeight = FontWeight.ExtraBold, color = ink)
+                    Text("ให้ลูกค้าสแกนด้วยแอปธนาคาร",
+                        color = muted, fontSize = 12.sp)
+                }
+                Surface(shape = RoundedCornerShape(50), color = Color(0xFFE7F0FF)) {
+                    Text("QR Pay", color = blue, fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp))
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(15.dp)
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(), color = Color.White,
+                    shape = RoundedCornerShape(21.dp), shadowElevation = 2.dp
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("ยอดที่ต้องชำระ", fontSize = 13.sp, color = muted)
+                        Text("฿${due.bahtText()}", fontSize = 32.sp,
+                            fontWeight = FontWeight.ExtraBold, color = blue)
+                    }
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(), color = Color.White,
+                    shape = RoundedCornerShape(24.dp), shadowElevation = 3.dp
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 15.dp, vertical = 22.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color(0xFFEAF3FF)
+                        ) {
+                            Text("พร้อมสแกนชำระเงิน", color = blue,
+                                fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp))
+                        }
+                        Box(
+                            modifier = Modifier.size(264.dp)
+                                .background(Color(0xFFF8FBFF), RoundedCornerShape(20.dp))
+                                .padding(13.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            when {
+                                loading -> {
+                                    androidx.compose.material3.CircularProgressIndicator(color = blue)
+                                }
+                                qrImage != null -> {
+                                    qrImage?.let { bitmap ->
+                                        Image(
+                                            bitmap = bitmap.asImageBitmap(),
+                                            contentDescription = "QR สำหรับโอนเงินเข้าร้าน",
+                                            modifier = Modifier.fillMaxSize()
+                                                .background(Color.White, RoundedCornerShape(12.dp))
+                                                .padding(5.dp),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+                                }
+                                else -> Text(
+                                    "ไม่สามารถแสดง QR ได้", fontSize = 13.sp,
+                                    color = Color(0xFFB42336)
+                                )
+                            }
+                        }
+                        Text("สแกน QR เพื่อชำระเงิน",
+                            fontSize = 12.sp, color = muted,
+                            textAlign = TextAlign.Center)
+                    }
+                }
+                qrError?.let { Text(it, color = Color(0xFFB42336), fontSize = 12.sp) }
+                error?.let { Text(it, color = Color(0xFFB42336), fontSize = 12.sp) }
+            }
             Text(
-                "กดยืนยันหลังตรวจสอบว่าเงินเข้าบัญชีร้านครบแล้วเท่านั้น",
-                modifier = Modifier.fillMaxWidth().padding(top = 9.dp, bottom = 7.dp),
+                "กรุณาตรวจยอดเข้าบัญชีร้านครบแล้วก่อนกดยืนยัน",
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
                 fontSize = 11.sp, color = muted, textAlign = TextAlign.Center
             )
             Button(
                 onClick = onConfirmReceived,
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF176DED)),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = blue),
                 enabled = !saving && !loading && qrImage != null
             ) {
                 Text(if (saving) "กำลังบันทึก..." else "ยืนยันรับเงินโอน",
                     fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }
             androidx.compose.material3.TextButton(
-                onClick = onCancel, enabled = !saving,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-            ) { Text("กลับตะกร้า", color = muted, fontSize = 13.sp) }
+                onClick = onCancel,
+                enabled = !saving,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 7.dp)
+            ) {
+                Text("กลับตะกร้า", color = muted, fontSize = 13.sp)
+            }
         }
     }
 }
