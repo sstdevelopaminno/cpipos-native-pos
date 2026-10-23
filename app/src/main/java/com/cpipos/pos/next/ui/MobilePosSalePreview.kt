@@ -1341,7 +1341,7 @@ internal fun PreviewCartBottomSheet(
                     onClick = { onFeatureClick("พิมพ์บิล") }
                 )
                 CartSecondaryButton(
-                    title = if (tableMode) "ล้างรายการที่ยังไม่ส่ง" else "ยกเลิกบิล",
+                    title = "ยกเลิกบิล",
                     modifier = Modifier.weight(1f),
                     onClick = onCancelBill,
                     destructive = true
