@@ -831,7 +831,8 @@ private fun cpiposTextFieldColors() = OutlinedTextFieldDefaults.colors(
 internal fun HomeModeScreen(
     onSelectMode: (MockSaleMode) -> Unit,
     allowDineIn: Boolean = true,
-    onLogout: (() -> Unit)? = null
+    onLogout: (() -> Unit)? = null,
+    onMainMenu: (String) -> Unit = {}
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFFAFCFF)) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -917,7 +918,7 @@ internal fun HomeModeScreen(
                 )
             }
 
-            HomeBottomMenu(modifier = Modifier.align(Alignment.BottomCenter))
+            HomeBottomMenu(modifier = Modifier.align(Alignment.BottomCenter), onMenuClick = onMainMenu)
         }
     }
 }
@@ -1050,7 +1051,11 @@ private fun ModeCard(
  * surface so the bar and the floating button read as one sculpted component.
  */
 @Composable
-internal fun HomeBottomMenu(modifier: Modifier = Modifier) {
+internal fun HomeBottomMenu(
+    modifier: Modifier = Modifier,
+    selectedTab: String = "sale",
+    onMenuClick: (String) -> Unit = {}
+) {
     val density = LocalDensity.current
     val flatTopPx = with(density) { 17.dp.toPx() }
     // Square side edges let the navigation surface meet both screen edges.
@@ -1122,26 +1127,30 @@ internal fun HomeBottomMenu(modifier: Modifier = Modifier) {
             BottomMenuItem(
                 iconRes = R.drawable.ic_nav_cart,
                 label = stringResource(R.string.pos_nav_sale),
-                selected = true,
+                selected = selectedTab == "sale",
+                onClick = { onMenuClick("sale") },
                 modifier = Modifier.weight(1f)
             )
             BottomMenuItem(
                 iconRes = R.drawable.ic_nav_report,
                 label = stringResource(R.string.pos_nav_report),
-                selected = false,
+                selected = selectedTab == "report",
+                onClick = { onMenuClick("report") },
                 modifier = Modifier.weight(1f)
             )
             Spacer(modifier = Modifier.weight(1f))
             BottomMenuItem(
                 iconRes = R.drawable.ic_nav_history,
                 label = stringResource(R.string.pos_nav_history),
-                selected = false,
+                selected = selectedTab == "history",
+                onClick = { onMenuClick("history") },
                 modifier = Modifier.weight(1f)
             )
             BottomMenuItem(
                 iconRes = R.drawable.ic_nav_setting,
                 label = stringResource(R.string.pos_nav_setting),
-                selected = false,
+                selected = selectedTab == "settings",
+                onClick = { onMenuClick("settings") },
                 modifier = Modifier.weight(1f)
             )
         }
@@ -1160,6 +1169,7 @@ internal fun HomeBottomMenu(modifier: Modifier = Modifier) {
                 modifier = Modifier
                     .size(58.dp)
                     .clip(CircleShape)
+                    .clickable { onMenuClick("stock") }
                     .background(
                         Brush.linearGradient(
                             listOf(Color(0xFF69B6FF), Color(0xFF1764ED))
@@ -1193,11 +1203,12 @@ private fun BottomMenuItem(
     iconRes: Int,
     label: String,
     selected: Boolean,
+    onClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val itemColor = if (selected) Color(0xFF2282F6) else Color(0xFF7890AD)
     Column(
-        modifier = modifier,
+        modifier = modifier.clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
