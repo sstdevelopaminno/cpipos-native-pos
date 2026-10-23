@@ -531,7 +531,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     val draft = dineWorkspace.drafts[tableId]
                     draft == null || (!draft.busy && !draft.uncertain &&
                         draft.items.isEmpty() && draft.pendingQuantities.isEmpty() &&
-                        draft.paymentRequestId == null)
+                        draft.paymentMethod == null && draft.paymentRequestId == null)
                 }
             )
         }
