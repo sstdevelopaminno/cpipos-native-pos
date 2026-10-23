@@ -197,6 +197,39 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
+    // CpIPOS Web owns open/closed shift state. Read it while cashier is
+    // browsing; never re-issue an open/close request and never interrupt a
+    // payment currently being committed to its original UUID.
+    LaunchedEffect(client, session?.id, step) {
+        while (step in setOf("shift", "mode", "sale", "dine", "tab")) {
+            kotlinx.coroutines.delay(6000L)
+            val previous = session ?: continue
+            if (busy || takeaway.saving.value) continue
+            val remote = try { client.getSession() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { continue }
+            if (remote.id != previous.id ||
+                remote.branchId != previous.branchId ||
+                remote.deviceCode != previous.deviceCode) continue
+            if (remote.shiftId != previous.shiftId) {
+                val pending = runCatching { journal.unresolved(previous) }.getOrNull()
+                session = remote
+                if (pending == null || pending.isNotEmpty()) {
+                    unresolved = "กะขายเปลี่ยนจาก POS หลัก และมีรายการที่ต้องตรวจสอบ " +
+                        "กรุณา Reconcile บิลเดิมก่อนทำรายการต่อ"
+                    step = "review"
+                } else if (remote.shiftId == null) {
+                    error = null
+                    step = "shift"
+                } else {
+                    // A tablet/POS on the same device scope opened or
+                    // replaced the shift: reload catalog then select mode.
+                    refreshCatalog(remote)
+                }
+            }
+        }
+    }
+
     when (step) {
         "restoring" -> CpiposSessionRestoringScreen()
         "switching" -> CpiposSessionRestoringScreen(
@@ -392,25 +425,35 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 session = verified,
                 busy = busy,
                 error = error,
-                onOpen = {
+                onOpen = { openingCash ->
                     if (!busy) scope.launch {
                         busy = true
                         error = null
                         try {
-                            val opened = client.openShift()
+                            // Reuses an existing shared shift on the same
+                            // tenant/branch/device instead of creating another.
+                            val opened = client.openShift(openingCash)
                             session = opened
                             refreshCatalog(opened)
-                        } catch (e: WebPosApiException) {
-                            error = "เปิดกะไม่สำเร็จ: ${e.code} (${e.status})"
-                        } catch (_: Exception) {
-                            error = "เปิดกะไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ"
+                        } catch (failure: Exception) {
+                            // An uncertain POST response may have created the shift.
+                            // Read actual server state, never send a duplicate POST.
+                            val observed = runCatching { client.getSession() }.getOrNull()
+                            if (observed != null && observed.id == verified.id &&
+                                observed.branchId == verified.branchId &&
+                                observed.deviceCode == verified.deviceCode &&
+                                observed.shiftId != null) {
+                                session = observed
+                                refreshCatalog(observed)
+                            } else {
+                                error = if (failure is WebPosApiException)
+                                    "เปิดกะยังไม่สำเร็จ: ${failure.code} (${failure.status})"
+                                else "ยังยืนยันการเปิดกะไม่ได้ โปรดตรวจสอบสถานะกะบน CpIPOS"
+                            }
                         } finally {
                             busy = false
                         }
                     }
-                },
-                onRefresh = {
-                    if (!busy) scope.launch { refreshCatalog(verified) }
                 },
                 onBack = { goToStore() }
             )
