@@ -757,7 +757,10 @@ internal fun MobilePosSalePreview(
                     showMethods = true
                 }
             },
-            onFeatureClick = { if (it == "ส่วนลด") showDiscount = true else pendingAction = it },
+            onFeatureClick = {
+                if (it == "ส่วนลด" && liveSession != null) showDiscount = true
+                else pendingAction = it
+            },
             discountAmount = discountAmount,
             onHoldBill = if (liveSession == null) null else {
                 {
@@ -1497,7 +1500,7 @@ internal fun PreviewCartBottomSheet(
             }
             Spacer(modifier = Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                if (!tableMode) CartSecondaryButton(
+                if (!tableMode || onHoldBill != null) CartSecondaryButton(
                     title = if (onHoldBill != null) "พักบิล" else "พิมพ์บิล",
                     modifier = Modifier.weight(1f),
                     onClick = { if (onHoldBill != null) onHoldBill() else onFeatureClick("พิมพ์บิล") }
