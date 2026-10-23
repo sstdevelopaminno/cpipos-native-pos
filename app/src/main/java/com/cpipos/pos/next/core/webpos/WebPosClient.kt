@@ -295,7 +295,9 @@ internal fun parseHistory(
             cashierName = row.optString("cashierName").takeIf { it.isNotBlank() && it != "-" }
                 ?: session.cashierName,
             shiftLabel = null,
-            paymentMethod = if (methods.contains("bank_transfer")) "bank_transfer" else "cash"
+            paymentMethod = if (methods.contains("bank_transfer")) "bank_transfer" else "cash",
+            discount = row.optMoney("discountAmount"),
+            subtotal = row.optMoney("subtotal").takeIf { it > Satang.ZERO }
         )
         WebReceiptHistoryRecord(
             orderId = id,
@@ -1285,7 +1287,9 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 storeAddress = store?.optString("company_address")?.takeIf { it.isNotBlank() },
                 storePhone = store?.optString("contact_phone")?.takeIf { it.isNotBlank() },
                 cashierName = session.cashierName,
-                shiftLabel = "open"
+                shiftLabel = "open",
+                discount = Satang.of((lines.sumOf { it.amount.value } - expectedTotal.value).coerceAtLeast(0L)),
+                subtotal = Satang.of(lines.sumOf { it.amount.value })
             )
         )
     }
@@ -1344,7 +1348,9 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             storePhone = store?.optString("contact_phone")?.takeIf { it.isNotBlank() },
             cashierName = session.cashierName,
             shiftLabel = "open",
-            paymentMethod = "bank_transfer"
+            paymentMethod = "bank_transfer",
+            discount = Satang.of((lines.sumOf { it.amount.value } - expectedTotal.value).coerceAtLeast(0L)),
+            subtotal = Satang.of(lines.sumOf { it.amount.value })
         )
         return WebPaidBill(orderId, receipt)
     }

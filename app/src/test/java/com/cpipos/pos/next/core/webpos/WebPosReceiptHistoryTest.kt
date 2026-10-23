@@ -53,6 +53,21 @@ class WebPosReceiptHistoryTest {
     }
 
     @Test
+    fun discountedReceiptUsesCanonicalBackendDiscountNotEstimatedLineTotals() {
+        val data = JSONObject("""{
+          "records":[{"id":"11111111-1111-1111-1111-111111111111",
+          "orderNo":"TKO-DISCOUNT","orderType":"takeaway","status":"completed",
+          "totalAmount":85.75,"subtotal":100.00,"discountAmount":14.25,
+          "paidTotal":85.75,"cashReceived":100,"changeAmount":14.25,
+          "paymentMethods":["cash"],"items":[]}]
+        }""")
+        val receipt = parseHistory(data, session).records.single().receipt
+        assertEquals(1425L, receipt.discount.value)
+        assertEquals(10000L, receipt.subtotal?.value)
+        assertEquals(8575L, receipt.total.value)
+    }
+
+    @Test
     fun oldCashReceiptWithoutTenderFallsBackToPaidTotalInsteadOfZero() {
         val data = JSONObject(
             """{

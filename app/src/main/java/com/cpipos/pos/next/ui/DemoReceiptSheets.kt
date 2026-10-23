@@ -206,7 +206,11 @@ internal fun SavedDemoReceiptSheet(
                             if (receipt.paymentMethod == "bank_transfer") "เงินโอน" else "เงินสด"
                         )
                         ReceiptDashedDivider()
-                        ReceiptTotalRow("ส่วนลด", "฿0.00")
+                        if (receipt.discount > Satang.ZERO) {
+                            val gross = receipt.subtotal ?: receipt.lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
+                            if (gross > Satang.ZERO) ReceiptTotalRow("ยอดก่อนลด", "฿" + baht(gross))
+                        }
+                        ReceiptTotalRow("ส่วนลด", "−฿" + baht(receipt.discount))
                         androidx.compose.material3.HorizontalDivider(color = receiptInk)
                         ReceiptTotalRow("ยอดที่ต้องชำระ", "฿" + baht(receipt.total), bold = true)
                         androidx.compose.material3.HorizontalDivider(color = receiptInk)

@@ -239,7 +239,7 @@ object DemoReceiptPrinter {
         hr(y)
         y += 13f
         txt("ส่วนลด", 10f, y)
-        right("฿0.00", y)
+        right("−฿" + baht(receipt.discount), y)
         y += 13f
         c.drawLine(10f, y, 217f, y, regular)
         y += 15f

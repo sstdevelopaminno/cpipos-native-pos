@@ -37,7 +37,10 @@ data class DemoSaleReceipt(
     val cashierName: String = "ทดลอง UI",
     val shiftLabel: String? = null,
     /** Display/printing metadata only. Payment truth is server-authoritative. */
-    val paymentMethod: String = "cash"
+    val paymentMethod: String = "cash",
+    /** Server-authoritative in receipt history; from immutable checkout snapshot on immediate receipts. */
+    val discount: Satang = Satang.ZERO,
+    val subtotal: Satang? = null
 )
 
 data class DemoDailyTotal(val billCount: Int, val sales: Satang)

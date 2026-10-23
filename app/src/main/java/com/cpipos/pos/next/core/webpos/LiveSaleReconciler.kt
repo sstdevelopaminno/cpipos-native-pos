@@ -106,7 +106,7 @@ class LiveSaleReconciler(
         return when (recovery.snapshot.status) {
             "completed" -> OneResult.Confirmed(
                 recovery.snapshot.orderNo,
-                recovery.receipt ?: localReceipt(session, attempt, recovery.snapshot)
+                recoveredReceipt(session, attempt, recovery.snapshot, recovery.receipt)
             )
             "cancelled" -> OneResult.Cancelled(recovery.snapshot.orderNo)
             else -> {
@@ -180,7 +180,7 @@ class LiveSaleReconciler(
                 if (after?.snapshot?.status == "completed") {
                     OneResult.Confirmed(
                         after.snapshot.orderNo,
-                        after.receipt ?: localReceipt(session, attempt, after.snapshot)
+                        recoveredReceipt(session, attempt, after.snapshot, after.receipt)
                     )
                 } else {
                     OneResult.Review(
@@ -255,6 +255,22 @@ class LiveSaleReconciler(
         )
     }
 
+    /** Recovery returns the canonical bill. Restore the immutable submitted discount
+     * only when its item subtotal and server-verified net total still match. */
+    private fun recoveredReceipt(
+        session: WebPosSession, attempt: LiveSaleAttempt,
+        snapshot: WebOrderSnapshot, receipt: DemoSaleReceipt?
+    ): DemoSaleReceipt {
+        val canonical = receipt ?: localReceipt(session, attempt, snapshot)
+        val gross = attempt.linesOrNull()?.sumOf { it.amount.value } ?: return canonical
+        val expected = attempt.totalOrNull() ?: return canonical
+        if (expected != snapshot.total || gross < expected.value) return canonical
+        return canonical.copy(
+            discount = Satang.of(gross - expected.value),
+            subtotal = Satang.of(gross)
+        )
+    }
+
     private fun localReceipt(
         session: WebPosSession,
         attempt: LiveSaleAttempt,
@@ -279,7 +295,9 @@ class LiveSaleReconciler(
             storeName = session.storeName,
             cashierName = session.cashierName,
             shiftLabel = null,
-            paymentMethod = attempt.paymentMethod
+            paymentMethod = attempt.paymentMethod,
+            discount = Satang.of((attempt.linesOrNull().orEmpty().sumOf { it.amount.value } - snapshot.total.value).coerceAtLeast(0L)),
+            subtotal = attempt.linesOrNull()?.let { Satang.of(it.sumOf { line -> line.amount.value }) }
         )
     }
 

@@ -19,7 +19,7 @@ internal data class PosDiscount(val kind: String = "amount", val input: String =
     fun amount(subtotal: Long): Long {
         if (subtotal <= 0) return 0
         val number = input.toBigDecimalOrNull() ?: return 0
-        if (number < BigDecimal.ZERO) return 0
+        if (kind !in setOf("percent", "amount") || number < BigDecimal.ZERO) return 0
         val raw = if (kind == "percent") {
             if (number > BigDecimal("100")) return 0
             BigDecimal(subtotal).multiply(number)
@@ -30,10 +30,13 @@ internal data class PosDiscount(val kind: String = "amount", val input: String =
         return raw.min(BigDecimal(subtotal)).toLong()
     }
     fun valid(subtotal: Long): Boolean {
+        if (subtotal <= 0L || kind !in setOf("percent", "amount")) return false
         val number = input.toBigDecimalOrNull() ?: return false
         return number >= BigDecimal.ZERO &&
             (kind != "percent" || number <= BigDecimal("100")) &&
-            (kind != "amount" || number.multiply(BigDecimal(100)) <= BigDecimal(subtotal))
+            (kind != "amount" || number.multiply(BigDecimal(100)) <= BigDecimal(subtotal)) &&
+            // The current server does not allow zero-value checkout, even at 100% discount.
+            amount(subtotal) < subtotal
     }
 }
 
@@ -82,7 +85,7 @@ internal fun NativeDiscountDialog(
                     "   •   สุทธิ ฿" + Satang.of((subtotal - amount).coerceAtLeast(0)).bahtText(),
                     fontWeight = FontWeight.Bold, color = Color(0xFF176DED))
                 if (input.isNotBlank() && !discount.valid(subtotal))
-                    Text("ส่วนลดต้องอยู่ระหว่าง 0 ถึงยอดสินค้า หรือ 0–100%",
+                    Text("ส่วนลดต้องไม่เกินยอดสินค้า และต้องเหลือยอดชำระมากกว่า ฿0.00",
                         color = Color(0xFFAF3449))
             }
         },

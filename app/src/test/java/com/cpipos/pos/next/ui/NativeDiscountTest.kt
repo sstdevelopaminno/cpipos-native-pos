@@ -26,6 +26,15 @@ class NativeDiscountTest {
         assertTrue(discount.valid(2_000L))
         assertEquals(1_525L, discount.amount(2_000L))
     }
+    @Test fun fullDiscountMustNotCreateZeroValueSale() {
+        assertFalse(PosDiscount("percent", "100").valid(12_345L))
+        assertFalse(PosDiscount("amount", "123.45").valid(12_345L))
+        assertTrue(PosDiscount("amount", "123.44").valid(12_345L))
+    }
+    @Test fun unsupportedDiscountKindsAreRejected() {
+        assertFalse(PosDiscount("free", "20").valid(20_000L))
+        assertEquals(0L, PosDiscount("free", "20").amount(20_000L))
+    }
     @Test fun percentageHalfUpRounding() {
         val discount = PosDiscount("percent", "12.5")
         assertEquals(1L, discount.amount(4L))
