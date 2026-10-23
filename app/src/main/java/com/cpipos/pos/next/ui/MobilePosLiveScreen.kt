@@ -570,12 +570,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     }
                 }
             },
-            dismissButton = {
-                TextButton(
-                    enabled = !busy,
-                    onClick = { showLogoutConfirm = false }
-                ) { Text(if (pendingCount < 0) "ปิด" else "ยกเลิก") }
-            }
+            // The dialog can still be closed by tapping outside or Android Back;
+            // remove the redundant visible Cancel action as requested.
         )
     }
 
