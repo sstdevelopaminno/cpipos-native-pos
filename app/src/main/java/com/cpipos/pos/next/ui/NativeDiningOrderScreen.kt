@@ -261,29 +261,26 @@ internal fun NativeDiningOrderScreen(
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().statusBarsPadding()
                 .padding(horizontal = 14.dp).padding(bottom = 108.dp)) {
-                Row(Modifier.fillMaxWidth().padding(top = 7.dp),
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 5.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text("‹ กลับ", fontSize = 13.sp, color = dineBlue,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable(enabled = !draft.busy) { onTables() }
-                            .padding(vertical = 12.dp))
-                    Spacer(Modifier.width(11.dp))
-                    Text("โต๊ะ " + table.name, color = dineInk, fontSize = 19.sp,
+                    Image(painter = painterResource(R.drawable.cpipos_logo_symbol),
+                        contentDescription = null, modifier = Modifier.size(28.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("CpIPOS", color = dineInk, fontSize = 17.sp,
                         fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-                    Text("เลือกโต๊ะ", fontSize = 13.sp, color = dineBlue,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable(enabled = !draft.busy) { onTables() }
-                            .padding(8.dp))
+                    Text("โต๊ะ " + table.name, color = dineBlue,
+                        fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
                 }
-                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("บิลโต๊ะเชื่อมกับ CpIPOS Web", fontSize = 11.sp,
-                        color = Color(0xFF74849C), modifier = Modifier.weight(1f))
-                    DiningTopIcon(R.drawable.ic_nav_select_mode, "เลือกโหมด", !draft.busy, onMode)
-                    Spacer(Modifier.width(8.dp))
-                    DiningTopIcon(R.drawable.ic_nav_cart, "ตะกร้า", !draft.busy) { cartOpen = true }
-                    if (count > 0) Text(" " + count, color = dineBlue,
-                        fontWeight = FontWeight.ExtraBold)
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    DiningTopAction(R.drawable.ic_nav_back, "กลับ", !draft.busy) { onTables() }
+                    DiningTopAction(R.drawable.ic_nav_tables, "เลือกโต๊ะ", !draft.busy) { onTables() }
+                    DiningTopAction(R.drawable.ic_nav_select_mode, "เลือกโหมด", !draft.busy, onMode)
+                    DiningTopAction(R.drawable.ic_nav_cart, "ตะกร้า" +
+                        if (count > 0) " ($count)" else "", !draft.busy) { cartOpen = true }
                 }
                 Surface(shape = RoundedCornerShape(17.dp), color = Color.White) {
                     Row(Modifier.fillMaxWidth().padding(13.dp),
@@ -468,15 +465,20 @@ internal fun NativeDiningOrderScreen(
 }
 
 @Composable
-private fun DiningTopIcon(icon: Int, description: String, enabled: Boolean,
+private fun DiningTopAction(icon: Int, description: String, enabled: Boolean,
     onClick: () -> Unit) {
-    Box(
-        modifier = Modifier.size(44.dp).shadow(2.dp, CircleShape).clip(CircleShape)
-            .background(Color.White)
-            .clickable(enabled = enabled, onClickLabel = description, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Image(painter = painterResource(icon), contentDescription = description,
-            modifier = Modifier.size(25.dp))
+    Column(horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Box(
+            modifier = Modifier.size(45.dp).shadow(2.dp, CircleShape).clip(CircleShape)
+                .background(Color.White)
+                .clickable(enabled = enabled, onClickLabel = description, onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(painter = painterResource(icon), contentDescription = description,
+                modifier = Modifier.size(25.dp))
+        }
+        Text(description, fontSize = 10.sp, color = Color(0xFF667894),
+            maxLines = 1)
     }
 }
