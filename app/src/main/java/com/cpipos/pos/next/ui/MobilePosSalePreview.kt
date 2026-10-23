@@ -891,14 +891,14 @@ private fun PreviewPaymentMethodSheet(
             ) {
                 PaymentMethodTile(
                     title = "เงินสด",
-                    iconRes = R.drawable.ic_payment_cash,
+                    iconRes = R.drawable.ic_tender_cash_modern,
                     selected = selectedMethod == PreviewPayment.Cash,
                     modifier = Modifier.weight(1f),
                     onClick = { onSelectMethod(PreviewPayment.Cash) }
                 )
                 PaymentMethodTile(
                     title = "โอนเงิน",
-                    iconRes = R.drawable.ic_payment_transfer,
+                    iconRes = R.drawable.ic_tender_transfer_modern,
                     selected = selectedMethod == PreviewPayment.Transfer,
                     modifier = Modifier.weight(1f),
                     onClick = { onSelectMethod(PreviewPayment.Transfer) }
@@ -921,16 +921,8 @@ private fun PreviewPaymentMethodSheet(
                 Spacer(modifier = Modifier.width(9.dp))
                 Text("ยืนยันการชำระเงิน", fontWeight = FontWeight.Bold, fontSize = 17.sp)
             }
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(19.dp),
-                border = BorderStroke(1.3.dp, Color(0xFFCCDEF8)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1F4E92))
-            ) {
-                Text("ยกเลิก", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
-            }
+            // Dismiss with the top-right close icon or Android Back.
+            Spacer(modifier = Modifier.height(7.dp))
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 if (isLiveSale) "ชำระเงินสดจะบันทึกยอดหลังระบบร้านค้ายืนยันสำเร็จ"
@@ -951,15 +943,17 @@ private fun PaymentMethodTile(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(19.dp)
+    val shape = RoundedCornerShape(21.dp)
+    val tintBg = if (title == "เงินสด") Color(0xFFE6F9EF) else Color(0xFFE7F2FF)
     Box(
         modifier = modifier
             .height(148.dp)
+            .shadow(if (selected) 3.dp else 1.dp, shape)
             .clip(shape)
-            .background(if (selected) Color(0xFFEDF5FF) else Color.White)
+            .background(if (selected) Color(0xFFF0F6FF) else Color.White)
             .border(
                 if (selected) 2.dp else 1.dp,
-                if (selected) saleBlue else Color(0xFFDCE8F9),
+                if (selected) saleBlue else Color(0xFFE1EAF5),
                 shape
             )
             .clickable(onClick = onClick)
@@ -968,38 +962,29 @@ private fun PaymentMethodTile(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(11.dp)
-                .size(26.dp)
+                .size(23.dp)
                 .clip(CircleShape)
-                .background(if (selected) Color(0xFF176EF1) else Color.White)
-                .border(
-                    if (selected) 0.dp else 2.dp,
-                    if (selected) Color.Transparent else Color(0xFFCADAF1),
-                    CircleShape
-                ),
+                .background(if (selected) saleBlue else Color(0xFFF5F8FC))
+                .border(1.dp, if (selected) saleBlue else Color(0xFFC5D6ED), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            if (selected) {
-                Text("✓", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            }
+            if (selected) Text("✓", color = Color.White,
+                fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
         }
         Column(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(top = 12.dp),
+            modifier = Modifier.align(Alignment.Center).padding(top = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Image(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                modifier = Modifier.size(69.dp)
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                title,
-                fontSize = 21.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = saleInk
-            )
+            Box(
+                modifier = Modifier.size(76.dp).background(tintBg, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(painter = painterResource(iconRes), contentDescription = null,
+                    modifier = Modifier.size(58.dp))
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(title, fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold, color = saleInk)
         }
     }
 }
