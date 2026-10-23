@@ -1125,7 +1125,8 @@ internal fun PreviewCartBottomSheet(
     onCheckout: () -> Unit,
     onFeatureClick: (String) -> Unit,
     checkoutLabel: String = "ชำระเงิน",
-    tableMode: Boolean = false
+    tableMode: Boolean = false,
+    checkoutEnabled: Boolean = true
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -1342,7 +1343,7 @@ internal fun PreviewCartBottomSheet(
             Spacer(modifier = Modifier.height(10.dp))
             Button(
                 onClick = onCheckout,
-                enabled = quantity > 0,
+                enabled = quantity > 0 && checkoutEnabled,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp),
