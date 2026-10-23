@@ -74,7 +74,7 @@ class LiveSaleReconciler(
                     "บิลเก่ารหัส ${attempt.id.take(8)} ไม่มี snapshot สำหรับ replay อัตโนมัติ"
                 )
             }
-            val created = client.createTakeawayOrder(session, lines, attempt.id)
+            val created = client.createTakeawayOrder(session, lines, attempt.id, expectedTotal)
             if (created.total != expectedTotal) {
                 return OneResult.Review(
                     "ยอดของบิล ${created.orderNo} เปลี่ยนจาก snapshot กรุณาตรวจสอบใน POS Web"
