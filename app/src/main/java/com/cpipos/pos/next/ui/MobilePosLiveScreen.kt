@@ -182,12 +182,11 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     }
 
     when (step) {
-        "restoring" -> Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("กำลังตรวจสอบเซสชัน CpIPOS ที่เคยเข้าสู่ระบบ...", color = liveInk)
-        }
+        "restoring" -> CpiposSessionRestoringScreen()
+        "switching" -> CpiposSessionRestoringScreen(
+            headline = "กำลังเปลี่ยนเซสชัน",
+            subtitle = "เตรียมรายการสาขาและเครื่องขายจาก CpIPOS..."
+        )
         "store" -> LoginLandingScreen(
             storeCode = storeCode,
             isSubmitting = busy,
@@ -456,63 +455,126 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
 
     if (showLogoutConfirm) {
         val verified = session
-        // Fail closed if the local durable journal cannot be read. Never discard
-        // an uncertain payment merely to make a logout button succeed.
+        // Fail closed: an unresolved live sale must NEVER be lost when
+        // selecting a different branch/device or logging out.
         val pendingCount = if (verified == null) -1 else
             runCatching { journal.unresolved(verified).size }.getOrDefault(-1)
-        val hasPending = pendingCount != 0
         AlertDialog(
             onDismissRequest = { if (!busy) showLogoutConfirm = false },
+            shape = RoundedCornerShape(24.dp),
             title = {
-                Text(if (hasPending) "มีบิลที่ต้องตรวจสอบ" else "ออกจากระบบ CpIPOS?",
-                    fontWeight = FontWeight.Bold)
+                Text(
+                    if (pendingCount > 0) "พบบิลที่รอตรวจสอบ"
+                    else "จัดการการเข้าสู่ระบบ",
+                    fontWeight = FontWeight.ExtraBold,
+                    color = liveInk
+                )
             },
             text = {
                 Text(
-                    if (pendingCount > 0)
-                        "มี $pendingCount บิลที่ยังไม่ยืนยันผลชำระเงิน ต้อง Reconcile บิลเดิมก่อนออกจากระบบ"
-                    else if (pendingCount < 0)
-                        "ไม่สามารถตรวจสอบบิลค้างในเครื่องได้ กรุณากลับไปตรวจสอบก่อนออกจากระบบ"
-                    else "จะออกจากระบบบนมือถือเครื่องนี้ และล้าง SSO ที่บันทึกไว้ กะขายที่เปิดอยู่จะไม่ถูกปิด"
+                    when {
+                        pendingCount > 0 ->
+                            "มี $pendingCount บิลที่สถานะการชำระเงินยังไม่แน่นอน " +
+                                "ต้อง Reconcile บิลเดิมก่อนเปลี่ยนเครื่องหรือออกจากระบบ"
+                        pendingCount < 0 ->
+                            "ไม่สามารถตรวจสอบรายการขายที่ค้างอยู่ในเครื่องได้ " +
+                                "กรุณาตรวจสอบบิลก่อนดำเนินการ"
+                        else ->
+                            "เลือกกลับไปเลือกสาขาและเครื่องขายใหม่ หรือออกจากระบบทั้งหมด " +
+                                "กะขายเดิมจะไม่ถูกปิดโดยอัตโนมัติ"
+                    },
+                    color = Color(0xFF66758D),
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp
                 )
             },
             confirmButton = {
-                TextButton(
-                    enabled = !busy,
-                    onClick = {
-                        showLogoutConfirm = false
-                        if (hasPending) {
-                            if (pendingCount > 0) {
-                                unresolved = "พบ $pendingCount บิลค้าง ห้ามสร้างบิลใหม่จนกว่า Reconcile จะสำเร็จ"
-                                step = "review"
-                            }
-                        } else {
-                            scope.launch {
-                                busy = true
-                                val remoteRevoked = client.logoutCurrentPosSession()
-                                goToStore()
-                                storeCode = ""
-                                store = null
-                                branch = null
-                                unresolved = ""
-                                error = if (remoteRevoked) null else
-                                    "ออกจากเครื่องแล้ว แต่ยังไม่ได้รับการยืนยันเพิกถอนเซสชันจากเซิร์ฟเวอร์"
-                                busy = false
-                            }
-                        }
+                when {
+                    pendingCount > 0 -> Button(
+                        onClick = {
+                            showLogoutConfirm = false
+                            unresolved = "พบ $pendingCount บิลค้าง กรุณา Reconcile บิลเดิมก่อนทำรายการต่อ"
+                            step = "review"
+                        },
+                        enabled = !busy
+                    ) { Text("ไปตรวจสอบบิล") }
+                    pendingCount == 0 -> Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (!busy) {
+                                    showLogoutConfirm = false
+                                    scope.launch {
+                                        busy = true
+                                        step = "switching"
+                                        try {
+                                            // The POS server revokes the old device
+                                            // lease and issues a scoped pre-entry cookie.
+                                            val nextStore = client.switchToBranchChooser()
+                                            check(nextStore.branches.isNotEmpty()) {
+                                                "ไม่มีสาขาที่เปิดใช้งาน"
+                                            }
+                                            goToStore()
+                                            store = nextStore
+                                            branch = null
+                                            unresolved = ""
+                                            step = "branch"
+                                        } catch (failure: Exception) {
+                                            // The old remote session might already
+                                            // be revoked: force store verification.
+                                            goToStore()
+                                            store = null
+                                            branch = null
+                                            unresolved = ""
+                                            error = "เปลี่ยนสาขาไม่สำเร็จ กรุณาเข้าด้วยรหัสร้านอีกครั้ง: " +
+                                                (failure.message ?: "ไม่สามารถเชื่อมต่อได้").take(70)
+                                        } finally {
+                                            busy = false
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !busy,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = liveBlue)
+                        ) { Text("เลือกสาขา / เครื่องขายใหม่", fontWeight = FontWeight.Bold) }
+                        OutlinedButton(
+                            onClick = {
+                                if (!busy) {
+                                    showLogoutConfirm = false
+                                    scope.launch {
+                                        busy = true
+                                        step = "switching"
+                                        try {
+                                            val remoteRevoked = client.logoutCurrentPosSession()
+                                            goToStore()
+                                            storeCode = ""
+                                            store = null
+                                            branch = null
+                                            unresolved = ""
+                                            error = if (remoteRevoked) null else
+                                                "ออกจากมือถือแล้ว แต่ยังไม่ยืนยันการเพิกถอนเซสชันจาก Server"
+                                        } finally {
+                                            busy = false
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !busy,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
+                        ) { Text("ออกจากระบบทั้งหมด", color = Color(0xFFB84245)) }
                     }
-                ) {
-                    Text(when {
-                        pendingCount < 0 -> "ปิด"
-                        pendingCount > 0 -> "ไปตรวจสอบบิล"
-                        else -> "ยืนยันออกจากระบบ"
-                    })
                 }
             },
             dismissButton = {
-                TextButton(onClick = { if (!busy) showLogoutConfirm = false }) {
-                    Text("ยกเลิก")
-                }
+                TextButton(
+                    enabled = !busy,
+                    onClick = { showLogoutConfirm = false }
+                ) { Text(if (pendingCount < 0) "ปิด" else "ยกเลิก") }
             }
         )
     }
