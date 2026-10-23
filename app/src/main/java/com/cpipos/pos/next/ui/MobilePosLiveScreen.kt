@@ -88,6 +88,22 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var unresolved by remember { mutableStateOf("") }
     var recoveredReceipt by remember { mutableStateOf<DemoSaleReceipt?>(null) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
+    // Single workspace for the authenticated register. Switching to the mode
+    // chooser never disposes its cart, entered cash or checkout step.
+    val takeaway = remember(session?.id) { TakeawayWorkspace() }
+    var mainTab by remember { mutableStateOf("history") }
+    var tabRevision by remember { mutableStateOf(0) }
+
+    fun navigateTab(tab: String) {
+        if (takeaway.saving.value) return
+        if (tab == "sale") {
+            step = "mode"  // selecting Sale always shows the mode chooser root
+        } else {
+            mainTab = tab
+            tabRevision += 1  // repeated taps reload the same tab root
+            step = "tab"
+        }
+    }
 
     fun goToStore() {
         employeeCode = ""
@@ -432,11 +448,48 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         )
         "mode" -> HomeModeScreen(
             onSelectMode = { mode ->
-                if (mode == MockSaleMode.Takeaway) step = "sale"
+                if (mode == MockSaleMode.Takeaway) {
+                    val current = session
+                    if (current != null) {
+                        scope.launch {
+                            val pending = runCatching { journal.unresolved(current) }.getOrNull()
+                            when {
+                                pending == null -> {
+                                    unresolved = "อ่านสถานะบิลค้างไม่ได้ กรุณาตรวจสอบก่อนขาย"
+                                    step = "review"
+                                }
+                                pending.isNotEmpty() -> {
+                                    unresolved = "พบบิลค้าง ${pending.size} รายการ โปรด Reconcile ก่อนขายต่อ"
+                                    step = "review"
+                                }
+                                else -> step = "sale"
+                            }
+                        }
+                    }
+                } else step = "dine"
             },
-            allowDineIn = false,
-            onLogout = { if (!busy) showLogoutConfirm = true }
+            allowDineIn = true,
+            onLogout = { if (!busy) showLogoutConfirm = true },
+            onMainMenu = { tab -> navigateTab(tab) }
         )
+        "dine" -> session?.let { verified ->
+            NativeDiningTableScreen(
+                client = client,
+                session = verified,
+                onBack = { step = "mode" }
+            )
+        }
+        "tab" -> session?.let { verified ->
+            androidx.compose.runtime.key(verified.id, mainTab, tabRevision) {
+                NativeMainTabScreen(
+                    tab = mainTab,
+                    client = client,
+                    session = verified,
+                    products = catalog,
+                    onTab = { tab -> navigateTab(tab) }
+                )
+            }
+        }
         "sale" -> session?.let { verified ->
             MobilePosSalePreview(
                 mode = MockSaleMode.Takeaway,
@@ -448,7 +501,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 liveClient = client,
                 liveSession = verified,
                 liveProducts = catalog,
-                liveJournal = journal
+                liveJournal = journal,
+                workspace = takeaway,
+                onMainMenu = { tab -> navigateTab(tab) }
             )
         }
     }
