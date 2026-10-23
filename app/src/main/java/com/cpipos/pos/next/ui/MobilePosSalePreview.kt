@@ -884,9 +884,13 @@ internal fun MobilePosSalePreview(
             shape = RoundedCornerShape(24.dp),
             title = { Text("รายการบิลพัก (" + heldDrafts.size + ")", fontWeight = FontWeight.ExtraBold) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier.heightIn(max = 410.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     if (heldDrafts.isEmpty()) Text("ไม่มีรายการบิลพักในเครื่องนี้")
-                    heldDrafts.take(12).forEach { entry ->
+                    heldDrafts.forEach { entry ->
                         Surface(
                             color = Color(0xFFEDF4FF),
                             shape = RoundedCornerShape(15.dp),
