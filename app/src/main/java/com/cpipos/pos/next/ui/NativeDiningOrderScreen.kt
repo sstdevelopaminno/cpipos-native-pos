@@ -481,7 +481,8 @@ internal fun NativeDiningOrderScreen(
         onDelete = { if (!draft.uncertain) draft.items.remove(it) },
         onCancelBill = { showClear = true },
         onCheckout = { save() }, onFeatureClick = {},
-        checkoutLabel = "บันทึกรายการลงโต๊ะ", tableMode = true
+        checkoutLabel = "บันทึกรายการลงโต๊ะ", tableMode = true,
+        checkoutEnabled = canSubmit
     )
     if (showClear) AlertDialog(
         onDismissRequest = { showClear = false },
