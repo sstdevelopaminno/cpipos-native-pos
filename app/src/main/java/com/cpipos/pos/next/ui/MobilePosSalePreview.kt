@@ -1126,7 +1126,8 @@ internal fun PreviewCartBottomSheet(
     onFeatureClick: (String) -> Unit,
     checkoutLabel: String = "ชำระเงิน",
     tableMode: Boolean = false,
-    checkoutEnabled: Boolean = true
+    checkoutEnabled: Boolean = true,
+    lockedQuantities: Map<String, Int> = emptyMap()
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -1256,7 +1257,9 @@ internal fun PreviewCartBottomSheet(
                                 .padding(horizontal = 3.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            CartQuantityButton(label = "−", onClick = { onRemove(product.id) })
+                            if (count > (lockedQuantities[product.id] ?: 0)) {
+                                CartQuantityButton(label = "−", onClick = { onRemove(product.id) })
+                            }
                             Text(
                                 count.toString(),
                                 modifier = Modifier.padding(horizontal = 5.dp),
@@ -1271,14 +1274,18 @@ internal fun PreviewCartBottomSheet(
                             modifier = Modifier
                                 .size(35.dp)
                                 .clip(CircleShape)
-                                .clickable { onDelete(product.id) },
+                                .clickable(enabled = (lockedQuantities[product.id] ?: 0) == 0) {
+                                    onDelete(product.id)
+                                },
                             contentAlignment = Alignment.Center
                         ) {
-                            Image(
-                                painter = painterResource(R.drawable.ic_cart_delete_red),
-                                contentDescription = "ลบรายการ " + product.name,
-                                modifier = Modifier.size(21.dp)
-                            )
+                            if ((lockedQuantities[product.id] ?: 0) == 0) {
+                                Image(
+                                    painter = painterResource(R.drawable.ic_cart_delete_red),
+                                    contentDescription = "ลบรายการ " + product.name,
+                                    modifier = Modifier.size(21.dp)
+                                )
+                            }
                         }
                     }
                 }
