@@ -399,6 +399,17 @@ internal fun MobilePosSalePreview(
                             paymentFeedback = "success"
                             kotlinx.coroutines.delay(950L)
                             // Clear ONLY after the server confirms payment (or demo SQLite commits).
+                            if (liveSession != null && activeHeldId != null) {
+                                val heldId = requireNotNull(activeHeldId)
+                                val removed = runCatching { holdStore.remove(liveSession, heldId) }
+                                if (removed.isFailure) {
+                                    notice = "บันทึกยอดขายแล้ว แต่ลบบิลพักไม่ได้ " +
+                                        "ห้ามเรียกบิลเดิมขายซ้ำ"
+                                }
+                                heldDrafts = runCatching { holdStore.all(liveSession) }
+                                    .getOrDefault(heldDrafts)
+                                activeHeldId = null
+                            }
                             cart.clear()
                             discount = PosDiscount()
                             activeBillId = UUID.randomUUID().toString()
@@ -502,6 +513,17 @@ internal fun MobilePosSalePreview(
                             }
                             paymentFeedback = "success"
                             kotlinx.coroutines.delay(950L)
+                            if (liveSession != null && activeHeldId != null) {
+                                val heldId = requireNotNull(activeHeldId)
+                                val removed = runCatching { holdStore.remove(liveSession, heldId) }
+                                if (removed.isFailure) {
+                                    notice = "บันทึกยอดขายแล้ว แต่ลบบิลพักไม่ได้ " +
+                                        "ห้ามเรียกบิลเดิมขายซ้ำ"
+                                }
+                                heldDrafts = runCatching { holdStore.all(liveSession) }
+                                    .getOrDefault(heldDrafts)
+                                activeHeldId = null
+                            }
                             cart.clear()
                             discount = PosDiscount()
                             activeBillId = UUID.randomUUID().toString()
@@ -805,16 +827,26 @@ internal fun MobilePosSalePreview(
                             check(liveJournal.unresolved(liveSession).isEmpty()) {
                                 "มีบิลที่ต้อง Reconcile ก่อนพักบิล"
                             }
-                            val saved = holdStore.hold(
-                                liveSession, activeBillId, cart.toMap(),
-                                discount.kind, discount.input
-                            )
+                            val savedId = if (activeHeldId != null) {
+                                val existingId = requireNotNull(activeHeldId)
+                                holdStore.update(
+                                    liveSession, existingId, cart.toMap(),
+                                    discount.kind, discount.input
+                                )
+                                existingId
+                            } else {
+                                holdStore.hold(
+                                    liveSession, activeBillId, cart.toMap(),
+                                    discount.kind, discount.input
+                                ).id
+                            }
                             cart.clear()
                             discount = PosDiscount()
+                            activeHeldId = null
                             activeBillId = UUID.randomUUID().toString()
                             heldDrafts = holdStore.all(liveSession)
                             showCart = false
-                            notice = "พักรายการเรียบร้อย: " + saved.id.take(8)
+                            notice = "พักรายการเรียบร้อย: " + savedId.take(8)
                         }.onFailure {
                             notice = it.message ?: "พักบิลไม่ได้ กรุณาตรวจข้อมูลในเครื่อง"
                         }
@@ -827,8 +859,19 @@ internal fun MobilePosSalePreview(
         subtotal = subtotal, current = discount,
         onDismiss = { showDiscount = false },
         onConfirm = { next ->
-            discount = next
-            showDiscount = false
+            val saved = if (activeHeldId != null && liveSession != null)
+                runCatching {
+                    holdStore.update(
+                        liveSession, requireNotNull(activeHeldId), cart.toMap(),
+                        next.kind, next.input
+                    )
+                } else Result.success(Unit)
+            if (saved.isSuccess) {
+                discount = next
+                showDiscount = false
+            } else {
+                notice = "เก็บส่วนลดของบิลพักไม่ได้ กรุณาลองอีกครั้ง"
+            }
         }
     )
 
@@ -858,10 +901,12 @@ internal fun MobilePosSalePreview(
                                             }
                                             check(count > 0)
                                         }
+                                        // Keep the original saved draft until payment succeeds.
+                                        // A process crash can then recover it with the same sale UUID.
                                         cart.putAll(entry.items)
                                         discount = PosDiscount(entry.discountKind, entry.discountInput)
                                         activeBillId = entry.saleId
-                                        holdStore.remove(liveSession, entry.id)
+                                        activeHeldId = entry.id
                                         heldDrafts = holdStore.all(liveSession)
                                         showHeldBills = false
                                         showCart = true
@@ -900,6 +945,11 @@ internal fun MobilePosSalePreview(
                                 "มีรายการที่ยังไม่ได้ตรวจสอบผลบิล ห้ามล้างตะกร้า"
                             }
                             liveClient.approveTakeawayDraftCancellation(liveSession, draftId, pin)
+                            if (activeHeldId != null) {
+                                holdStore.remove(liveSession, requireNotNull(activeHeldId))
+                                activeHeldId = null
+                                heldDrafts = holdStore.all(liveSession)
+                            }
                             cart.clear()
                             discount = PosDiscount()
                             activeBillId = UUID.randomUUID().toString()
