@@ -37,7 +37,7 @@ private fun diningStatus(status: String): Pair<String, Color> = when (status) {
 
 /** Read actual shared floor data and active table sessions; no local table mocks. */
 @Composable
-internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSession, onBack: () -> Unit) {
+internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSession, onBack: () -> Unit, onMainMenu: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var floor by remember(session.id) { mutableStateOf<WebTableFloor?>(null) }
     var zone by remember(session.id) { mutableStateOf<String?>(null) }
@@ -68,7 +68,9 @@ internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSessio
     BackHandler(enabled = !working) { if (selected == null) onBack() else selected = null }
 
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
+        Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()
+            .padding(horizontal = 16.dp).padding(bottom = 104.dp)) {
             Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 18.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Text("‹ กลับ", color = diningBlue, fontWeight = FontWeight.Bold,
@@ -90,6 +92,10 @@ internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSessio
                 }
             }
             Spacer(Modifier.height(18.dp))
+            if (error != null && floor != null) {
+                Text(error.orEmpty(), color = Color(0xFFA83F4A), fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 10.dp))
+            }
             val visible = floor?.tables.orEmpty()
                 .filter { zone == null || it.zoneId == zone }
             Text("รายการโต๊ะ " + visible.size, color = diningInk,
@@ -159,6 +165,12 @@ internal fun NativeDiningTableScreen(client: WebPosClient, session: WebPosSessio
                     }
                 }
             }
+        }
+        HomeBottomMenu(
+            modifier = Modifier.align(Alignment.BottomCenter),
+            selectedTab = "sale",
+            onMenuClick = { tab -> if (!working) onMainMenu(tab) }
+        )
         }
     }
     selected?.let { table ->
