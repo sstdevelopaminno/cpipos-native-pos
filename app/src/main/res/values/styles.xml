@@ -4,4 +4,11 @@
         <item name="android:fontFamily">sans</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
+
+    <!-- Launch-only theme: existing owner-provided blue CpIPOS symbol. -->
+    <style name="Theme.CpIPOSNative.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/native_splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_cpipos_receipt_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.CpIPOSNative</item>
+    </style>
 </resources>
