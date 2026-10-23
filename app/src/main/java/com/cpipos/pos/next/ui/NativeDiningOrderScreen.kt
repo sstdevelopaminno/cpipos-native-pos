@@ -127,7 +127,14 @@ internal fun NativeDiningOrderScreen(
             if (!draft.busy) refresh(false)
         }
     }
-    BackHandler(enabled = !draft.busy) { onTables() }
+    BackHandler(enabled = !draft.busy) {
+        when {
+            draft.paymentMethod != null -> draft.paymentMethod = null
+            cartOpen -> cartOpen = false
+            showCancelPin -> showCancelPin = false
+            else -> onTables()
+        }
+    }
 
     val entries = products.map {
         DemoMenuItem(it.id, it.name, it.category.ifBlank { "อื่น ๆ" },
