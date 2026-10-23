@@ -89,6 +89,10 @@ internal fun NativeSalesListScreen(
     var selectedReceipt by remember { mutableStateOf<WebReceiptHistoryRecord?>(null) }
     var printError by remember { mutableStateOf<String?>(null) }
 
+    BackHandler(enabled = deleteBusy) {
+        // A submitted stock-restoring delete is not interruptible.
+        // Android process death is covered by SalesDeleteJournal.
+    }
     val window = nativeSalesWindow(mode, anchor, customFrom, customTo)
     LaunchedEffect(client, session.id, mode, window.start, window.end, page, refresh) {
         loading = true
@@ -339,7 +343,9 @@ internal fun NativeSalesListScreen(
             }
             HomeBottomMenu(
                 modifier = Modifier.align(Alignment.BottomCenter),
-                selectedTab = "report", onMenuClick = onTab
+                selectedTab = "report", onMenuClick = { tab ->
+                    if (!deleteBusy) onTab(tab)
+                }
             )
         }
     }
