@@ -163,7 +163,8 @@ internal fun MobilePosSalePreview(
     liveSession: WebPosSession? = null,
     liveProducts: List<WebPosProduct>? = null,
     liveJournal: LiveSaleJournal? = null,
-    workspace: TakeawayWorkspace = remember { TakeawayWorkspace() }
+    workspace: TakeawayWorkspace = remember { TakeawayWorkspace() },
+    onMainMenu: (String) -> Unit = {}
 ) {
     val cart = workspace.cart
     var category by remember { mutableStateOf("ทั้งหมด") }
@@ -496,7 +497,7 @@ internal fun MobilePosSalePreview(
                     Image(
                         painter = painterResource(R.drawable.cpipos_logo_symbol),
                         contentDescription = "กลับหน้าเลือกโหมด",
-                        modifier = Modifier.size(39.dp).clickable { onBack() }
+                        modifier = Modifier.size(39.dp).clickable(enabled = !saving) { onBack() }
                     )
                     Spacer(modifier = Modifier.width(7.dp))
                     Text(
@@ -680,7 +681,10 @@ internal fun MobilePosSalePreview(
                 }
             }
 
-            HomeBottomMenu(modifier = Modifier.align(Alignment.BottomCenter))
+            HomeBottomMenu(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                onMenuClick = { tab -> if (!saving) onMainMenu(tab) }
+            )
         }
     }
     if (showScannerNotice) {
