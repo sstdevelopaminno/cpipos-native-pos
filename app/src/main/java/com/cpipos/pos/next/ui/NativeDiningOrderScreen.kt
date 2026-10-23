@@ -55,6 +55,11 @@ internal class DiningDraft {
 private fun billQuantities(bill: WebDiningBill): Map<String, Int> =
     bill.lines.groupBy { it.productId }.mapValues { (_, lines) -> lines.sumOf { it.quantity } }
 
+/** Discount uses gross item prices before tax, not the tax-inclusive server total. */
+internal fun diningDiscountBase(bill: WebDiningBill?, newItemsSubtotalSatang: Long): Long =
+    bill?.lines.orEmpty().sumOf { it.unitPrice.value * it.quantity.toLong() } +
+        newItemsSubtotalSatang
+
 @Composable
 internal fun NativeDiningOrderScreen(
     client: WebPosClient, session: WebPosSession, table: WebDiningTable,
@@ -157,8 +162,7 @@ internal fun NativeDiningOrderScreen(
         draft.items.forEach { (id, quantity) -> put(id, (get(id) ?: 0) + quantity) }
     }
     val combinedCount = combinedCart.values.sum()
-    val gross = (existing?.total?.value ?: 0L) +
-        (existing?.discount?.value ?: 0L) + subtotal
+    val gross = diningDiscountBase(existing, subtotal)
     val targetDiscount = draft.discount?.amount(gross)
         ?: (existing?.discount?.value ?: 0L)
     val discountChanged = draft.discount != null &&
