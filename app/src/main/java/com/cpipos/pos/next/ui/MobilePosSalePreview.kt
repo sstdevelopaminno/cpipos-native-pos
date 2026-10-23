@@ -239,6 +239,7 @@ internal fun MobilePosSalePreview(
     val quantity = cart.values.sum()
     val subtotal = products.sumOf { it.price * (cart[it.id] ?: 0) }
     val discountAmount = discount.amount(subtotal)
+    val parkedCount = heldDrafts.count { it.id != activeHeldId }
     val total = (subtotal - discountAmount).coerceAtLeast(0L)
     BackHandler(enabled = !showCart && !showMethods && !showHistory && !showLiveHistory &&
         payment == null && !showScannerNotice && pendingAction == null && !showCancelBillConfirm && !saving) {
@@ -619,11 +620,11 @@ internal fun MobilePosSalePreview(
                             contentAlignment = Alignment.Center
                         ) {
                             Text("▤", color = saleBlue, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-                            if (heldDrafts.isNotEmpty()) Box(
+                            if (parkedCount > 0) Box(
                                 modifier = Modifier.align(Alignment.TopEnd).size(19.dp)
                                     .clip(CircleShape).background(saleBlue),
                                 contentAlignment = Alignment.Center
-                            ) { Text(heldDrafts.size.toString(), color = Color.White,
+                            ) { Text(parkedCount.toString(), color = Color.White,
                                 fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                         }
                         Spacer(modifier = Modifier.width(5.dp))
@@ -882,15 +883,15 @@ internal fun MobilePosSalePreview(
         AlertDialog(
             onDismissRequest = { showHeldBills = false },
             shape = RoundedCornerShape(24.dp),
-            title = { Text("รายการบิลพัก (" + heldDrafts.size + ")", fontWeight = FontWeight.ExtraBold) },
+            title = { Text("รายการบิลพัก (" + parkedCount + ")", fontWeight = FontWeight.ExtraBold) },
             text = {
                 Column(
                     modifier = Modifier.heightIn(max = 410.dp)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (heldDrafts.isEmpty()) Text("ไม่มีรายการบิลพักในเครื่องนี้")
-                    heldDrafts.forEach { entry ->
+                    if (parkedCount == 0) Text("ไม่มีรายการบิลพักในเครื่องนี้")
+                    heldDrafts.filterNot { it.id == activeHeldId }.forEach { entry ->
                         Surface(
                             color = Color(0xFFEDF4FF),
                             shape = RoundedCornerShape(15.dp),
