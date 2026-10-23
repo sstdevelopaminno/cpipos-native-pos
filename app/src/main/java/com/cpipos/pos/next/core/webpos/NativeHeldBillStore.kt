@@ -62,6 +62,23 @@ internal class NativeHeldBillStore(context: Context) {
     }
 
     @Synchronized
+    fun update(
+        s: WebPosSession, id: String,
+        items: Map<String, Int>, discountKind: String, discountInput: String
+    ) {
+        require(items.isNotEmpty() && items.values.all { it in 1..9999 })
+        val existing = all(s)
+        check(existing.any { it.id == id }) { "held_draft_not_found" }
+        write(s, existing.map { entry ->
+            if (entry.id == id) entry.copy(
+                items = items.toMap(),
+                discountKind = discountKind,
+                discountInput = discountInput
+            ) else entry
+        })
+    }
+
+    @Synchronized
     fun remove(s: WebPosSession, id: String) {
         val existing = all(s)
         require(existing.any { it.id == id })
