@@ -1,0 +1,1740 @@
+package com.cpipos.pos.next.ui
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.window.Dialog
+import com.cpipos.pos.next.R
+import com.cpipos.pos.next.core.offline.DemoSaleLedger
+import com.cpipos.pos.next.core.offline.DemoSaleReceipt
+import com.cpipos.pos.next.core.offline.DemoReceiptLine
+import com.cpipos.pos.next.core.pos.CashTenderInput
+import com.cpipos.pos.next.core.pos.Satang
+import com.cpipos.pos.next.core.webpos.LiveSaleJournal
+import com.cpipos.pos.next.core.webpos.NativeHeldBillStore
+import com.cpipos.pos.next.core.webpos.WebPosClient
+import com.cpipos.pos.next.core.webpos.WebPosProduct
+import com.cpipos.pos.next.core.webpos.WebPosSession
+import com.cpipos.pos.next.core.webpos.WebReceiptHistory
+import com.cpipos.pos.next.printing.DemoReceiptPrinter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.UUID
+import java.util.Locale
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
+import java.net.HttpURLConnection
+import java.net.URL
+
+/**
+ * Reference-inspired Takeaway sales UI. Demo products and all transactions
+ * stay entirely in Compose memory; no real sale, banking or stock operations.
+ */
+internal enum class MockSaleMode(val title: String) {
+    Takeaway("โหมดกลับบ้าน"),
+    DineIn("โหมดนั่งโต๊ะ")
+}
+
+internal data class DemoMenuItem(
+    val id: String,
+    val name: String,
+    val category: String,
+    val price: Long,
+    val marker: String,
+    val accent: Color,
+    val imageUrl: String? = null
+)
+
+private val demoMenu = listOf(
+    DemoMenuItem("thai-tea", "ชาไทย", "เครื่องดื่ม", 5000L, "🧋", Color(0xFFF3A35A)),
+    DemoMenuItem("americano", "อเมริกาโน่", "เครื่องดื่ม", 5500L, "🥤", Color(0xFF876552)),
+    DemoMenuItem("fried-rice", "ข้าวผัด", "อาหาร", 8000L, "🍛", Color(0xFFEAAE5D)),
+    DemoMenuItem("basil", "ผัดกะเพรา", "อาหาร", 7500L, "🍳", Color(0xFF70A868)),
+    DemoMenuItem("water", "น้ำเปล่า", "เครื่องดื่ม", 2000L, "💧", Color(0xFF80BDF9)),
+    DemoMenuItem("cake", "เค้กช็อกโกแลต", "ของหวาน", 9500L, "🍰", Color(0xFF9F735F))
+)
+private val saleBlue = Color(0xFF1879F3)
+private val saleInk = Color(0xFF152544)
+private val saleMuted = Color(0xFF7A8BA3)
+private val saleCategories = listOf("ทั้งหมด", "เครื่องดื่ม", "อาหาร", "ของหวาน", "โปรโมชัน")
+
+internal enum class PreviewPayment { Cash, Transfer }
+
+/** Retains an in-progress takeaway checkout while the cashier visits the mode menu. */
+internal class TakeawayWorkspace {
+    val cart = mutableStateMapOf<String, Int>()
+    val discount = mutableStateOf(PosDiscount())
+    val showCart = mutableStateOf(false)
+    val showMethods = mutableStateOf(false)
+    val selectedMethod = mutableStateOf(PreviewPayment.Cash)
+    val payment = mutableStateOf<PreviewPayment?>(null)
+    val cashInput = mutableStateOf("")
+    val activeBillId = mutableStateOf(UUID.randomUUID().toString())
+    val activeHeldId = mutableStateOf<String?>(null)
+    val saving = mutableStateOf(false)
+    val saveError = mutableStateOf<String?>(null)
+    val paymentFeedback = mutableStateOf("idle")
+}
+
+
+@Composable
+internal fun MobilePosSalePreview(
+    mode: MockSaleMode,
+    branchName: String,
+    counterCode: String,
+    onBack: () -> Unit,
+    onSelectMode: () -> Unit = onBack,
+    liveClient: WebPosClient? = null,
+    liveSession: WebPosSession? = null,
+    liveProducts: List<WebPosProduct>? = null,
+    liveJournal: LiveSaleJournal? = null,
+    workspace: TakeawayWorkspace = remember { TakeawayWorkspace() },
+    onMainMenu: (String) -> Unit = {}
+) {
+    val cart = workspace.cart
+    var category by remember { mutableStateOf("ทั้งหมด") }
+    var search by remember { mutableStateOf("") }
+    var showScannerNotice by remember { mutableStateOf(false) }
+    var showCart by workspace.showCart
+    var showMethods by workspace.showMethods
+    var selectedMethod by workspace.selectedMethod
+    var payment by workspace.payment
+    var cashInput by workspace.cashInput
+    var notice by remember { mutableStateOf("") }
+    var pendingAction by remember { mutableStateOf<String?>(null) }
+    var showCancelBillConfirm by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val demoLedger = remember(context.applicationContext) { DemoSaleLedger(context.applicationContext) }
+    var receipt by remember { mutableStateOf<DemoSaleReceipt?>(null) }
+    var dailyReceipts by remember { mutableStateOf<List<DemoSaleReceipt>>(emptyList()) }
+    var showHistory by remember { mutableStateOf(false) }
+    var showLiveHistory by remember { mutableStateOf(false) }
+    var liveHistoryQuery by remember { mutableStateOf("") }
+    var liveHistory by remember { mutableStateOf<WebReceiptHistory?>(null) }
+    var liveHistoryLoading by remember { mutableStateOf(false) }
+    var liveHistoryError by remember { mutableStateOf<String?>(null) }
+    var activeBillId by workspace.activeBillId
+    var activeHeldId by workspace.activeHeldId
+    var discount by workspace.discount
+    var showDiscount by remember { mutableStateOf(false) }
+    var showHeldBills by remember { mutableStateOf(false) }
+    val holdStore = remember(context.applicationContext) { NativeHeldBillStore(context.applicationContext) }
+    var heldDrafts by remember(liveSession?.id) {
+        mutableStateOf<List<NativeHeldBillStore.Draft>>(emptyList())
+    }
+    LaunchedEffect(liveSession?.id) {
+        if (liveSession != null) {
+            runCatching { holdStore.all(liveSession) }
+                .onSuccess { heldDrafts = it }
+                .onFailure { notice = "อ่านบิลพักในเครื่องไม่ได้ กรุณาตรวจสอบข้อมูลก่อนพักเพิ่ม" }
+        }
+    }
+    var saving by workspace.saving
+    var saveError by workspace.saveError
+    var paymentFeedback by workspace.paymentFeedback
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(notice) {
+        if (notice.isNotBlank()) {
+            snackbarHostState.showSnackbar(
+                message = notice,
+                duration = SnackbarDuration.Short
+            )
+            notice = ""
+        }
+    }
+
+    val products = if (liveSession != null) {
+        (liveProducts ?: emptyList()).map {
+            val marker = it.name.trim().firstOrNull()?.toString()
+                ?.uppercase(Locale.forLanguageTag("th-TH")) ?: "?"
+            DemoMenuItem(
+                id = it.id, name = it.name, category = it.category.ifBlank { "อื่น ๆ" },
+                price = it.price.value, marker = marker, accent = Color(0xFF79B6EE),
+                imageUrl = it.imageUrl
+            )
+        }
+    } else demoMenu
+    val categories = if (liveSession == null) saleCategories
+        else listOf("ทั้งหมด") + products.map { it.category }.distinct()
+    val quantity = cart.values.sum()
+    val subtotal = products.sumOf { it.price * (cart[it.id] ?: 0) }
+    val discountAmount = discount.amount(subtotal)
+    val parkedCount = heldDrafts.count { it.id != activeHeldId }
+    val total = (subtotal - discountAmount).coerceAtLeast(0L)
+    BackHandler(enabled = !showCart && !showMethods && !showHistory && !showLiveHistory &&
+        payment == null && !showScannerNotice && pendingAction == null && !showCancelBillConfirm && !saving) {
+        onBack()
+    }
+
+    val visibleProducts = products.filter { product ->
+        (category == "ทั้งหมด" || product.category == category) &&
+            (search.isBlank() || product.name.contains(search.trim(), ignoreCase = true) || product.id.contains(search.trim(), ignoreCase = true))
+    }
+
+    // Keep edits to a restored hold bill durable BEFORE updating visible cart.
+    // Never change its original sale UUID or delete its held snapshot on restore.
+    fun setCartItems(next: Map<String, Int>) {
+        val active = activeHeldId
+        if (active != null && liveSession != null) {
+            val saved = runCatching {
+                if (next.isEmpty()) {
+                    holdStore.remove(liveSession, active)
+                } else {
+                    holdStore.update(
+                        liveSession, active, next,
+                        discount.kind, discount.input
+                    )
+                }
+            }
+            if (saved.isFailure) {
+                notice = "บันทึกการแก้ไขบิลพักไม่สำเร็จ ตะกร้ายังไม่เปลี่ยน"
+                return
+            }
+            if (next.isEmpty()) activeHeldId = null
+            heldDrafts = holdStore.all(liveSession)
+        }
+        cart.clear()
+        cart.putAll(next)
+        notice = ""
+    }
+    fun add(id: String) {
+        setCartItems(cart.toMutableMap().apply {
+            put(id, (get(id) ?: 0) + 1)
+        })
+    }
+    fun remove(id: String) {
+        setCartItems(cart.toMutableMap().apply {
+            val value = (get(id) ?: 0) - 1
+            if (value <= 0) remove(id) else put(id, value)
+        })
+    }
+    fun loadLiveReceiptHistory() {
+        val client = liveClient ?: return
+        val session = liveSession ?: return
+        liveHistoryLoading = true
+        liveHistoryError = null
+        scope.launch {
+            try {
+                liveHistory = client.receiptHistory(
+                    session = session,
+                    query = liveHistoryQuery.trim(),
+                    page = 1,
+                    pageSize = 40
+                )
+            } catch (error: Exception) {
+                liveHistoryError = when (error) {
+                    is com.cpipos.pos.next.core.webpos.WebPosApiException -> when (error.code) {
+                        "feature_not_enabled", "forbidden", "forbidden_role" ->
+                            "บัญชีนี้ยังไม่มีสิทธิ์ดูประวัติใบเสร็จจาก POS"
+                        else -> "โหลดประวัติไม่ได้: ${error.code} (${error.status})"
+                    }
+                    else -> "โหลดประวัติใบเสร็จไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ต"
+                }
+            } finally {
+                liveHistoryLoading = false
+            }
+        }
+    }
+
+    fun openPreviewSalesHistory() {
+        if (liveSession != null) {
+            showLiveHistory = true
+            loadLiveReceiptHistory()
+            return
+        }
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { demoLedger.today(branchName, counterCode) }
+            }.onSuccess { dailyReceipts = it; showHistory = true }
+                .onFailure { notice = "เปิดรายการขายทดลองไม่ได้ กรุณาลองอีกครั้ง" }
+        }
+    }
+
+    if (payment == PreviewPayment.Cash) {
+        CashCheckoutScreen(
+            due = Satang.of(total),
+            cashInput = cashInput,
+            saving = saving,
+            error = saveError,
+            isLiveSale = liveSession != null,
+            onInputChange = { cashInput = it; saveError = null },
+            onCancel = { if (!saving) { payment = null; showCart = true; saveError = null } },
+            onConfirm = {
+                if (!saving && quantity > 0 && total > 0L &&
+                    CashTenderInput.isSufficient(cashInput, Satang.of(total))
+                ) {
+                    saving = true
+                    paymentFeedback = "saving"
+                    saveError = null
+                    val snapshot = products.mapNotNull { item ->
+                        val count = cart[item.id] ?: 0
+                        if (count > 0) DemoReceiptLine(
+                            item.id, item.name, count, Satang.of(item.price)
+                        ) else null
+                    }
+                    val billId = activeBillId
+                    val paid = CashTenderInput.money(cashInput)
+                    scope.launch {
+                        try {
+                            val saved = if (
+                                liveSession != null && liveClient != null && liveJournal != null
+                            ) {
+                                withContext(Dispatchers.IO) {
+                                    check(
+                                        liveJournal.prepare(
+                                            session = liveSession,
+                                            billId = billId,
+                                            lines = snapshot,
+                                            total = Satang.of(total),
+                                            received = paid
+                                        )
+                                    ) {
+                                        "บิลนี้เคยส่งแล้ว ตรวจสอบสถานะใน POS Web ก่อน"
+                                    }
+                                }
+                                val paidBill = liveClient.payCash(
+                                    session = liveSession,
+                                    lines = snapshot,
+                                    received = paid,
+                                    saleId = billId,
+                                    expectedTotal = Satang.of(total),
+                                    onOrderCreated = { orderId, orderNo ->
+                                        withContext(Dispatchers.IO) {
+                                            liveJournal.orderCreated(
+                                                liveSession, billId, orderId, orderNo
+                                            )
+                                        }
+                                    }
+                                )
+                                withContext(Dispatchers.IO) {
+                                    liveJournal.confirmed(liveSession, billId)
+                                }
+                                paidBill.receipt
+                            } else withContext(Dispatchers.IO) {
+                                demoLedger.saveCash(
+                                    branchName = branchName, counterCode = counterCode,
+                                    modeLabel = mode.title, lines = snapshot,
+                                    received = paid, id = billId
+                                )
+                            }
+                            paymentFeedback = "success"
+                            kotlinx.coroutines.delay(950L)
+                            // Clear ONLY after the server confirms payment (or demo SQLite commits).
+                            if (liveSession != null && activeHeldId != null) {
+                                val heldId = requireNotNull(activeHeldId)
+                                val removed = runCatching { holdStore.remove(liveSession, heldId) }
+                                if (removed.isFailure) {
+                                    notice = "บันทึกยอดขายแล้ว แต่ลบบิลพักไม่ได้ " +
+                                        "ห้ามเรียกบิลเดิมขายซ้ำ"
+                                }
+                                heldDrafts = runCatching { holdStore.all(liveSession) }
+                                    .getOrDefault(heldDrafts)
+                                activeHeldId = null
+                            }
+                            cart.clear()
+                            discount = PosDiscount()
+                            activeBillId = UUID.randomUUID().toString()
+                            showCart = false
+                            showMethods = false
+                            payment = null
+                            cashInput = ""
+                            receipt = saved
+                            notice = if (saved.isDemo) "บันทึกบิลทดลองในเครื่องแล้ว: ${saved.billNo}" else "บันทึกยอดขายจริงแล้ว: ${saved.billNo}"
+                        } catch (error: Exception) {
+                            paymentFeedback = "idle"
+                            if (liveSession != null && liveJournal != null) {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        if (liveJournal.unresolved(liveSession).any { it.id == billId }) {
+                                            liveJournal.review(liveSession, billId)
+                                        }
+                                    }
+                                }
+                            }
+                            saveError = if (liveSession != null)
+                                "ยังไม่ยืนยันจบบิลจริง ห้ามขายซ้ำจนกว่าจะตรวจสอบบิลใน POS Web: " +
+                                (error.localizedMessage ?: "เครือข่ายขัดข้อง").take(64)
+                            else "บันทึกไม่สำเร็จ ตะกร้ายังอยู่ครบ: " +
+                                (error.localizedMessage ?: "กรุณาลองอีกครั้ง").take(80)
+                        } finally {
+                            saving = false
+                            paymentFeedback = "idle"
+                        }
+                    }
+                }
+            }
+        )
+        PaymentFeedbackOverlay(paymentFeedback)
+        return
+    }
+
+    if (payment == PreviewPayment.Transfer &&
+        liveSession != null && liveClient != null && liveJournal != null
+    ) {
+        TransferQrCheckoutScreen(
+            client = liveClient,
+            session = liveSession,
+            due = Satang.of(total),
+            saving = saving,
+            error = saveError,
+            onCancel = {
+                if (!saving) {
+                    payment = null
+                    showCart = true
+                    saveError = null
+                }
+            },
+            onConfirmReceived = {
+                if (!saving && quantity > 0 && total > 0L) {
+                    saving = true
+                    paymentFeedback = "saving"
+                    saveError = null
+                    val snapshot = products.mapNotNull { item ->
+                        val count = cart[item.id] ?: 0
+                        if (count > 0) {
+                            DemoReceiptLine(item.id, item.name, count, Satang.of(item.price))
+                        } else null
+                    }
+                    val billId = activeBillId
+                    scope.launch {
+                        try {
+                            // Only AFTER the cashier verifies actual funds does a
+                            // durable transfer attempt exist. QR display is not payment.
+                            withContext(Dispatchers.IO) {
+                                check(
+                                    liveJournal.prepare(
+                                        session = liveSession,
+                                        billId = billId,
+                                        lines = snapshot,
+                                        total = Satang.of(total),
+                                        received = Satang.of(total),
+                                        paymentMethod = "bank_transfer"
+                                    )
+                                ) { "บิลนี้เคยส่งแล้ว ต้อง Reconcile ด้วยรหัสเดิม" }
+                            }
+                            val order = liveClient.createTakeawayOrder(
+                                session = liveSession, lines = snapshot, saleId = billId,
+                                expectedTotal = Satang.of(total)
+                            )
+                            withContext(Dispatchers.IO) {
+                                liveJournal.orderCreated(
+                                    liveSession, billId, order.id, order.orderNo
+                                )
+                            }
+                            val paid = liveClient.payExistingTransfer(
+                                session = liveSession,
+                                orderId = order.id,
+                                orderNo = order.orderNo,
+                                lines = snapshot,
+                                saleId = billId,
+                                expectedTotal = order.total
+                            )
+                            withContext(Dispatchers.IO) {
+                                liveJournal.confirmed(liveSession, billId)
+                            }
+                            paymentFeedback = "success"
+                            kotlinx.coroutines.delay(950L)
+                            if (liveSession != null && activeHeldId != null) {
+                                val heldId = requireNotNull(activeHeldId)
+                                val removed = runCatching { holdStore.remove(liveSession, heldId) }
+                                if (removed.isFailure) {
+                                    notice = "บันทึกยอดขายแล้ว แต่ลบบิลพักไม่ได้ " +
+                                        "ห้ามเรียกบิลเดิมขายซ้ำ"
+                                }
+                                heldDrafts = runCatching { holdStore.all(liveSession) }
+                                    .getOrDefault(heldDrafts)
+                                activeHeldId = null
+                            }
+                            cart.clear()
+                            discount = PosDiscount()
+                            activeBillId = UUID.randomUUID().toString()
+                            showCart = false
+                            showMethods = false
+                            payment = null
+                            receipt = paid.receipt
+                            notice = "บันทึกเงินโอนที่ตรวจสอบแล้ว: ${paid.receipt.billNo}"
+                        } catch (failure: Exception) {
+                            paymentFeedback = "idle"
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    if (liveJournal.unresolved(liveSession).any { it.id == billId }) {
+                                        liveJournal.review(liveSession, billId)
+                                    }
+                                }
+                            }
+                            saveError = "ยังไม่ทราบผลการจบบิล ห้ามขายซ้ำ " +
+                                "กรุณากลับหน้าเลือกโหมดและ Reconcile บิลเดิม: " +
+                                (failure.localizedMessage ?: "เชื่อมต่อไม่สำเร็จ").take(55)
+                        } finally {
+                            saving = false
+                            paymentFeedback = "idle"
+                        }
+                    }
+                }
+            }
+        )
+        PaymentFeedbackOverlay(paymentFeedback)
+        return
+    }
+
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(horizontal = 14.dp)
+                    .padding(bottom = 112.dp)
+            ) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(64.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.cpipos_logo_symbol),
+                        contentDescription = "กลับหน้าเลือกโหมด",
+                        modifier = Modifier.size(39.dp).clickable(enabled = !saving) { onBack() }
+                    )
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text(
+                        "CpIPOS",
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = saleInk
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    // Mode chooser uses the same round surface as the cart control.
+                    Box(
+                        modifier = Modifier.size(54.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .shadow(2.dp, CircleShape)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .clickable(enabled = !saving, onClickLabel = "เลือกโหมด") { onSelectMode() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_nav_select_mode),
+                                contentDescription = "เลือกโหมด",
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(5.dp))
+                    if (liveSession != null) {
+                        Box(
+                            modifier = Modifier.size(48.dp).shadow(2.dp, CircleShape)
+                                .clip(CircleShape).background(Color.White)
+                                .clickable(enabled = !saving, onClickLabel = "บิลพัก") {
+                                    runCatching { holdStore.all(liveSession) }
+                                        .onSuccess { heldDrafts = it; showHeldBills = true }
+                                        .onFailure { notice = "อ่านบิลพักไม่ได้ ตรวจสอบข้อมูลในเครื่อง" }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("▤", color = saleBlue, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                            if (parkedCount > 0) Box(
+                                modifier = Modifier.align(Alignment.TopEnd).size(19.dp)
+                                    .clip(CircleShape).background(saleBlue),
+                                contentAlignment = Alignment.Center
+                            ) { Text(parkedCount.toString(), color = Color.White,
+                                fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                        }
+                        Spacer(modifier = Modifier.width(5.dp))
+                    }
+                    // Badge is outside the clipped button so it cannot be cut off.
+                    Box(
+                        modifier = Modifier.size(54.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .shadow(2.dp, CircleShape)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .clickable { showCart = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_nav_cart),
+                                contentDescription = "เปิดตะกร้า",
+                                modifier = Modifier.size(29.dp)
+                            )
+                        }
+                        if (quantity > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                                    .padding(1.5.dp)
+                                    .clip(CircleShape)
+                                    .background(saleBlue)
+                                    .clickable { showCart = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    if (quantity > 99) "99+" else quantity.toString(),
+                                    color = Color.White,
+                                    fontSize = if (quantity > 9) 8.sp else 10.sp,
+                                    lineHeight = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Render transient action feedback in the normal top layout, not
+                // as a floating label across the product pictures or bottom nav.
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        if (liveSession == null) "ดูยอดขายทดลอง ›" else "ยอดขายใน POS Web ›",
+                        modifier = Modifier.clickable { openPreviewSalesHistory() },
+                        color = saleBlue,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                }
+                OutlinedTextField(
+                    value = search,
+                    onValueChange = { search = it },
+                    modifier = Modifier.fillMaxWidth().height(57.dp),
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, color = saleInk),
+                    placeholder = {
+                        Text("ค้นหาสินค้า หรือสแกนบาร์โค้ด", color = saleMuted, fontSize = 14.sp, maxLines = 1)
+                    },
+                    leadingIcon = {
+                        Text("⌕", fontSize = 33.sp, color = Color(0xFF587392))
+                    },
+                    trailingIcon = {
+                        Text(
+                            "▥",
+                            fontSize = 28.sp,
+                            color = saleBlue,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(9.dp))
+                                .clickable { showScannerNotice = true }
+                                .padding(horizontal = 7.dp)
+                        )
+                    },
+                    shape = RoundedCornerShape(19.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedBorderColor = Color(0xFFBFD9FA),
+                        unfocusedBorderColor = Color(0xFFE3ECFA)
+                    )
+                )
+                Spacer(modifier = Modifier.height(9.dp))
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    contentPadding = PaddingValues(vertical = 2.dp)
+                ) {
+                    items(categories) { group ->
+                        val selected = category == group
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (selected) Brush.horizontalGradient(
+                                        listOf(Color(0xFF3394FB), Color(0xFF146DED))
+                                    ) else Brush.horizontalGradient(
+                                        listOf(Color(0xFFF6F9FF), Color(0xFFF0F5FE))
+                                    )
+                                )
+                                .clickable { category = group }
+                                .padding(horizontal = 15.dp, vertical = 11.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = group,
+                                color = if (selected) Color.White else Color(0xFF5D728F),
+                                fontSize = 13.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (visibleProducts.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Text("ไม่พบสินค้าที่ค้นหา", color = saleMuted)
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                        contentPadding = PaddingValues(bottom = 8.dp)
+                    ) {
+                        items(visibleProducts, key = { it.id }) { product ->
+                            DemoProductCard(
+                                product = product,
+                                quantity = cart[product.id] ?: 0,
+                                onAdd = { add(product.id) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            HomeBottomMenu(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                onMenuClick = { tab -> if (!saving) onMainMenu(tab) }
+            )
+        }
+    }
+    if (showScannerNotice) {
+        AlertDialog(
+            onDismissRequest = { showScannerNotice = false },
+            title = { Text("สแกนบาร์โค้ด") },
+            text = { Text("ฟังก์ชันกล้องสแกนบาร์โค้ดยังไม่ได้เชื่อมในโหมดทดสอบนี้ คุณสามารถค้นหาชื่อสินค้าได้") },
+            confirmButton = { TextButton(onClick = { showScannerNotice = false }) { Text("ตกลง") } }
+        )
+    }
+
+    if (showCart) {
+        PreviewCartBottomSheet(
+            products = products,
+            cart = cart,
+            quantity = quantity,
+            total = total,
+            onDismiss = { showCart = false },
+            onAdd = { add(it) },
+            onRemove = { remove(it) },
+            onDelete = { id ->
+                setCartItems(cart.toMutableMap().apply { remove(id) })
+            },
+            onCancelBill = { showCart = false; showCancelBillConfirm = true },
+            onCheckout = {
+                if (quantity > 0 && total > 0L) {
+                    selectedMethod = PreviewPayment.Cash
+                    showCart = false
+                    showMethods = true
+                }
+            },
+            onFeatureClick = {
+                if (it == "ส่วนลด" && liveSession != null) showDiscount = true
+                else pendingAction = it
+            },
+            discountAmount = discountAmount,
+            onHoldBill = if (liveSession == null) null else {
+                {
+                    if (!saving && quantity > 0 && liveJournal != null) {
+                        runCatching {
+                            check(liveJournal.unresolved(liveSession).isEmpty()) {
+                                "มีบิลที่ต้อง Reconcile ก่อนพักบิล"
+                            }
+                            check(liveJournal.stage(liveSession, activeBillId) == null) {
+                                "รหัสบิลนี้เคยส่งเซิร์ฟเวอร์แล้ว ห้ามพักและส่งซ้ำ"
+                            }
+                            val savedId = if (activeHeldId != null) {
+                                val existingId = requireNotNull(activeHeldId)
+                                holdStore.update(
+                                    liveSession, existingId, cart.toMap(),
+                                    discount.kind, discount.input
+                                )
+                                existingId
+                            } else {
+                                holdStore.hold(
+                                    liveSession, activeBillId, cart.toMap(),
+                                    discount.kind, discount.input
+                                ).id
+                            }
+                            cart.clear()
+                            discount = PosDiscount()
+                            activeHeldId = null
+                            activeBillId = UUID.randomUUID().toString()
+                            heldDrafts = holdStore.all(liveSession)
+                            showCart = false
+                            notice = "พักรายการเรียบร้อย: " + savedId.take(8)
+                        }.onFailure {
+                            notice = it.message ?: "พักบิลไม่ได้ กรุณาตรวจข้อมูลในเครื่อง"
+                        }
+                    }
+                }
+            }
+        )
+    }
+    if (showDiscount) NativeDiscountDialog(
+        subtotal = subtotal, current = discount,
+        onDismiss = { showDiscount = false },
+        onConfirm = { next ->
+            val saved = if (activeHeldId != null && liveSession != null)
+                runCatching {
+                    holdStore.update(
+                        liveSession, requireNotNull(activeHeldId), cart.toMap(),
+                        next.kind, next.input
+                    )
+                } else Result.success(Unit)
+            if (saved.isSuccess) {
+                discount = next
+                showDiscount = false
+            } else {
+                notice = "เก็บส่วนลดของบิลพักไม่ได้ กรุณาลองอีกครั้ง"
+            }
+        }
+    )
+
+    if (showHeldBills && liveSession != null) {
+        AlertDialog(
+            onDismissRequest = { showHeldBills = false },
+            shape = RoundedCornerShape(24.dp),
+            title = { Text("รายการบิลพัก (" + parkedCount + ")", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(
+                    modifier = Modifier.heightIn(max = 410.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (parkedCount == 0) Text("ไม่มีรายการบิลพักในเครื่องนี้")
+                    heldDrafts.filterNot { it.id == activeHeldId }.forEach { entry ->
+                        Surface(
+                            color = Color(0xFFEDF4FF),
+                            shape = RoundedCornerShape(15.dp),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                if (cart.isNotEmpty() || saving) {
+                                    notice = "กรุณาพักหรือเคลียร์ตะกร้าปัจจุบันก่อนเรียกบิล"
+                                } else {
+                                    runCatching {
+                                        check(liveJournal?.unresolved(liveSession)?.isEmpty() == true) {
+                                            "มีบิลค้างตรวจสอบ ห้ามเรียกบิลพัก"
+                                        }
+                                        check(liveJournal.stage(liveSession, entry.saleId) == null) {
+                                            "บิลพักนี้เคยส่งถึงเซิร์ฟเวอร์แล้ว " +
+                                                "ห้ามเรียกขายซ้ำ กรุณาตรวจ POS Web"
+                                        }
+                                        entry.items.forEach { (id, count) ->
+                                            check(products.any { it.id == id }) {
+                                                "สินค้าของบิลพักไม่อยู่ในรายการปัจจุบัน"
+                                            }
+                                            check(count > 0)
+                                        }
+                                        // Keep the original saved draft until payment succeeds.
+                                        // A process crash can then recover it with the same sale UUID.
+                                        cart.putAll(entry.items)
+                                        discount = PosDiscount(entry.discountKind, entry.discountInput)
+                                        activeBillId = entry.saleId
+                                        activeHeldId = entry.id
+                                        heldDrafts = holdStore.all(liveSession)
+                                        showHeldBills = false
+                                        showCart = true
+                                    }.onFailure { notice = it.message ?: "เรียกบิลพักไม่สำเร็จ" }
+                                }
+                            }
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("เลขพักบิล " + entry.id.take(8),
+                                    fontWeight = FontWeight.Bold, color = saleInk)
+                                Text("สินค้า " + entry.items.values.sum() + " ชิ้น • แตะเพื่อเรียกคืน",
+                                    fontSize = 12.sp, color = saleMuted)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showHeldBills = false }) { Text("ปิด") } }
+        )
+    }
+
+    if (showCancelBillConfirm && liveSession != null && liveClient != null) {
+        NativeCancelBillPinDialog(
+            title = "อนุมัติยกเลิกบิลกลับบ้าน",
+            busy = saving,
+            error = saveError,
+            onDismiss = { if (!saving) { showCancelBillConfirm = false; showCart = true } },
+            onApprove = { pin ->
+                if (!saving) {
+                    saving = true
+                    saveError = null
+                    val draftId = activeBillId
+                    scope.launch {
+                        try {
+                            check(liveJournal?.unresolved(liveSession)?.isEmpty() == true) {
+                                "มีรายการที่ยังไม่ได้ตรวจสอบผลบิล ห้ามล้างตะกร้า"
+                            }
+                            liveClient.approveTakeawayDraftCancellation(liveSession, draftId, pin)
+                            if (activeHeldId != null) {
+                                holdStore.remove(liveSession, requireNotNull(activeHeldId))
+                                activeHeldId = null
+                                heldDrafts = holdStore.all(liveSession)
+                            }
+                            cart.clear()
+                            discount = PosDiscount()
+                            activeBillId = UUID.randomUUID().toString()
+                            showCancelBillConfirm = false
+                            showCart = false
+                            notice = "ยกเลิกตะกร้าที่ยังไม่ส่งแล้ว"
+                        } catch (failure: Exception) {
+                            saveError = "ยกเลิกไม่สำเร็จ: " +
+                                (failure.message ?: "PIN หรือสิทธิ์ไม่ถูกต้อง").take(90)
+                        } finally { saving = false }
+                    }
+                }
+            }
+        )
+    }
+
+    if (showCancelBillConfirm && liveSession == null) {
+        AlertDialog(
+            onDismissRequest = { showCancelBillConfirm = false },
+            title = {
+                Text("ยกเลิกบิล", color = saleInk, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text("ต้องการยกเลิกบิลนี้และลบรายการสินค้าในตะกร้าทั้งหมดใช่หรือไม่")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        cart.clear()
+                        showCart = false
+                        showCancelBillConfirm = false
+                        activeBillId = UUID.randomUUID().toString()
+                        notice = "ล้างตะกร้าแล้ว ยังไม่ได้สร้างรายการขาย"
+                    }
+                ) {
+                    Text("ยืนยันยกเลิกบิล", color = Color(0xFFE34D58), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCancelBillConfirm = false }) {
+                    Text("กลับไปตะกร้า")
+                }
+            }
+        )
+    }
+
+    if (pendingAction != null) {
+        AlertDialog(
+            onDismissRequest = { pendingAction = null },
+            title = { Text(pendingAction ?: "") },
+            text = { Text("อยู่ระหว่างพัฒนาใน POS Preview ยังไม่เชื่อมต่อระบบจริง") },
+            confirmButton = {
+                TextButton(onClick = { pendingAction = null }) { Text("ตกลง") }
+            }
+        )
+    }
+
+    if (showMethods) {
+        PreviewPaymentMethodSheet(
+            total = total,
+            isLiveSale = liveSession != null,
+            selectedMethod = selectedMethod,
+            onSelectMethod = { selectedMethod = it },
+            onDismiss = { showMethods = false; showCart = true },
+            onConfirm = {
+                if (total > 0L) {
+                    showMethods = false
+                    showCart = false
+                    cashInput = ""
+                    payment = selectedMethod
+                }
+            }
+        )
+    }
+
+
+    if (payment == PreviewPayment.Transfer) {
+        AlertDialog(
+            onDismissRequest = { payment = null },
+            title = { Text("โอนเงิน (รอตรวจสอบยอด)", color = saleInk) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("ยอดชำระ ฿" + amount(total), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1C995A))
+                    Text("ยังไม่มีการตรวจสอบยอดโอนจากธนาคารใน Native POS จึงยังไม่สามารถจบบิลด้วยวิธีนี้ได้", color = saleMuted)
+                    Text("เลือกกลับไปตะกร้า หรือเปลี่ยนเป็นเงินสดเพื่อทำรายการต่อ", fontSize = 12.sp, color = saleMuted)
+                }
+            },
+            confirmButton = { TextButton(onClick = { payment = null; showCart = true }) { Text("กลับตะกร้า") } },
+            dismissButton = { TextButton(onClick = { payment = null }) { Text("ยกเลิก") } }
+        )
+    }
+    if (showHistory) {
+        DemoDailySalesSheet(
+            receipts = dailyReceipts,
+            onOpenReceipt = { selected -> showHistory = false; receipt = selected },
+            onDismiss = { showHistory = false }
+        )
+    }
+    if (showLiveHistory && liveSession != null) {
+        LiveReceiptHistorySheet(
+            records = liveHistory?.records.orEmpty(),
+            query = liveHistoryQuery,
+            loading = liveHistoryLoading,
+            error = liveHistoryError,
+            totalRecords = liveHistory?.total ?: 0,
+            onQueryChange = { liveHistoryQuery = it.take(80) },
+            onSearch = { loadLiveReceiptHistory() },
+            onOpen = { selected ->
+                showLiveHistory = false
+                receipt = selected.receipt
+            },
+            onDismiss = { showLiveHistory = false }
+        )
+    }
+    receipt?.let { saved ->
+        SavedDemoReceiptSheet(
+            receipt = saved,
+            onPrint = {
+                runCatching { DemoReceiptPrinter.print(context, saved) }
+                    .onFailure { notice = "เปิดระบบพิมพ์ไม่ได้ กรุณาติดตั้งบริการเครื่องพิมพ์ Android" }
+            },
+            onDone = { receipt = null }
+        )
+    }
+
+}
+
+/**
+ * Payment selection follows the approved second reference: cart remains visible
+ * beneath a full-width sheet, large two-column tender cards and a prominent CTA.
+ * This remains UI-only; confirming a method opens the existing mock cash/transfer flow.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PreviewPaymentMethodSheet(
+    total: Long,
+    isLiveSale: Boolean,
+    selectedMethod: PreviewPayment,
+    onSelectMethod: (PreviewPayment) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+        containerColor = Color.White,
+        scrimColor = Color(0x990C1B32),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 13.dp, bottom = 7.dp)
+                    .size(width = 42.dp, height = 5.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFAEBED3))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = screenHeight * 0.87f)
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(horizontal = 17.dp)
+                .padding(bottom = 20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 15.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "ชำระเงิน",
+                    modifier = Modifier.weight(1f),
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = saleInk
+                )
+                Box(
+                    modifier = Modifier
+                        .size(43.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE8F2FF))
+                        .clickable(onClick = onDismiss),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("×", fontSize = 29.sp, lineHeight = 30.sp, color = Color(0xFF1C477F))
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(21.dp))
+                    .background(Color(0xFFEEF5FF))
+                    .padding(horizontal = 15.dp, vertical = 20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "ยอดชำระ",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF536783),
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    amount(total) + " บาท",
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF1260DF),
+                    maxLines = 1
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                PaymentMethodTile(
+                    title = "เงินสด",
+                    iconRes = R.drawable.ic_tender_cash_modern,
+                    selected = selectedMethod == PreviewPayment.Cash,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onSelectMethod(PreviewPayment.Cash) }
+                )
+                PaymentMethodTile(
+                    title = "โอนเงิน",
+                    iconRes = R.drawable.ic_tender_transfer_modern,
+                    selected = selectedMethod == PreviewPayment.Transfer,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onSelectMethod(PreviewPayment.Transfer) }
+                )
+            }
+            Spacer(modifier = Modifier.height(15.dp))
+            Button(
+                onClick = onConfirm,
+                enabled = total > 0L,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(19.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = saleBlue),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.ic_payment_card),
+                    contentDescription = null,
+                    modifier = Modifier.size(23.dp)
+                )
+                Spacer(modifier = Modifier.width(9.dp))
+                Text("ยืนยันการชำระเงิน", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            }
+            // Dismiss with the top-right close icon or Android Back.
+            Spacer(modifier = Modifier.height(7.dp))
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                if (isLiveSale) "ชำระเงินสดจะบันทึกยอดหลังระบบร้านค้ายืนยันสำเร็จ"
+                else "ตัวอย่าง UI เท่านั้น • ไม่ใช่ยอดขายจริง",
+                color = saleMuted,
+                fontSize = 10.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PaymentMethodTile(
+    title: String,
+    iconRes: Int,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(21.dp)
+    val tintBg = if (title == "เงินสด") Color(0xFFE6F9EF) else Color(0xFFE7F2FF)
+    Box(
+        modifier = modifier
+            .height(148.dp)
+            .shadow(if (selected) 3.dp else 1.dp, shape)
+            .clip(shape)
+            .background(if (selected) Color(0xFFF0F6FF) else Color.White)
+            .border(
+                if (selected) 2.dp else 1.dp,
+                if (selected) saleBlue else Color(0xFFE1EAF5),
+                shape
+            )
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(11.dp)
+                .size(23.dp)
+                .clip(CircleShape)
+                .background(if (selected) saleBlue else Color(0xFFF5F8FC))
+                .border(1.dp, if (selected) saleBlue else Color(0xFFC5D6ED), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) Text("✓", color = Color.White,
+                fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+        }
+        Column(
+            modifier = Modifier.align(Alignment.Center).padding(top = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier.size(76.dp).background(tintBg, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(painter = painterResource(iconRes), contentDescription = null,
+                    modifier = Modifier.size(58.dp))
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(title, fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold, color = saleInk)
+        }
+    }
+}
+
+
+/**
+ * Tap anywhere on a menu card to add one unit; quantity is read-only here.
+ * All decrement and delete actions are contained in the cart sheet.
+ */
+@Composable
+internal fun DemoProductCard(
+    product: DemoMenuItem,
+    quantity: Int,
+    onAdd: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(166.dp)
+            .clickable(onClick = onAdd),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(5.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(Brush.verticalGradient(
+                        listOf(Color.White, product.accent.copy(alpha = 0.17f))
+                    )),
+                contentAlignment = Alignment.Center
+            ) {
+                ProductArtwork(
+                    product = product,
+                    markerFontSize = 48.sp,
+                    modifier = Modifier.fillMaxSize()
+                )
+                if (quantity > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .size(27.dp)
+                            .clip(CircleShape)
+                            .background(saleBlue),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            quantity.toString(),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 5.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        product.name,
+                        color = saleInk,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "฿" + amount(product.price),
+                        color = saleInk,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                }
+                if (quantity > 0) {
+                    Text(
+                        "×" + quantity,
+                        color = saleBlue,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PreviewCartBottomSheet(
+    products: List<DemoMenuItem>,
+    cart: Map<String, Int>,
+    quantity: Int,
+    total: Long,
+    onDismiss: () -> Unit,
+    onAdd: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onCancelBill: () -> Unit,
+    onCheckout: () -> Unit,
+    onFeatureClick: (String) -> Unit,
+    checkoutLabel: String = "ชำระเงิน",
+    tableMode: Boolean = false,
+    checkoutEnabled: Boolean = true,
+    lockedQuantities: Map<String, Int> = emptyMap(),
+    discountAmount: Long = 0L,
+    onHoldBill: (() -> Unit)? = null
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val cartProducts = products.filter { (cart[it.id] ?: 0) > 0 }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+        containerColor = Color(0xFFFAFCFF),
+        scrimColor = Color(0x990C1B32),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 12.dp, bottom = 7.dp)
+                    .size(width = 42.dp, height = 5.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFB8C8DD))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = screenHeight * 0.86f)
+                .padding(horizontal = 16.dp)
+                .navigationBarsPadding()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "ตะกร้าสินค้า",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = saleInk
+                    )
+                    Text(
+                        quantity.toString() + " รายการ",
+                        color = saleMuted,
+                        fontSize = 16.sp
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(39.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE8F2FF))
+                        .clickable { onDismiss() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("×", color = saleInk, fontSize = 27.sp, lineHeight = 30.sp)
+                }
+            }
+
+            // Scroll only the product rows so checkout remains reachable.
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = screenHeight * 0.37f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 6.dp)
+            ) {
+                if (cartProducts.isEmpty()) {
+                    item {
+                        Text(
+                            "ยังไม่มีสินค้าในตะกร้า",
+                            color = saleMuted,
+                            modifier = Modifier.padding(vertical = 26.dp)
+                        )
+                    }
+                }
+                items(cartProducts, key = { it.id }) { product ->
+                    val count = cart[product.id] ?: 0
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(2.dp, RoundedCornerShape(15.dp))
+                            .clip(RoundedCornerShape(15.dp))
+                            .background(Color.White)
+                            .padding(horizontal = 8.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(product.accent.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ProductArtwork(
+                                product = product,
+                                markerFontSize = 24.sp,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(7.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                product.name,
+                                fontSize = 13.sp,
+                                lineHeight = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = saleInk,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "฿" + amount(product.price) + " / ชิ้น",
+                                color = saleMuted,
+                                fontSize = 10.sp,
+                                maxLines = 1
+                            )
+                            Text(
+                                "฿" + amount(product.price * count),
+                                fontSize = 14.sp,
+                                color = saleInk,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(Color(0xFFF2F7FF))
+                                .padding(horizontal = 3.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (count > (lockedQuantities[product.id] ?: 0)) {
+                                CartQuantityButton(label = "−", onClick = { onRemove(product.id) })
+                            }
+                            Text(
+                                count.toString(),
+                                modifier = Modifier.padding(horizontal = 5.dp),
+                                fontWeight = FontWeight.Bold,
+                                color = saleInk,
+                                fontSize = 13.sp
+                            )
+                            CartQuantityButton(label = "+", onClick = { onAdd(product.id) })
+                        }
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(35.dp)
+                                .clip(CircleShape)
+                                .clickable(enabled = (lockedQuantities[product.id] ?: 0) == 0) {
+                                    onDelete(product.id)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if ((lockedQuantities[product.id] ?: 0) == 0) {
+                                Image(
+                                    painter = painterResource(R.drawable.ic_cart_delete_red),
+                                    contentDescription = "ลบรายการ " + product.name,
+                                    modifier = Modifier.size(21.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(9.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(Color(0xFFEAF4FF))
+                    .clickable { onFeatureClick("ส่วนลด") }
+                    .padding(horizontal = 14.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("◇", color = saleBlue, fontSize = 24.sp)
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    "ส่วนลด",
+                    color = saleInk,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text("›", color = saleMuted, fontSize = 27.sp)
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.White)
+                    .padding(horizontal = 14.dp, vertical = 15.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("ยอดรวม", color = saleInk, fontWeight = FontWeight.Medium)
+                    if (discountAmount > 0) Text(
+                        "ส่วนลด −฿" + amount(discountAmount),
+                        color = Color(0xFF18815B), fontSize = 12.sp
+                    )
+                }
+                Text(
+                    "฿" + amount(total),
+                    color = Color(0xFF126BE5),
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 23.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                if (!tableMode || onHoldBill != null) CartSecondaryButton(
+                    title = if (onHoldBill != null) "พักบิล" else "พิมพ์บิล",
+                    modifier = Modifier.weight(1f),
+                    onClick = { if (onHoldBill != null) onHoldBill() else onFeatureClick("พิมพ์บิล") }
+                )
+                CartSecondaryButton(
+                    title = "ยกเลิกบิล",
+                    modifier = Modifier.weight(1f),
+                    onClick = onCancelBill,
+                    destructive = true
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Button(
+                onClick = onCheckout,
+                enabled = quantity > 0 && checkoutEnabled,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+                shape = RoundedCornerShape(17.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = saleBlue)
+            ) {
+                Text("▣  " + checkoutLabel, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun CartQuantityButton(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(27.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFE1EEFF))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            color = Color(0xFF176DEE),
+            fontSize = 19.sp,
+            lineHeight = 21.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun CartSecondaryButton(
+    title: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    destructive: Boolean = false
+) {
+    Box(
+        modifier = modifier
+            .height(47.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (destructive) Color(0xFFFFEDF0) else Color(0xFFEAF4FF))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            title,
+            color = if (destructive) Color(0xFFD43D4C) else saleInk,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+internal fun ProductArtwork(
+    product: DemoMenuItem,
+    markerFontSize: TextUnit,
+    modifier: Modifier = Modifier
+) {
+    val imageUrl = product.imageUrl?.takeIf { it.startsWith("https://") }
+    var bitmap by remember(imageUrl) { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(imageUrl) {
+        bitmap = null
+        if (imageUrl != null) {
+            bitmap = withContext(Dispatchers.IO) { loadProductBitmap(imageUrl) }
+        }
+    }
+
+    val loaded = bitmap
+    if (loaded != null) {
+        Image(
+            bitmap = loaded.asImageBitmap(),
+            contentDescription = product.name,
+            modifier = modifier,
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            Text(
+                product.marker,
+                fontSize = markerFontSize,
+                fontWeight = FontWeight.ExtraBold,
+                color = product.accent
+            )
+        }
+    }
+}
+
+private fun loadProductBitmap(imageUrl: String): Bitmap? {
+    val connection = (URL(imageUrl).openConnection() as HttpURLConnection).apply {
+        instanceFollowRedirects = true
+        connectTimeout = 5000
+        readTimeout = 8000
+        setRequestProperty("Accept", "image/*")
+        setRequestProperty("User-Agent", "CpIPOS-Native-Android/2")
+    }
+    return try {
+        if (connection.responseCode in 200..299) {
+            connection.inputStream.use(BitmapFactory::decodeStream)
+        } else null
+    } catch (_: Exception) {
+        null
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private fun amount(value: Long): String = DecimalFormat("#,##0.##",
+    DecimalFormatSymbols(Locale.US)
+).format(value.toBigDecimal().movePointLeft(2))
+
+@Preview(name = "CpIPOS Takeaway Grid", showBackground = true, widthDp = 390, heightDp = 844, locale = "th")
+@Composable
+private fun TakeawaySaleUiPreview() {
+    MaterialTheme {
+        MobilePosSalePreview(MockSaleMode.Takeaway, "ถนนเพชรบุรี", "POS-COUNTER-01", onBack = {})
+    }
+}
