@@ -730,13 +730,42 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         call("POST", "/api/pos/catalog-management", payload)
     }
 
-    suspend fun deactivateCatalogProduct(session: WebPosSession, item: WebCatalogRow) {
+    /** PIN verification is performed by the canonical CpIPOS approval service. */
+    suspend fun approveCatalogProductDeactivate(
+        session: WebPosSession, productId: String, pin: String
+    ): String {
+        requireSameLiveSession(session)
+        require(UUID.fromString(productId).toString() == productId)
+        require(pin.length in 4..12 && pin.all(Char::isDigit))
+        val data = call("POST", "/api/backoffice/approvals/pin", JSONObject()
+            .put("tenant_id", session.tenantId)
+            .put("branch_id", session.branchId)
+            .put("action", "product_deactivate")
+            .put("target_table", "products")
+            .put("target_id", productId)
+            .put("manager_pin", pin))
+        val approvalId = data.optString("approval_id")
+        require(runCatching { UUID.fromString(approvalId).toString() == approvalId }.getOrDefault(false)) {
+            "catalog_deactivation_approval_missing"
+        }
+        return approvalId
+    }
+
+    /** Product removal is an audited soft-deactivation, never a permanent delete. */
+    suspend fun deactivateCatalogProduct(
+        session: WebPosSession, item: WebCatalogRow, approvalId: String
+    ) {
         requireSameLiveSession(session)
         require(item.active)
-        call("POST", "/api/pos/catalog-management", JSONObject()
+        require(UUID.fromString(approvalId).toString() == approvalId)
+        val response = call("POST", "/api/pos/catalog-management", JSONObject()
             .put("action", "deactivate_product")
             .put("branch_id", session.branchId)
-            .put("id", item.id))
+            .put("id", item.id)
+            .put("approval_id", approvalId))
+        check(response.optBoolean("deactivated", false)) {
+            "catalog_deactivation_unconfirmed"
+        }
     }
 
     suspend fun diningTables(session: WebPosSession): WebTableFloor {

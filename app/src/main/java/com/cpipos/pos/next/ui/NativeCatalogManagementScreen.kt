@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,6 +29,7 @@ import java.util.Locale
 private val catalogBlue = Color(0xFF176DED)
 private val catalogInk = Color(0xFF192B47)
 private val catalogMuted = Color(0xFF72839C)
+private val catalogSurface = Color(0xFFF1F5FB)
 
 /**
  * Native counterpart to Backoffice ProductManagementPanel.
@@ -57,6 +60,7 @@ internal fun NativeCatalogManagementScreen(
     var deleteTarget by remember { mutableStateOf<WebCatalogRow?>(null) }
     var swipedId by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
+    var pinError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(client, session.id, ingredients, page, search, filterCategory, reload) {
         loading = true
@@ -71,7 +75,8 @@ internal fun NativeCatalogManagementScreen(
             val api = failure as? WebPosApiException
             if (api?.status == 404 || api?.code == "non_json_response" || api?.code == "http_404") {
                 unavailable = true
-                error = "API จัดการสินค้าบน CpIPOS ยังไม่เปิดใช้ — แสดงสินค้าสำหรับดูอย่างเดียว"
+                // A missing, not-yet-deployed endpoint is a capability state,
+                // not a red error banner. Never pretend remote writes work.
             } else {
                 error = "โหลดข้อมูลจัดการสินค้าไม่ได้: " +
                     (api?.code ?: "network_error")
@@ -89,6 +94,7 @@ internal fun NativeCatalogManagementScreen(
         ) } else emptyList()
     val rows = loaded?.items ?: fallback
     val editable = loaded?.editable == true && !unavailable
+    val canOpenEditor = !saving
     val categories = saleProducts.map { it.category }.filter { it.isNotBlank() }.distinct().sorted()
     val pictures = saleProducts.associateBy { it.id }
 
@@ -99,29 +105,62 @@ internal fun NativeCatalogManagementScreen(
                     .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 104.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("จัดการสินค้า", fontSize = 23.sp, fontWeight = FontWeight.ExtraBold,
-                            color = catalogInk)
-                        Text("สาขา: " + (loaded?.branchName ?: session.branchName) +
-                            " • เครื่อง " + session.deviceCode,
-                            fontSize = 11.sp, color = catalogMuted)
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFF19365E),
+                    shape = RoundedCornerShape(23.dp),
+                    shadowElevation = 3.dp
+                ) {
+                    Column(Modifier.padding(horizontal = 17.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(Modifier.weight(1f)) {
+                                Text("คลังสินค้า", color = Color.White, fontSize = 24.sp,
+                                    fontWeight = FontWeight.ExtraBold)
+                                Text("สาขา " + (loaded?.branchName ?: session.branchName),
+                                    color = Color(0xFFC7D9F4), fontSize = 12.sp)
+                            }
+                            Surface(color = Color(0xFF2F507C),
+                                shape = RoundedCornerShape(13.dp)) {
+                                Text(if (ingredients) "วัตถุดิบ" else "สินค้า " +
+                                    (loaded?.total?.toString() ?: saleProducts.size.toString()),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                        Button(
+                            enabled = canOpenEditor,
+                            onClick = { editing = null; editorOpen = true; operationError = null },
+                            modifier = Modifier.fillMaxWidth().height(45.dp),
+                            shape = RoundedCornerShape(13.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White, contentColor = Color(0xFF17385E))
+                        ) { Text(if (ingredients) "+ เพิ่มวัตถุดิบ" else "+ เพิ่มสินค้า",
+                            fontWeight = FontWeight.Bold) }
                     }
-                    Button(
-                        enabled = editable && !saving,
-                        onClick = { editing = null; editorOpen = true; operationError = null },
-                        contentPadding = PaddingValues(horizontal = 13.dp, vertical = 8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = catalogBlue)
-                    ) { Text("+ เพิ่ม", fontSize = 13.sp) }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = !ingredients, onClick = {
-                        ingredients = false; page = 1; filterCategory = ""; swipedId = null
-                    }, label = { Text("สินค้า") })
-                    FilterChip(selected = ingredients, onClick = {
-                        ingredients = true; page = 1; filterCategory = ""; swipedId = null
-                    }, label = { Text("วัตถุดิบ") })
+                Surface(color = Color.White, shape = RoundedCornerShape(16.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        listOf(false to "สินค้า", true to "วัตถุดิบ").forEach { choice ->
+                            val active = ingredients == choice.first
+                            Surface(
+                                color = if (active) catalogBlue else Color.White,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f).clickable {
+                                    ingredients = choice.first
+                                    page = 1; filterCategory = ""; swipedId = null
+                                    editorOpen = false
+                                }
+                            ) {
+                                Text(choice.second, modifier = Modifier.padding(vertical = 11.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    color = if (active) Color.White else catalogMuted,
+                                    fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+                    }
                 }
                 OutlinedTextField(
                     value = searchInput,
@@ -149,7 +188,7 @@ internal fun NativeCatalogManagementScreen(
                     }
                 }
                 if (error != null) {
-                    Text(error.orEmpty(), color = Color(0xFFB14B53), fontSize = 12.sp)
+                    Text(error.orEmpty(), color = catalogMuted, fontSize = 11.sp)
                 }
                 if (operationError != null) {
                     Text(operationError.orEmpty(), color = Color(0xFFB14B53), fontSize = 12.sp)
@@ -173,7 +212,7 @@ internal fun NativeCatalogManagementScreen(
                 if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 else if (rows.isEmpty()) {
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text(if (ingredients && unavailable) "ข้อมูลวัตถุดิบต้องใช้ API จาก CpIPOS หลัก"
+                        Text(if (unavailable && ingredients) "ยังไม่มีข้อมูลวัตถุดิบที่โหลดได้"
                             else "ไม่พบรายการ", color = catalogMuted)
                     }
                 } else {
@@ -186,7 +225,8 @@ internal fun NativeCatalogManagementScreen(
                             Column {
                                 Surface(
                                     color = if (item.active) Color.White else Color(0xFFEEF0F4),
-                                    shape = RoundedCornerShape(11.dp),
+                                    shape = RoundedCornerShape(17.dp),
+                                    shadowElevation = 1.dp,
                                     modifier = Modifier.fillMaxWidth()
                                         .pointerInput(item.id) {
                                             var distance = 0f
@@ -194,20 +234,20 @@ internal fun NativeCatalogManagementScreen(
                                                 onDragStart = { distance = 0f },
                                                 onHorizontalDrag = { _, drag -> distance += drag },
                                                 onDragEnd = {
-                                                    if (distance < -65f && !ingredients && editable)
+                                                    if (distance < -65f && !ingredients && item.active)
                                                         swipedId = item.id
                                                     else if (distance > 65f) swipedId = null
                                                 }
                                             )
-                                        }.clickable(enabled = !saving && editable) {
+                                        }.clickable(enabled = canOpenEditor) {
                                             editing = item; editorOpen = true; operationError = null
                                         }
                                 ) {
-                                    Row(Modifier.fillMaxWidth().padding(8.dp),
+                                    Row(Modifier.fillMaxWidth().padding(11.dp),
                                         verticalAlignment = Alignment.CenterVertically) {
                                         if (!ingredients) {
-                                            Box(Modifier.size(43.dp).background(Color(0xFFF0F5FD),
-                                                RoundedCornerShape(8.dp)),
+                                            Box(Modifier.size(53.dp).background(Color(0xFFF0F5FD),
+                                                RoundedCornerShape(13.dp)),
                                                 contentAlignment = Alignment.Center) {
                                                 if (image != null) {
                                                     ProductArtwork(
@@ -222,10 +262,10 @@ internal fun NativeCatalogManagementScreen(
                                                     )
                                                 } else Text("▣", color = catalogMuted)
                                             }
-                                            Spacer(Modifier.width(6.dp))
+                                            Spacer(Modifier.width(9.dp))
                                         }
                                         Column(Modifier.weight(1f)) {
-                                            Text(item.name, color = catalogInk, fontSize = 12.sp,
+                                            Text(item.name, color = catalogInk, fontSize = 13.sp,
                                                 fontWeight = FontWeight.Bold, maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis)
                                             Text(if (ingredients) item.baseUnit
@@ -235,22 +275,41 @@ internal fun NativeCatalogManagementScreen(
                                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
                                         if (!ingredients) {
-                                            Text("฿" + item.price.bahtText(), Modifier.width(68.dp),
-                                                color = catalogBlue, fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold)
-                                            Text(item.sold30d?.toString() ?: "—", Modifier.width(39.dp),
-                                                color = catalogInk, fontSize = 11.sp)
+                                            Column(Modifier.width(68.dp),
+                                                horizontalAlignment = Alignment.End) {
+                                                Text("฿" + item.price.bahtText(),
+                                                    color = catalogBlue, fontSize = 12.sp,
+                                                    fontWeight = FontWeight.ExtraBold)
+                                                Text("ขาย " + (item.sold30d?.toString() ?: "—"),
+                                                    color = catalogMuted, fontSize = 10.sp)
+                                            }
                                         }
-                                        Text(item.stock?.let { formatCatalogQty(it) } ?: "—",
-                                            Modifier.width(58.dp), color = catalogInk, fontSize = 11.sp)
+                                        Column(Modifier.width(65.dp),
+                                            horizontalAlignment = Alignment.End) {
+                                            Text(item.stock?.let { formatCatalogQty(it) } ?: "—",
+                                                color = if (item.stock != null && item.stock <= 0.0)
+                                                    Color(0xFFBE4055) else catalogInk,
+                                                fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Text("คงเหลือ", color = catalogMuted, fontSize = 9.sp)
+                                        }
                                     }
                                 }
-                                if (swipedId == item.id && editable && !ingredients && item.active) {
-                                    TextButton(
-                                        onClick = { deleteTarget = item },
-                                        modifier = Modifier.align(Alignment.End),
-                                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB92F4E))
-                                    ) { Text("ลบสินค้า (หยุดขาย)") }
+                                if (swipedId == item.id && !ingredients && item.active) {
+                                    Button(
+                                        onClick = {
+                                            if (editable) {
+                                                pinError = null
+                                                deleteTarget = item
+                                            } else {
+                                                operationError = "การลบสินค้าต้องใช้สิทธิ์เจ้าของหรือผู้จัดการ"
+                                            }
+                                        },
+                                        modifier = Modifier.align(Alignment.End)
+                                            .padding(top = 4.dp, end = 3.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFB8304B))
+                                    ) { Text("ลบสินค้า  •  ยืนยัน PIN", fontSize = 12.sp) }
                                 }
                             }
                         }
@@ -278,7 +337,7 @@ internal fun NativeCatalogManagementScreen(
         }
     }
 
-    if (editorOpen && editable) {
+    if (editorOpen) {
         var name by remember(editorOpen, editing?.id) { mutableStateOf(editing?.name.orEmpty()) }
         var skuUnit by remember(editorOpen, editing?.id) {
             mutableStateOf(if (ingredients) editing?.baseUnit ?: "piece" else editing?.sku.orEmpty())
@@ -315,13 +374,17 @@ internal fun NativeCatalogManagementScreen(
                             " • ต้องปรับสต๊อกผ่านรายการเคลื่อนไหวที่ตรวจสอบได้",
                             fontSize = 11.sp, color = catalogMuted)
                     }
+                    if (!editable) {
+                        Text("สามารถกรอกข้อมูลได้ แต่การบันทึกต้องเชื่อมต่อบัญชีที่มีสิทธิ์จัดการสินค้า",
+                            fontSize = 11.sp, color = catalogMuted)
+                    }
                     if (saving) LinearProgressIndicator(Modifier.fillMaxWidth())
                     if (operationError != null) Text(operationError.orEmpty(),
                         color = Color(0xFFB14B53), fontSize = 11.sp)
                 }
             },
             confirmButton = {
-                Button(enabled = !saving && name.isNotBlank() && skuUnit.isNotBlank() &&
+                Button(enabled = editable && !saving && name.isNotBlank() && skuUnit.isNotBlank() &&
                     (ingredients || (category.isNotBlank() &&
                         price.toBigDecimalOrNull()?.let { it > java.math.BigDecimal.ZERO } == true)),
                     onClick = {
@@ -347,31 +410,37 @@ internal fun NativeCatalogManagementScreen(
         )
     }
     deleteTarget?.let { target ->
-        AlertDialog(onDismissRequest = { if (!saving) deleteTarget = null },
-            title = { Text("หยุดขายสินค้า") },
-            text = { Text("ยืนยันหยุดขาย “" + target.name +
-                "”? ระบบจะไม่ลบประวัติยอดขายหรือข้อมูลสต๊อก") },
-            confirmButton = {
-                Button(enabled = !saving, onClick = {
-                    saving = true; operationError = null
-                    scope.launch {
-                        try {
-                            client.deactivateCatalogProduct(session, target)
+        NativeCancelBillPinDialog(
+            title = "ลบสินค้า: " + target.name,
+            busy = saving,
+            error = pinError,
+            actionLabel = "ตรวจ PIN และหยุดขาย",
+            actionNote = "ผู้จัดการหรือเจ้าของร้านต้องอนุมัติ • ไม่ลบประวัติการขายหรือสต๊อก",
+            onDismiss = { if (!saving) { deleteTarget = null; pinError = null } },
+            onApprove = { pin ->
+                saving = true; pinError = null; operationError = null
+                scope.launch {
+                    var sent = false
+                    try {
+                        val approval = client.approveCatalogProductDeactivate(session, target.id, pin)
+                        sent = true
+                        client.deactivateCatalogProduct(session, target, approval)
+                        deleteTarget = null; swipedId = null; reload += 1
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        if (sent) {
+                            // A lost response might mean the product was already deactivated.
+                            // Refresh instead of reissuing an approval or blind mutation.
                             deleteTarget = null; swipedId = null; reload += 1
-                        } catch (e: Exception) {
-                            operationError = "หยุดขายไม่ได้: " +
-                                ((e as? WebPosApiException)?.code ?: "โปรดตรวจสอบเครือข่าย")
-                        } finally { saving = false }
-                    }
-                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB92F4E))) {
-                    Text("ยืนยันหยุดขาย")
+                            operationError = "ตรวจสอบสถานะสินค้ากับเซิร์ฟเวอร์อีกครั้งก่อนดำเนินการต่อ"
+                        } else {
+                            pinError = "PIN ไม่ถูกต้อง หมดอายุ หรือไม่มีสิทธิ์อนุมัติ"
+                        }
+                    } finally { saving = false }
                 }
-            },
-            dismissButton = {
-                TextButton(enabled = !saving, onClick = { deleteTarget = null }) {
-                    Text("ยกเลิก")
-                }
-            })
+            }
+        )
     }
 }
 
