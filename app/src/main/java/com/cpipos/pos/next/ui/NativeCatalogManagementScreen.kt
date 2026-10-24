@@ -203,10 +203,9 @@ internal fun NativeCatalogManagementScreen(
                         verticalAlignment = Alignment.CenterVertically) {
                         Text("รายการ", Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         if (!ingredients) {
-                            Text("ราคา", Modifier.width(68.dp), fontSize = 11.sp)
-                            Text("ขาย", Modifier.width(39.dp), fontSize = 11.sp)
+                            Text("ราคา / ขาย", Modifier.width(68.dp), fontSize = 11.sp)
                         }
-                        Text("คงเหลือ", Modifier.width(58.dp), fontSize = 11.sp)
+                        Text("คงเหลือ", Modifier.width(65.dp), fontSize = 11.sp)
                     }
                 }
                 if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
