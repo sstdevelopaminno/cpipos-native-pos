@@ -300,6 +300,7 @@ internal fun NativeCatalogManagementScreen(
                     OutlinedTextField(value = skuUnit,
                         onValueChange = { skuUnit = it.take(60) },
                         label = { Text(if (ingredients) "หน่วยจัดเก็บ" else "SKU") },
+                        readOnly = ingredients && editing != null,
                         singleLine = true)
                     if (!ingredients) {
                         OutlinedTextField(value = category,
