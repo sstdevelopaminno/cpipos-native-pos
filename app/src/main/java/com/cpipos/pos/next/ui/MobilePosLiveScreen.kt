@@ -580,7 +580,27 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     client = client,
                     session = verified,
                     products = catalog,
-                    onTab = { tab -> navigateTab(tab) }
+                    onTab = { destination ->
+                        if (mainTab == "stock" && destination == "sale" && !busy) {
+                            // Product editors may change the canonical server price. Refresh
+                            // before reopening the sale screen; never sell from stale memory.
+                            scope.launch {
+                                busy = true
+                                try {
+                                    val latest = client.products(verified)
+                                    catalog = latest
+                                    runCatching { client.productsWithMedia(latest) }
+                                        .onSuccess { catalog = it }
+                                    step = "mode"
+                                } catch (failure: Exception) {
+                                    error = "รีเฟรชราคาสินค้าไม่สำเร็จ กรุณาตรวจสอบเครือข่ายก่อนขาย"
+                                    Log.e("CpIPOS", "Sale catalog refresh failed", failure)
+                                } finally { busy = false }
+                            }
+                        } else if (!busy) {
+                            navigateTab(destination)
+                        }
+                    }
                 )
             }
         }
