@@ -50,6 +50,10 @@ internal fun NativeMainTabScreen(
         NativeSalesListScreen(client = client, session = session, onTab = onTab)
         return
     }
+    if (tab == "stock") {
+        NativeCatalogManagementScreen(client, session, products, onTab)
+        return
+    }
     var history by remember(session.id, tab) { mutableStateOf<WebReceiptHistory?>(null) }
     var page by remember(session.id, tab) { mutableStateOf(1) }
     var loading by remember(session.id, tab) { mutableStateOf(tab == "history" || tab == "report") }

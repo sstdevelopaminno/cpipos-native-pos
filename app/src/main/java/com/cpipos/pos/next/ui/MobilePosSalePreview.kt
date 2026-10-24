@@ -1673,7 +1673,7 @@ private fun CartSecondaryButton(
 }
 
 @Composable
-private fun ProductArtwork(
+internal fun ProductArtwork(
     product: DemoMenuItem,
     markerFontSize: TextUnit,
     modifier: Modifier = Modifier

@@ -337,9 +337,6 @@ internal fun NativeSalesListScreen(
                         }
                     }
                 }
-                Text("แตะรายการเพื่อดูใบเสร็จ • ปัดซ้ายเพื่อขออนุมัติลบบิล",
-                    fontSize = 11.sp, color = salesMuted,
-                    modifier = Modifier.padding(top = 9.dp))
             }
             HomeBottomMenu(
                 modifier = Modifier.align(Alignment.BottomCenter),
