@@ -189,6 +189,44 @@ internal fun TransferQrCheckoutScreen(
                             textAlign = TextAlign.Center)
                     }
                 }
+                account?.let { selected ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color.White,
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        Column(
+                            Modifier.fillMaxWidth().padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text(
+                                "บัญชีรับโอนจากการตั้งค่า CpIPOS",
+                                fontWeight = FontWeight.ExtraBold,
+                                color = ink,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                selected.bankName + " · " + selected.accountName,
+                                color = ink,
+                                fontSize = 12.sp
+                            )
+                            if (selected.accountNumber.isNotBlank()) {
+                                Text("เลขบัญชี " + selected.accountNumber, color = muted, fontSize = 11.sp)
+                            }
+                            if (selected.promptPayPhone.isNotBlank()) {
+                                Text("PromptPay " + selected.promptPayPhone, color = muted, fontSize = 11.sp)
+                            }
+                            Text(
+                                if (selected.qrMode == "qr_image")
+                                    "QR รูปภาพที่ตั้งไว้ในเมนูตั้งค่าชำระเงิน"
+                                else "PromptPay QR สร้างตามยอดบิลนี้",
+                                color = blue,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
                 qrError?.let { Text(it, color = Color(0xFFB42336), fontSize = 12.sp) }
                 error?.let { Text(it, color = Color(0xFFB42336), fontSize = 12.sp) }
             }
