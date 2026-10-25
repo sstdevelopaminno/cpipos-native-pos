@@ -65,6 +65,27 @@ data class WebPosNotificationSettings(
     val soundVolume: Float = 0.8f
 )
 
+data class WebStoreSettings(
+    val id: String,
+    val code: String,
+    val displayName: String,
+    val logoUrl: String,
+    val companyAddress: String,
+    val contactPhone: String
+)
+
+internal fun parseStoreSettings(data: JSONObject): WebStoreSettings {
+    val row = data.optJSONObject("store") ?: data
+    return WebStoreSettings(
+        id = row.optString("id"),
+        code = row.optString("code"),
+        displayName = row.optString("display_name").ifBlank { row.optString("name") },
+        logoUrl = row.optString("logo_url"),
+        companyAddress = row.optString("company_address"),
+        contactPhone = row.optString("contact_phone")
+    )
+}
+
 internal fun parsePosNotificationSettings(data: JSONObject): WebPosNotificationSettings {
     val row = data.optJSONObject("notification_settings") ?: data
     return WebPosNotificationSettings(
@@ -981,6 +1002,33 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                     .put("app_version", BuildConfig.VERSION_NAME)),
             headers = mapOf("X-Print-Agent-Key" to agentKey)
         )
+    }
+
+    suspend fun storeSettings(session: WebPosSession): WebStoreSettings {
+        requireSameLiveSession(session)
+        return parseStoreSettings(call("GET", "/api/pos/settings/store"))
+    }
+
+    suspend fun updateStoreSettings(
+        session: WebPosSession,
+        displayName: String,
+        logoUrl: String,
+        companyAddress: String,
+        contactPhone: String
+    ): WebStoreSettings {
+        requireSameLiveSession(session)
+        require(displayName.trim().isNotEmpty() && displayName.length <= 120)
+        require(logoUrl.length <= 220_000)
+        val data = call(
+            "PATCH",
+            "/api/pos/settings/store",
+            JSONObject()
+                .put("display_name", displayName.trim())
+                .put("logo_url", logoUrl.trim())
+                .put("company_address", companyAddress.trim())
+                .put("contact_phone", contactPhone.trim())
+        )
+        return parseStoreSettings(data)
     }
 
     /** Shared branch policy used by CpIPOS Web and Native notification UI. */
