@@ -47,7 +47,8 @@ private fun diningStatus(status: String): Pair<String, Color> = when (status) {
 @OptIn(ExperimentalFoundationApi::class)
 internal fun NativeDiningTableScreen(
     client: WebPosClient, session: WebPosSession,
-    onBack: () -> Unit, onMainMenu: (String) -> Unit = {},
+    onBack: () -> Unit, onSelectMode: () -> Unit = onBack,
+    onMainMenu: (String) -> Unit = {},
     onEnterTable: (WebDiningTable) -> Unit = {},
     canManageTable: (String) -> Boolean = { true }
 ) {
@@ -107,6 +108,30 @@ internal fun NativeDiningTableScreen(
                     Text("โหมดนั่งโต๊ะ", color = diningInk, fontSize = 22.sp,
                         fontWeight = FontWeight.ExtraBold)
                     Text(session.branchName, fontSize = 12.sp, color = Color(0xFF72829A))
+                }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.padding(end = 10.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier.size(42.dp)
+                            .clickable(enabled = !working, onClickLabel = "เลือกโหมด") {
+                                onSelectMode()
+                            },
+                        shape = CircleShape,
+                        color = Color.White,
+                        shadowElevation = 2.dp
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_nav_select_mode),
+                                contentDescription = "เลือกโหมด",
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                    Text("เลือกโหมด", fontSize = 9.sp, color = Color(0xFF667894))
                 }
                 Text("↻", color = diningBlue, fontSize = 29.sp,
                     modifier = Modifier.clickable { scope.launch { loading = true; refresh() } })
