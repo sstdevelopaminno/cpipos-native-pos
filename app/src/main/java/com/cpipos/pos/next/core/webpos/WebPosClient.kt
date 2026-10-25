@@ -1815,6 +1815,59 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             }
         }
 
+    /** Queue the same routed PAYMENT NOTICE used by CpIPOS Web for dine-in transfer checkout. */
+    suspend fun printDiningPaymentNotice(
+        session: WebPosSession,
+        bill: WebDiningBill,
+        tableLabel: String,
+        qrDataUri: String,
+        account: WebPaymentAccount
+    ): Int {
+        requireSameLiveSession(session)
+        val orderId = bill.orderId?.takeIf { it.isNotBlank() }
+            ?: throw WebPosApiException("payment_notice_order_required", 422)
+        val orderNo = bill.orderNo?.takeIf { it.isNotBlank() } ?: orderId
+        require(bill.total > Satang.ZERO && bill.lines.isNotEmpty())
+        require(qrDataUri.startsWith("data:image/") && qrDataUri.length <= 700_000)
+
+        val items = JSONArray()
+        bill.lines.forEach { line ->
+            items.put(
+                JSONObject()
+                    .put("name", line.name)
+                    .put("quantity", line.quantity)
+                    .put("unit_price", BigDecimal(line.unitPrice.bahtText()))
+                    .put("line_total", BigDecimal(Satang.of(line.unitPrice.value * line.quantity.toLong()).bahtText()))
+                    .put("note", line.notes ?: JSONObject.NULL)
+            )
+        }
+        val accountLabel = listOf(account.bankName, account.accountName, account.accountNumber)
+            .filter { it.isNotBlank() }.joinToString(" · ")
+        val promptPayLabel = account.promptPayPhone.takeIf { it.isNotBlank() }?.let { "PromptPay $it" }
+
+        val data = call(
+            "POST",
+            "/api/pos/payment-notice",
+            JSONObject()
+                .put("order_id", orderId)
+                .put("order_no", orderNo)
+                .put("table_label", tableLabel)
+                .put("total_amount", BigDecimal(bill.total.bahtText()))
+                .put("discount_amount", BigDecimal(bill.discount.bahtText()))
+                .put("tax_amount", BigDecimal.ZERO)
+                .put("created_at", java.time.Instant.now().toString())
+                .put("seller_name", session.cashierName)
+                .put("qr_data_uri", qrDataUri)
+                .put("account_label", accountLabel.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+                .put("promptpay_label", promptPayLabel ?: JSONObject.NULL)
+                .put("items", items)
+        )
+        if (!data.optBoolean("queued", false)) {
+            throw WebPosApiException("payment_notice_queue_unconfirmed", 503)
+        }
+        return data.optInt("print_jobs_queued", 0)
+    }
+
     /** Cash drawer readiness is owned by CpIPOS printer/drawer routing. */
     suspend fun cashDrawerStatus(session: WebPosSession): WebCashDrawerStatus {
         requireSameLiveSession(session)
