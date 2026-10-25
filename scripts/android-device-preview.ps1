@@ -8,7 +8,8 @@ param(
     [switch]$SkipBuild,
     [switch]$ListOnly,
     [switch]$Mirror,
-    [switch]$NoLaunch
+    [switch]$NoLaunch,
+    [string]$FirebaseConfig = ""
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -58,6 +59,26 @@ Write-Host "Selected Android device: $DeviceSerial" -ForegroundColor Green
 
 if (-not $SkipBuild) {
     if (-not (Test-Path $wrapper)) { throw "Missing gradlew.bat; open the feature/native-auth-phase1 repository." }
+
+    $firebaseTarget = Join-Path $repo "app\google-services.json"
+    if (-not (Test-Path $firebaseTarget)) {
+        $configureFirebase = Join-Path $repo "scripts\configure-firebase.ps1"
+        if (Test-Path $configureFirebase) {
+            try {
+                if ([string]::IsNullOrWhiteSpace($FirebaseConfig)) {
+                    & $configureFirebase
+                } else {
+                    & $configureFirebase -Source $FirebaseConfig
+                }
+            }
+            catch {
+                Write-Warning ("Firebase local config not installed: " + $_.Exception.Message)
+                Write-Warning "Build will continue with Background Listener only; FCM status will remain optional/not ready."
+            }
+        }
+    } else {
+        Write-Host "Firebase local config detected: app\google-services.json" -ForegroundColor Green
+    }
     Write-Host "Building local debug APK (JDK 17 + Android SDK required)..." -ForegroundColor Cyan
     Push-Location $repo
     try {
