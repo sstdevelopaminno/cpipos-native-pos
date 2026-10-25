@@ -762,10 +762,18 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         NativeQrGlobalAlerts(
             client = client,
             session = verifiedForAlerts,
-            canNavigate = !busy && !takeaway.saving.value &&
+            canNavigate = step in setOf("mode", "sale", "dine", "dine_order", "tab") &&
+                verifiedForAlerts.shiftId != null &&
+                runCatching { journal.unresolved(verifiedForAlerts).isEmpty() }
+                    .getOrDefault(false) &&
+                !busy && !takeaway.saving.value &&
                 dineWorkspace.drafts.values.none { it.busy || it.uncertain },
             onGoToTable = { event ->
-                if (!busy && !takeaway.saving.value &&
+                if (step in setOf("mode", "sale", "dine", "dine_order", "tab") &&
+                    verifiedForAlerts.shiftId != null &&
+                    runCatching { journal.unresolved(verifiedForAlerts).isEmpty() }
+                        .getOrDefault(false) &&
+                    !busy && !takeaway.saving.value &&
                     dineWorkspace.drafts.values.none { it.busy || it.uncertain }) {
                     scope.launch {
                         val floor = try {
