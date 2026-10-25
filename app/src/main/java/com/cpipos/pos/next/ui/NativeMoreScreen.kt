@@ -655,6 +655,92 @@ private fun MoreBestSellingScreen(
 }
 
 @Composable
+private fun ReceiptDetailDialog(
+    row: WebReceiptHistoryRecord,
+    onDismiss: () -> Unit,
+    onPrint: () -> Unit
+) {
+    val receipt = row.receipt
+    val subtotal = receipt.subtotal ?: receipt.lines.fold(com.cpipos.pos.next.core.pos.Satang.ZERO) { sum, line ->
+        sum + line.amount
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("ใบเสร็จ " + row.orderNo, fontWeight = FontWeight.ExtraBold)
+                Text(moreDateTime(row.createdAtMs), color = moreMuted, fontSize = 10.sp)
+            }
+        },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 470.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                Surface(color = Color(0xFFF3F7FD), shape = RoundedCornerShape(13.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                        Text(receipt.storeName, fontWeight = FontWeight.ExtraBold, color = moreInk)
+                        Text(receipt.branchName + " · " + receipt.counterCode, fontSize = 10.sp, color = moreMuted)
+                        Text(
+                            receipt.modeLabel + " · " +
+                                if ("bank_transfer" in row.paymentMethods) "โอน / QR" else "เงินสด",
+                            fontSize = 10.sp,
+                            color = moreBlue,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Text("รายการสินค้า", color = moreInk, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                receipt.lines.forEach { line ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                        Column(Modifier.weight(1f)) {
+                            Text(line.name, color = moreInk, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                line.quantity.toString() + " × ฿" + line.unitPrice.bahtText(),
+                                color = moreMuted,
+                                fontSize = 9.sp
+                            )
+                        }
+                        Text(
+                            "฿" + line.amount.bahtText(),
+                            color = moreInk,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    HorizontalDivider(color = Color(0xFFEDF1F7))
+                }
+                Surface(color = Color.White, shape = RoundedCornerShape(12.dp), tonalElevation = 1.dp) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("ยอดสินค้า", color = moreMuted, fontSize = 10.sp)
+                            Text("฿" + subtotal.bahtText(), color = moreInk, fontSize = 10.sp)
+                        }
+                        if (receipt.discount.value > 0) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("ส่วนลด", color = moreMuted, fontSize = 10.sp)
+                                Text("-฿" + receipt.discount.bahtText(), color = moreInk, fontSize = 10.sp)
+                            }
+                        }
+                        HorizontalDivider(color = Color(0xFFE4EAF2))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("ยอดสุทธิ", color = moreInk, fontWeight = FontWeight.ExtraBold)
+                            Text("฿" + receipt.total.bahtText(), color = moreBlue, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onPrint, colors = ButtonDefaults.buttonColors(containerColor = moreBlue)) {
+                Text("พิมพ์ใบเสร็จ", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("ปิด") } }
+    )
+}
+
+@Composable
 private fun MoreReceiptsScreen(
     client: WebPosClient,
     session: WebPosSession,
@@ -662,60 +748,181 @@ private fun MoreReceiptsScreen(
     onTab: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val today = remember { LocalDate.now(moreBangkok) }
+    var mode by remember { mutableStateOf("day") }
+    var anchor by remember { mutableStateOf(today) }
+    var customFrom by remember { mutableStateOf(today.minusDays(6)) }
+    var customTo by remember { mutableStateOf(today) }
+    var query by remember { mutableStateOf("") }
+    var submittedQuery by remember { mutableStateOf("") }
+    var page by remember { mutableIntStateOf(1) }
     var history by remember(session.id) { mutableStateOf<WebReceiptHistory?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
+    var detail by remember { mutableStateOf<WebReceiptHistoryRecord?>(null) }
     var reprintTarget by remember { mutableStateOf<WebReceiptHistoryRecord?>(null) }
     var reprintBusy by remember { mutableStateOf(false) }
     var reprintError by remember { mutableStateOf<String?>(null) }
+    val window = moreDateWindow(mode, anchor, customFrom, customTo)
 
-    LaunchedEffect(client, session.id, refresh) {
+    LaunchedEffect(client, session.id, window.start, window.end, submittedQuery, page, refresh) {
         loading = true
         try {
-            history = client.receiptHistory(session, page = 1, pageSize = 50)
+            history = client.receiptHistory(
+                session = session,
+                query = submittedQuery,
+                from = window.start,
+                to = window.end,
+                page = page,
+                pageSize = 30
+            )
             error = null
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             error = "โหลดใบเสร็จย้อนหลังไม่ได้: " + ((failure as? WebPosApiException)?.code ?: "network_error")
-        } finally { loading = false }
+        } finally {
+            loading = false
+        }
+    }
+
+    fun setMode(value: String) {
+        mode = value
+        page = 1
     }
 
     MoreScaffold("ใบเสร็จย้อนหลัง", session, onBack, onTab) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("รายการชำระสำเร็จย้อนหลัง 30 วัน", color = moreMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                TextButton(onClick = { refresh += 1 }, enabled = !loading && !reprintBusy) { Text("↻ รีเฟรช") }
+            MorePeriodControls(
+                mode = mode,
+                anchor = anchor,
+                customFrom = customFrom,
+                customTo = customTo,
+                onModeChange = { setMode(it) },
+                onAnchorChange = {
+                    anchor = it
+                    page = 1
+                },
+                onCustomRange = { from, to ->
+                    customFrom = from
+                    customTo = to
+                    mode = "custom"
+                    page = 1
+                }
+            )
+        }
+        item {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it.take(80) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("ค้นหาเลขบิล") },
+                trailingIcon = {
+                    TextButton(onClick = {
+                        submittedQuery = query.trim()
+                        page = 1
+                    }) { Text("ค้นหา") }
+                }
+            )
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "ทั้งหมด " + (history?.total ?: 0) + " บิล",
+                    modifier = Modifier.weight(1f),
+                    color = moreMuted,
+                    fontSize = 11.sp
+                )
+                TextButton(onClick = { refresh += 1 }, enabled = !loading && !reprintBusy) {
+                    Text("↻ รีเฟรช")
+                }
             }
         }
-        if (loading) item { LoadingBlock() }
-        else if (error != null) item { ErrorBlock(error.orEmpty()) }
-        else {
-            item { TableHeader(listOf("เลขบิล" to 1.4f, "โหมด" to .85f, "ชำระ" to .85f, "ยอด" to .9f)) }
+        if (loading) {
+            item { LoadingBlock() }
+        } else if (error != null) {
+            item { ErrorBlock(error.orEmpty()) }
+        } else {
             items(history?.records.orEmpty(), key = { it.orderId }) { row ->
                 Surface(
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = !reprintBusy) { detail = row },
                     color = Color.White,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().clickable(enabled = !reprintBusy) {
-                        reprintError = null
-                        reprintTarget = row
-                    }
+                    shape = RoundedCornerShape(17.dp),
+                    shadowElevation = 1.dp
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(row.orderNo, Modifier.weight(1.4f), fontSize = 10.sp, color = moreInk, maxLines = 2)
-                        Text(row.receipt.modeLabel, Modifier.weight(.85f), fontSize = 10.sp, color = moreInk)
-                        Text(if ("bank_transfer" in row.paymentMethods) "โอน/QR" else "เงินสด", Modifier.weight(.85f), fontSize = 10.sp, color = moreInk)
-                        Text("฿" + row.receipt.total.bahtText(), Modifier.weight(.9f), fontSize = 10.sp, color = moreBlue, fontWeight = FontWeight.Bold)
+                    Column(Modifier.fillMaxWidth().padding(13.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                row.orderNo,
+                                modifier = Modifier.weight(1f),
+                                color = moreInk,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 2
+                            )
+                            Text(
+                                "฿" + row.receipt.total.bahtText(),
+                                color = moreBlue,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                        Spacer(Modifier.height(5.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(moreDateTime(row.createdAtMs), color = moreMuted, fontSize = 9.sp)
+                            Text(
+                                row.receipt.modeLabel + " · " +
+                                    if ("bank_transfer" in row.paymentMethods) "โอน/QR" else "เงินสด",
+                                color = moreMuted,
+                                fontSize = 9.sp
+                            )
+                        }
+                        Spacer(Modifier.height(7.dp))
+                        Text("แตะเพื่อดูใบเสร็จและพิมพ์ย้อนหลัง", color = moreBlue, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
-            if (history?.records.isNullOrEmpty()) item { EmptyBlock("ไม่พบใบเสร็จย้อนหลัง") }
-            item { Text("แตะรายการเพื่อพิมพ์ย้อนหลัง · ต้องยืนยัน PIN Owner/Manager ตาม CpIPOS", color = moreMuted, fontSize = 10.sp) }
+            if (history?.records.isNullOrEmpty()) {
+                item { EmptyBlock("ไม่พบใบเสร็จในช่วงวันที่นี้") }
+            }
+            if ((history?.totalPages ?: 1) > 1) {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { page -= 1 },
+                            enabled = page > 1 && !loading
+                        ) { Text("ก่อนหน้า") }
+                        Text(
+                            "หน้า " + page + " / " + (history?.totalPages ?: 1),
+                            color = moreMuted,
+                            fontSize = 10.sp
+                        )
+                        OutlinedButton(
+                            onClick = { page += 1 },
+                            enabled = page < (history?.totalPages ?: 1) && !loading
+                        ) { Text("ถัดไป") }
+                    }
+                }
+            }
         }
+    }
+
+    detail?.let { row ->
+        ReceiptDetailDialog(
+            row = row,
+            onDismiss = { detail = null },
+            onPrint = {
+                detail = null
+                reprintError = null
+                reprintTarget = row
+            }
+        )
     }
 
     reprintTarget?.let { row ->
@@ -724,7 +931,7 @@ private fun MoreReceiptsScreen(
             busy = reprintBusy,
             error = reprintError,
             actionLabel = "ตรวจ PIN และพิมพ์",
-            actionNote = "ใช้เครื่องพิมพ์ใบเสร็จ/พิมพ์ย้อนหลังที่ตั้งไว้ใน CpIPOS",
+            actionNote = "ใช้เครื่องพิมพ์ Receipt/Reprint และสิทธิ์ Owner/Manager ตาม CpIPOS",
             onDismiss = {
                 if (!reprintBusy) {
                     reprintTarget = null
@@ -743,10 +950,13 @@ private fun MoreReceiptsScreen(
                         val api = failure as? WebPosApiException
                         reprintError = when (api?.code) {
                             "pin_rejected", "pin_required" -> "PIN Owner/Manager ไม่ถูกต้อง"
+                            "forbidden_role" -> "บัญชีนี้ไม่มีสิทธิ์พิมพ์ย้อนหลัง"
                             "receipt_printer_not_configured" -> "ยังไม่ได้ตั้งค่าเครื่องพิมพ์ใบเสร็จย้อนหลัง"
                             else -> "พิมพ์ย้อนหลังไม่สำเร็จ: " + (api?.code ?: "printer_or_network_error")
                         }
-                    } finally { reprintBusy = false }
+                    } finally {
+                        reprintBusy = false
+                    }
                 }
             }
         )
