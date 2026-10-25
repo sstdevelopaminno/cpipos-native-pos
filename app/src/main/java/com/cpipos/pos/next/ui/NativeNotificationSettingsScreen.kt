@@ -140,6 +140,13 @@ internal fun NativeNotificationSettingsScreen(
         PackageManager.PERMISSION_GRANTED
     val notificationAllowed = NativeQrNotificationPublisher.notificationsAllowed(context)
     val backgroundListenerReady = notificationAllowed && settings.popupEnabled
+    val androidAudio = context.getSystemService(AudioManager::class.java)
+    val notificationVolumeReady = androidAudio?.getStreamVolume(AudioManager.STREAM_NOTIFICATION)
+        ?.let { it > 0 } ?: true
+    val ringerReady = androidAudio?.ringerMode != AudioManager.RINGER_MODE_SILENT
+    val soundChannelReady = NativeQrNotificationPublisher.soundChannelReady(context)
+    val androidSoundReady = !settings.soundEnabled ||
+        (notificationAllowed && soundChannelReady && notificationVolumeReady && ringerReady)
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Box(Modifier.fillMaxSize()) {
@@ -217,8 +224,18 @@ internal fun NativeNotificationSettingsScreen(
                                 color = notificationInk)
                             PushStateRow("Background Listener", backgroundListenerReady)
                             PushStateRow("สิทธิ์แจ้งเตือน Android", notificationAllowed)
-                            PushStateRow("Firebase ใน APK (เสริม)", firebaseReady)
-                            PushStateRow("ผูก FCM กับสาขานี้ (เสริม)", pushBound)
+                            PushStateRow("เสียง Android", androidSoundReady)
+                            if (firebaseReady) {
+                                PushStateRow("Firebase ใน APK (เสริม)", true)
+                                PushStateRow("ผูก FCM กับสาขานี้ (เสริม)", pushBound)
+                            } else {
+                                Text(
+                                    "FCM เป็นช่องทางเสริมและยังไม่ได้ Provision ในโปรเจกต์นี้ · " +
+                                        "การแจ้งเตือนตอนออกจากแอปใช้ Background Listener ได้โดยไม่พึ่ง FCM",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF71849B)
+                                )
+                            }
 
                             if (!runtimePermissionGranted && Build.VERSION.SDK_INT >= 33) {
                                 Button(
@@ -273,15 +290,35 @@ internal fun NativeNotificationSettingsScreen(
                                 }
                             }
 
+                            if (settings.soundEnabled && notificationAllowed && !androidSoundReady) {
+                                OutlinedButton(
+                                    onClick = {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                            context.startActivity(
+                                                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                                                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                                    putExtra(
+                                                        Settings.EXTRA_CHANNEL_ID,
+                                                        NativeQrNotificationPublisher.CHANNEL_SOUND_ID
+                                                    )
+                                                }
+                                            )
+                                        } else {
+                                            context.startActivity(Intent(Settings.ACTION_SOUND_SETTINGS))
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("เปิดตั้งค่าเสียง Android")
+                                }
+                            }
+
                             Text(
-                                if (firebaseReady)
-                                    "ระบบใช้ FCM เมื่อพร้อม และมี Background Listener เป็น fallback"
-                                else
-                                    "Firebase ยังไม่ถูกตั้งค่า แต่ Background Listener สามารถรับ QR ตอนออกจากแอปได้ " +
-                                        "เมื่อ Android Notification ได้รับอนุญาตและเปิด POP UP จาก QR โต๊ะ",
+                                "สถานะใช้งานจริงต้องเป็น Background Listener + สิทธิ์ Android + เสียง Android พร้อม " +
+                                    "ส่วน FCM เป็นช่องทางเสริมสำหรับ push จาก server",
                                 fontSize = 11.sp,
-                                color = if (backgroundListenerReady) Color(0xFF178A50)
-                                    else Color(0xFFB05A36)
+                                color = if (backgroundListenerReady && androidSoundReady)
+                                    Color(0xFF178A50) else Color(0xFFB05A36)
                             )
                         }
                     }
