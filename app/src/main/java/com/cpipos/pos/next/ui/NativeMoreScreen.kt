@@ -14,10 +14,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cpipos.pos.next.core.print.NativePrintRuntime
 import com.cpipos.pos.next.core.webpos.*
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 private val moreBlue = Color(0xFF176DED)
 private val moreInk = Color(0xFF172B4E)
@@ -250,11 +252,17 @@ private fun MoreReceiptsScreen(
     onBack: () -> Unit,
     onTab: (String) -> Unit
 ) {
+    val scope = rememberCoroutineScope()
     var history by remember(session.id) { mutableStateOf<WebReceiptHistory?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var reprintTarget by remember { mutableStateOf<WebReceiptHistoryRecord?>(null) }
+    var reprintBusy by remember { mutableStateOf(false) }
+    var reprintError by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(client, session.id) {
+    LaunchedEffect(client, session.id, refresh) {
+        loading = true
         try {
             history = client.receiptHistory(session, page = 1, pageSize = 50)
             error = null
@@ -266,23 +274,73 @@ private fun MoreReceiptsScreen(
     }
 
     MoreScaffold("ใบเสร็จย้อนหลัง", session, onBack, onTab) {
-        item { Text("รายการชำระสำเร็จย้อนหลัง 30 วัน", color = moreMuted, fontSize = 11.sp) }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("รายการชำระสำเร็จย้อนหลัง 30 วัน", color = moreMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                TextButton(onClick = { refresh += 1 }, enabled = !loading && !reprintBusy) { Text("↻ รีเฟรช") }
+            }
+        }
         if (loading) item { LoadingBlock() }
         else if (error != null) item { ErrorBlock(error.orEmpty()) }
         else {
             item { TableHeader(listOf("เลขบิล" to 1.4f, "โหมด" to .85f, "ชำระ" to .85f, "ยอด" to .9f)) }
             items(history?.records.orEmpty(), key = { it.orderId }) { row ->
-                TableRow(
-                    listOf(
-                        row.orderNo to 1.4f,
-                        row.receipt.modeLabel to .85f,
-                        (if ("bank_transfer" in row.paymentMethods) "โอน/QR" else "เงินสด") to .85f,
-                        ("฿" + row.receipt.total.bahtText()) to .9f
-                    )
-                )
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = !reprintBusy) {
+                        reprintError = null
+                        reprintTarget = row
+                    }
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(row.orderNo, Modifier.weight(1.4f), fontSize = 10.sp, color = moreInk, maxLines = 2)
+                        Text(row.receipt.modeLabel, Modifier.weight(.85f), fontSize = 10.sp, color = moreInk)
+                        Text(if ("bank_transfer" in row.paymentMethods) "โอน/QR" else "เงินสด", Modifier.weight(.85f), fontSize = 10.sp, color = moreInk)
+                        Text("฿" + row.receipt.total.bahtText(), Modifier.weight(.9f), fontSize = 10.sp, color = moreBlue, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
             if (history?.records.isNullOrEmpty()) item { EmptyBlock("ไม่พบใบเสร็จย้อนหลัง") }
+            item { Text("แตะรายการเพื่อพิมพ์ย้อนหลัง · ต้องยืนยัน PIN Owner/Manager ตาม CpIPOS", color = moreMuted, fontSize = 10.sp) }
         }
+    }
+
+    reprintTarget?.let { row ->
+        NativeCancelBillPinDialog(
+            title = "พิมพ์ใบเสร็จย้อนหลัง " + row.orderNo,
+            busy = reprintBusy,
+            error = reprintError,
+            actionLabel = "ตรวจ PIN และพิมพ์",
+            actionNote = "ใช้เครื่องพิมพ์ใบเสร็จ/พิมพ์ย้อนหลังที่ตั้งไว้ใน CpIPOS",
+            onDismiss = {
+                if (!reprintBusy) {
+                    reprintTarget = null
+                    reprintError = null
+                }
+            },
+            onApprove = { pin ->
+                reprintBusy = true
+                reprintError = null
+                scope.launch {
+                    try {
+                        client.reprintReceipt(session, row.orderId, pin)
+                        NativePrintRuntime.wake()
+                        reprintTarget = null
+                    } catch (failure: Exception) {
+                        val api = failure as? WebPosApiException
+                        reprintError = when (api?.code) {
+                            "pin_rejected", "pin_required" -> "PIN Owner/Manager ไม่ถูกต้อง"
+                            "receipt_printer_not_configured" -> "ยังไม่ได้ตั้งค่าเครื่องพิมพ์ใบเสร็จย้อนหลัง"
+                            else -> "พิมพ์ย้อนหลังไม่สำเร็จ: " + (api?.code ?: "printer_or_network_error")
+                        }
+                    } finally { reprintBusy = false }
+                }
+            }
+        )
     }
 }
 
@@ -345,13 +403,18 @@ private fun MoreMembersScreen(
     onBack: () -> Unit,
     onTab: (String) -> Unit
 ) {
+    val scope = rememberCoroutineScope()
     var rows by remember(session.id) { mutableStateOf<List<WebMemberRow>>(emptyList()) }
     var query by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var editor by remember { mutableStateOf<WebMemberRow?>(null) }
+    var createOpen by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(client, session.id, submitted) {
+    LaunchedEffect(client, session.id, submitted, refresh) {
         loading = true
         try {
             rows = client.members(session, submitted)
@@ -374,23 +437,114 @@ private fun MoreMembersScreen(
                 trailingIcon = { TextButton(onClick = { submitted = query.trim() }) { Text("ค้นหา") } }
             )
         }
+        item {
+            Button(
+                onClick = { createOpen = true; editor = null },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !saving,
+                colors = ButtonDefaults.buttonColors(containerColor = moreBlue)
+            ) { Text("+ เพิ่มสมาชิก", fontWeight = FontWeight.Bold) }
+        }
         if (loading) item { LoadingBlock() }
         else if (error != null) item { ErrorBlock(error.orEmpty()) }
         else {
             item { TableHeader(listOf("สมาชิก" to 1.55f, "เบอร์โทร" to 1.1f, "คะแนน" to .7f, "แต้ม" to .6f)) }
             items(rows, key = { it.id }) { row ->
-                TableRow(
-                    listOf(
-                        row.name to 1.55f,
-                        row.phone.ifBlank { "-" } to 1.1f,
-                        row.points.toString() to .7f,
-                        row.stamps.toString() to .6f
-                    )
-                )
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = !saving) { editor = row; createOpen = false }
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 11.dp)) {
+                        Text(row.name, Modifier.weight(1.55f), fontSize = 10.sp, color = moreInk, maxLines = 2)
+                        Text(row.phone.ifBlank { "-" }, Modifier.weight(1.1f), fontSize = 10.sp, color = moreInk)
+                        Text(row.points.toString(), Modifier.weight(.7f), fontSize = 10.sp, color = moreInk)
+                        Text(row.stamps.toString(), Modifier.weight(.6f), fontSize = 10.sp, color = moreInk)
+                    }
+                }
             }
             if (rows.isEmpty()) item { EmptyBlock("ไม่พบสมาชิก") }
         }
     }
+
+    if (createOpen || editor != null) {
+        MemberEditorDialog(
+            initial = editor,
+            busy = saving,
+            onDismiss = {
+                if (!saving) {
+                    createOpen = false
+                    editor = null
+                }
+            },
+            onSave = { name, phone, email, points, stamps ->
+                saving = true
+                scope.launch {
+                    try {
+                        client.saveMember(session, name, phone, email, points, stamps)
+                        createOpen = false
+                        editor = null
+                        refresh += 1
+                    } catch (failure: Exception) {
+                        error = "บันทึกสมาชิกไม่สำเร็จ: " + ((failure as? WebPosApiException)?.code ?: "network_error")
+                    } finally { saving = false }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun MemberEditorDialog(
+    initial: WebMemberRow?,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String, Int, Int) -> Unit
+) {
+    var name by remember(initial?.id) { mutableStateOf(initial?.name.orEmpty()) }
+    var phone by remember(initial?.id) { mutableStateOf(initial?.phone.orEmpty()) }
+    var email by remember(initial?.id) { mutableStateOf(initial?.email.orEmpty()) }
+    var points by remember(initial?.id) { mutableStateOf((initial?.points ?: 0).toString()) }
+    var stamps by remember(initial?.id) { mutableStateOf((initial?.stamps ?: 0).toString()) }
+    var formError by remember(initial?.id) { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initial == null) "เพิ่มสมาชิก" else "แก้ไขสมาชิก") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(name, { name = it.take(120) }, label = { Text("ชื่อสมาชิก") }, singleLine = true)
+                OutlinedTextField(phone, { phone = it.filter(Char::isDigit).take(10) }, label = { Text("เบอร์โทร") }, singleLine = true)
+                OutlinedTextField(email, { email = it.take(120) }, label = { Text("อีเมล") }, singleLine = true)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(points, { points = it.filter(Char::isDigit).take(8) }, label = { Text("คะแนน") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(stamps, { stamps = it.filter(Char::isDigit).take(8) }, label = { Text("แต้ม") }, modifier = Modifier.weight(1f), singleLine = true)
+                }
+                formError?.let { Text(it, color = Color(0xFFB13F4C), fontSize = 11.sp) }
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !busy,
+                onClick = {
+                    val digits = phone.filter(Char::isDigit)
+                    val p = points.toIntOrNull()
+                    val s = stamps.toIntOrNull()
+                    when {
+                        name.isBlank() -> formError = "กรุณากรอกชื่อสมาชิก"
+                        digits.length !in 9..10 -> formError = "กรุณากรอกเบอร์โทร 9-10 หลัก"
+                        p == null || s == null -> formError = "คะแนน/แต้มไม่ถูกต้อง"
+                        else -> {
+                            formError = null
+                            onSave(name, digits, email, p, s)
+                        }
+                    }
+                }
+            ) { Text("บันทึก") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("ยกเลิก") } }
+    )
 }
 
 @Composable
@@ -400,16 +554,22 @@ private fun MoreTaxInvoiceScreen(
     onBack: () -> Unit,
     onTab: (String) -> Unit
 ) {
+    val scope = rememberCoroutineScope()
     var rows by remember(session.id) { mutableStateOf<List<WebTaxReceiptRow>>(emptyList()) }
+    var profiles by remember(session.id) { mutableStateOf<List<WebTaxProfileRow>>(emptyList()) }
     var query by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var selected by remember { mutableStateOf<WebTaxReceiptRow?>(null) }
+    var printing by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(client, session.id, submitted) {
+    LaunchedEffect(client, session.id, submitted, refresh) {
         loading = true
         try {
             rows = client.taxReceipts(session, submitted)
+            profiles = client.taxProfiles(session)
             error = null
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -434,25 +594,135 @@ private fun MoreTaxInvoiceScreen(
         else {
             item {
                 Text(
-                    "บิลที่ชำระแล้วและสถานะใบกำกับภาษีจากทะเบียนเดียวกับ CpIPOS",
+                    if (profiles.isEmpty())
+                        "ยังไม่มีข้อมูลผู้เสียภาษีของลูกค้าในสาขานี้ · ต้องสร้างข้อมูลผู้เสียภาษีในทะเบียนก่อนออกใบกำกับ"
+                    else "แตะบิลเพื่อเลือกผู้เสียภาษีและยืนยัน PIN Owner/Manager ก่อนออก/พิมพ์",
                     color = moreMuted,
                     fontSize = 10.sp
                 )
             }
             item { TableHeader(listOf("เลขบิล" to 1.5f, "ลูกค้า" to 1.1f, "ยอด" to .9f, "ใบกำกับ" to 1f)) }
             items(rows, key = { it.id }) { row ->
-                TableRow(
-                    listOf(
-                        row.orderNo to 1.5f,
-                        row.customerName.ifBlank { "-" } to 1.1f,
-                        ("฿" + row.total.bahtText()) to .9f,
-                        (row.invoiceNo ?: "ยังไม่ออก") to 1f
-                    )
-                )
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = !printing && profiles.isNotEmpty()) {
+                        selected = row
+                    }
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 11.dp)) {
+                        Text(row.orderNo, Modifier.weight(1.5f), fontSize = 10.sp, color = moreInk, maxLines = 2)
+                        Text(row.customerName.ifBlank { "-" }, Modifier.weight(1.1f), fontSize = 10.sp, color = moreInk, maxLines = 2)
+                        Text("฿" + row.total.bahtText(), Modifier.weight(.9f), fontSize = 10.sp, color = moreBlue)
+                        Text(row.invoiceNo ?: "ยังไม่ออก", Modifier.weight(1f), fontSize = 10.sp, color = moreInk, maxLines = 2)
+                    }
+                }
             }
             if (rows.isEmpty()) item { EmptyBlock("ไม่พบบิลสำหรับออกใบกำกับภาษี") }
         }
     }
+
+    selected?.let { row ->
+        TaxInvoicePrintDialog(
+            receipt = row,
+            profiles = profiles,
+            busy = printing,
+            onDismiss = { if (!printing) selected = null },
+            onPrint = { profileId, pin ->
+                printing = true
+                scope.launch {
+                    try {
+                        client.printTaxInvoice(session, profileId, row.id, pin)
+                        NativePrintRuntime.wake()
+                        selected = null
+                        refresh += 1
+                    } catch (failure: Exception) {
+                        error = "ออก/พิมพ์ใบกำกับภาษีไม่สำเร็จ: " +
+                            ((failure as? WebPosApiException)?.code ?: "printer_or_network_error")
+                    } finally { printing = false }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun TaxInvoicePrintDialog(
+    receipt: WebTaxReceiptRow,
+    profiles: List<WebTaxProfileRow>,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onPrint: (String, String) -> Unit
+) {
+    var profileId by remember(receipt.id) {
+        mutableStateOf(receipt.invoiceProfileId?.takeIf { id -> profiles.any { it.id == id } } ?: profiles.firstOrNull()?.id.orEmpty())
+    }
+    var expanded by remember { mutableStateOf(false) }
+    var pin by remember(receipt.id) { mutableStateOf("") }
+    var formError by remember(receipt.id) { mutableStateOf<String?>(null) }
+    val profile = profiles.firstOrNull { it.id == profileId }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text((if (receipt.invoiceNo == null) "ออกใบกำกับภาษี" else "พิมพ์ใบกำกับภาษี") + " " + receipt.orderNo) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text("ผู้เสียภาษี", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Box {
+                    OutlinedButton(
+                        onClick = { expanded = true },
+                        enabled = !busy && receipt.invoiceProfileId == null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(profile?.displayName ?: "เลือกผู้เสียภาษี")
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        profiles.forEach { row ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(row.displayName)
+                                        Text(row.taxId, fontSize = 10.sp, color = moreMuted)
+                                    }
+                                },
+                                onClick = {
+                                    profileId = row.id
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+                profile?.let {
+                    Text("เลขผู้เสียภาษี " + it.taxId, fontSize = 10.sp, color = moreMuted)
+                }
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it.filter(Char::isDigit).take(12) },
+                    label = { Text("PIN Owner/Manager") },
+                    singleLine = true
+                )
+                formError?.let { Text(it, color = Color(0xFFB13F4C), fontSize = 11.sp) }
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !busy,
+                onClick = {
+                    when {
+                        profileId.isBlank() -> formError = "กรุณาเลือกผู้เสียภาษี"
+                        pin.length < 4 -> formError = "กรุณากรอก PIN อย่างน้อย 4 หลัก"
+                        else -> {
+                            formError = null
+                            onPrint(profileId, pin)
+                        }
+                    }
+                }
+            ) { Text(if (receipt.invoiceNo == null) "ออกและพิมพ์" else "พิมพ์อีกครั้ง") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("ยกเลิก") } }
+    )
 }
 
 @Composable
