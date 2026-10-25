@@ -525,7 +525,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
 
     private suspend fun call(
         method: String, path: String, json: JSONObject? = null, key: String? = null,
-        readTimeoutMs: Int = 15000
+        readTimeoutMs: Int = 15000,
+        headers: Map<String, String> = emptyMap()
     ): JSONObject = withContext(Dispatchers.IO) {
         require(path.startsWith("/") && !path.startsWith("//"))
         val url = URL(base + path)
@@ -537,6 +538,10 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             conn.requestMethod = method
             conn.setRequestProperty("Accept", "application/json")
             conn.setRequestProperty("User-Agent", "CpIPOS-Native-Android/2")
+            headers.forEach { (name, value) ->
+                require(name.matches(Regex("[A-Za-z0-9-]{1,64}")))
+                conn.setRequestProperty(name, value.take(4096))
+            }
             cookieManager.get(url.toURI(), emptyMap()).forEach { (header, values) ->
                 if (header.equals("Cookie", ignoreCase = true)) {
                     conn.setRequestProperty("Cookie", values.joinToString("; "))
@@ -870,6 +875,112 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         check(response.optBoolean("deactivated", false)) {
             "catalog_deactivation_unconfirmed"
         }
+    }
+
+    /** Printer Settings V3 uses the same POS-session auth as CpIPOS Web. */
+    suspend fun printerRegistry(session: WebPosSession): JSONObject {
+        requireSameLiveSession(session)
+        return call("GET", "/api/backoffice/printers/devices")
+    }
+
+    suspend fun createPrinter(session: WebPosSession, payload: JSONObject): JSONObject {
+        requireSameLiveSession(session)
+        return call("POST", "/api/backoffice/printers/devices", payload)
+    }
+
+    suspend fun updatePrinter(session: WebPosSession, payload: JSONObject): JSONObject {
+        requireSameLiveSession(session)
+        return call("PATCH", "/api/backoffice/printers/devices", payload)
+    }
+
+    suspend fun testPrinter(session: WebPosSession, printerId: String): JSONObject {
+        requireSameLiveSession(session)
+        require(UUID.fromString(printerId).toString() == printerId)
+        return call("POST", "/api/backoffice/printers/test",
+            JSONObject().put("printer_id", printerId))
+    }
+
+    suspend fun bootstrapNativePrintAgent(
+        session: WebPosSession, installationId: String
+    ): JSONObject {
+        requireSameLiveSession(session)
+        require(UUID.fromString(installationId).toString() == installationId)
+        return call(
+            method = "POST",
+            path = "/api/android-pos/print-agent/bootstrap",
+            json = JSONObject().put("runtime", "android_native_print_agent_v2"),
+            headers = mapOf(
+                "X-CpIPOS-Android-POS" to "true",
+                "X-CpIPOS-Install-Id" to installationId,
+                "X-CpIPOS-App-Version" to BuildConfig.VERSION_NAME
+            )
+        )
+    }
+
+    suspend fun claimNativePrintJobs(agentKey: String): JSONArray {
+        require(agentKey.startsWith("cpi_pa_") && agentKey.length in 40..160)
+        val data = call(
+            method = "POST",
+            path = "/api/print-agent/v1/jobs/claim",
+            json = JSONObject().put("limit", 3).put("lease_seconds", 60)
+                .put("app_version", BuildConfig.VERSION_NAME),
+            readTimeoutMs = 15000,
+            headers = mapOf("X-Print-Agent-Key" to agentKey)
+        )
+        return data.optJSONArray("jobs") ?: JSONArray()
+    }
+
+    suspend fun heartbeatNativePrintAgent(agentKey: String) {
+        require(agentKey.startsWith("cpi_pa_"))
+        call(
+            method = "POST",
+            path = "/api/print-agent/v1/heartbeat",
+            json = JSONObject().put("app_version", BuildConfig.VERSION_NAME)
+                .put("metadata", JSONObject()
+                    .put("runtime", "android_native_print_agent_v2")
+                    .put("transports", JSONArray(listOf("lan", "usb", "bluetooth")))),
+            headers = mapOf("X-Print-Agent-Key" to agentKey)
+        )
+    }
+
+    suspend fun ackNativePrintJob(
+        agentKey: String, jobId: String, attemptId: String,
+        providerJobId: String, bytesSent: Int, transport: String
+    ) {
+        require(runCatching { UUID.fromString(jobId) }.isSuccess)
+        call(
+            method = "POST",
+            path = "/api/print-agent/v1/jobs/$jobId/ack",
+            json = JSONObject()
+                .put("agent_attempt_id", attemptId)
+                .put("provider_job_id", providerJobId)
+                .put("bytes_sent", bytesSent)
+                .put("metadata", JSONObject()
+                    .put("runtime", "android_native_print_agent_v2")
+                    .put("transport", transport)
+                    .put("app_version", BuildConfig.VERSION_NAME)),
+            headers = mapOf("X-Print-Agent-Key" to agentKey)
+        )
+    }
+
+    suspend fun failNativePrintJob(
+        agentKey: String, jobId: String, attemptId: String,
+        errorCode: String, message: String, retryable: Boolean
+    ) {
+        require(runCatching { UUID.fromString(jobId) }.isSuccess)
+        call(
+            method = "POST",
+            path = "/api/print-agent/v1/jobs/$jobId/fail",
+            json = JSONObject()
+                .put("agent_attempt_id", attemptId)
+                .put("error_code", errorCode.take(120))
+                .put("error_message", message.take(500))
+                .put("retryable", retryable)
+                .put("metadata", JSONObject()
+                    .put("runtime", "android_native_print_agent_v2")
+                    .put("app_version", BuildConfig.VERSION_NAME)),
+            headers = mapOf("X-Print-Agent-Key" to agentKey)
+        )
     }
 
     /** Shared branch policy used by CpIPOS Web and Native notification UI. */
