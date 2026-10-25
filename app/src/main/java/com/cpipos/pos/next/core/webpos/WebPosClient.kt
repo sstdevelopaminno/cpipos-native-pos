@@ -232,17 +232,32 @@ data class WebPosSession(
     val shiftId: String?, val canOpenShift: Boolean, val canSell: Boolean,
     val canManageTables: Boolean = false
 )
+data class WebCatalogBranch(
+    val id: String,
+    val name: String,
+    val code: String = "",
+    val role: String = ""
+)
 data class WebCatalogRow(
     val id: String, val name: String, val sku: String = "",
     val category: String = "", val price: Satang = Satang.ZERO,
     val stock: Double? = null, val sold30d: Int? = null,
     val baseUnit: String = "", val reorderLevel: Double = 0.0,
+    val avgUnitCost: Double = 0.0, val lastPurchaseUnitCost: Double = 0.0,
     val mode: String = "unit_only", val active: Boolean = true,
+    val recommended: Boolean = false,
     val updatedAt: String = ""
 )
 data class WebCatalogPage(
     val items: List<WebCatalogRow>, val page: Int, val totalPages: Int,
-    val total: Int, val editable: Boolean, val branchName: String
+    val total: Int, val editable: Boolean, val branchId: String,
+    val branchName: String, val categories: List<String> = emptyList(),
+    val branches: List<WebCatalogBranch> = emptyList()
+)
+data class WebCatalogRecipeDraft(
+    val ingredientId: String,
+    val quantity: Double,
+    val unit: String
 )
 
 data class WebCreatedOrder(
@@ -786,23 +801,57 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
 
-    /** Same authenticated tenant/branch-scoped floor state as tablet POS. */
-    /** POS cookie-only catalog bridge; never uses Backoffice JWT or service-role credentials. */
+    /** POS-cookie catalog bridge backed by the same CpIPOS products/ingredients tables. */
+    suspend fun catalogBranches(session: WebPosSession): List<WebCatalogBranch> {
+        requireSameLiveSession(session)
+        val result = call("GET", "/api/pos/catalog-management?view=branches")
+        val rows = result.optJSONArray("branches") ?: JSONArray()
+        return (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            WebCatalogBranch(
+                id = id,
+                name = row.optString("name").ifBlank { id },
+                code = row.optString("code"),
+                role = row.optString("role")
+            )
+        }
+    }
+
     suspend fun catalogManagement(
-        session: WebPosSession, ingredients: Boolean,
-        page: Int = 1, search: String = "", category: String = ""
+        session: WebPosSession,
+        branchId: String,
+        ingredients: Boolean,
+        page: Int = 1,
+        pageSize: Int = 20,
+        search: String = "",
+        category: String = ""
     ): WebCatalogPage {
         requireSameLiveSession(session)
-        require(page >= 1 && search.length <= 60)
+        require(page >= 1 && pageSize in 1..50 && search.length <= 60)
+        require(runCatching { UUID.fromString(branchId) }.isSuccess)
         val view = if (ingredients) "ingredients" else "products"
-        val path = "/api/pos/catalog-management?view=$view&page=$page&page_size=20" +
-            "&branch_id=" + queryValue(session.branchId) +
+        val path = "/api/pos/catalog-management?view=$view&page=$page&page_size=$pageSize" +
+            "&branch_id=" + queryValue(branchId) +
             "&search=" + queryValue(search.trim()) +
             "&category=" + queryValue(if (ingredients) "" else category)
         val result = call("GET", path)
-        check(result.optString("branch_id") == session.branchId) {
-            "catalog_branch_scope_mismatch"
+        check(result.optString("branch_id") == branchId) { "catalog_branch_scope_mismatch" }
+
+        fun parseBranches(): List<WebCatalogBranch> {
+            val rows = result.optJSONArray("branches") ?: JSONArray()
+            return (0 until rows.length()).mapNotNull { index ->
+                val row = rows.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                WebCatalogBranch(
+                    id = id,
+                    name = row.optString("name").ifBlank { id },
+                    code = row.optString("code"),
+                    role = row.optString("role")
+                )
+            }
         }
+
         val rows = result.optJSONArray("items") ?: JSONArray()
         val items = (0 until rows.length()).map { index ->
             val item = rows.getJSONObject(index)
@@ -821,55 +870,168 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                     ?.toString()?.toIntOrNull(),
                 baseUnit = item.optString("base_unit"),
                 reorderLevel = item.optDouble("reorder_level", 0.0),
+                avgUnitCost = item.optDouble("avg_unit_cost", 0.0),
+                lastPurchaseUnitCost = item.optDouble("last_purchase_unit_cost", 0.0),
                 mode = item.optString("stock_deduction_mode", "unit_only"),
                 active = item.optBoolean("is_active", true),
+                recommended = item.optBoolean("is_recommended", false),
                 updatedAt = item.optString("updated_at")
             )
         }
+        val categoriesArray = result.optJSONArray("categories") ?: JSONArray()
+        val categories = (0 until categoriesArray.length())
+            .mapNotNull { categoriesArray.optString(it).takeIf(String::isNotBlank) }
         val pagination = result.optJSONObject("pagination")
         return WebCatalogPage(
-            items = items, page = pagination?.optInt("page", page) ?: page,
+            items = items,
+            page = pagination?.optInt("page", page) ?: page,
             totalPages = pagination?.optInt("total_pages", 1) ?: 1,
             total = pagination?.optInt("total", items.size) ?: items.size,
             editable = result.optBoolean("can_edit", false),
-            branchName = result.optString("branch_name").ifBlank { session.branchName }
+            branchId = result.optString("branch_id").ifBlank { branchId },
+            branchName = result.optString("branch_name").ifBlank {
+                if (branchId == session.branchId) session.branchName else branchId
+            },
+            categories = categories,
+            branches = parseBranches()
         )
     }
 
-    /** Product stock is NEVER directly overwritten from a mobile edit dialog. */
-    suspend fun saveCatalogRow(
-        session: WebPosSession, ingredient: Boolean, item: WebCatalogRow?,
-        name: String, skuOrUnit: String, category: String, priceText: String
+    suspend fun catalogIngredientsForRecipe(
+        session: WebPosSession,
+        branchId: String
+    ): List<WebCatalogRow> {
+        val first = catalogManagement(session, branchId, ingredients = true, page = 1, pageSize = 50)
+        if (first.totalPages <= 1) return first.items
+        val all = first.items.toMutableList()
+        for (page in 2..minOf(first.totalPages, 20)) {
+            all += catalogManagement(session, branchId, ingredients = true, page = page, pageSize = 50).items
+        }
+        return all.distinctBy { it.id }
+    }
+
+    suspend fun createCatalogProduct(
+        session: WebPosSession,
+        branchId: String,
+        name: String,
+        category: String,
+        stockQuantity: Double,
+        storePriceText: String,
+        deliveryPriceText: String,
+        recommended: Boolean,
+        useIngredientRecipe: Boolean,
+        ingredientLines: List<WebCatalogRecipeDraft>
     ) {
         requireSameLiveSession(session)
-        require(name.isNotBlank() && skuOrUnit.isNotBlank())
-        val payload = JSONObject().put("action", if (ingredient) "save_ingredient" else "save_product")
-            .put("branch_id", session.branchId)
+        require(runCatching { UUID.fromString(branchId) }.isSuccess)
+        require(name.isNotBlank() && category.isNotBlank())
+        require(stockQuantity >= 0.0)
+        val storePrice = Satang.fromBaht(storePriceText)
+        val deliveryPrice = Satang.fromBaht(deliveryPriceText)
+        require(storePrice >= Satang.ZERO && deliveryPrice >= Satang.ZERO)
+        if (useIngredientRecipe) require(ingredientLines.isNotEmpty())
+
+        val recipe = JSONArray()
+        ingredientLines.forEach { line ->
+            require(runCatching { UUID.fromString(line.ingredientId) }.isSuccess)
+            require(line.quantity > 0.0)
+            recipe.put(
+                JSONObject()
+                    .put("ingredient_id", line.ingredientId)
+                    .put("quantity", line.quantity)
+                    .put("quantity_unit", line.unit)
+            )
+        }
+        val payload = JSONObject()
+            .put("action", "create_product_with_stock_setup")
+            .put("branch_id", branchId)
             .put("name", name.trim())
-        if (ingredient) payload.put("base_unit", skuOrUnit.trim())
-        else {
+            .put("category", category.trim())
+            .put("stock_quantity", stockQuantity)
+            .put("store_price", BigDecimal(storePrice.bahtText()))
+            .put("delivery_price", BigDecimal(deliveryPrice.bahtText()))
+            .put("is_recommended", recommended)
+            .put("use_ingredient_recipe", useIngredientRecipe)
+            .put("ingredient_lines", recipe)
+        call("POST", "/api/pos/catalog-management", payload)
+    }
+
+    suspend fun restockCatalogIngredient(
+        session: WebPosSession,
+        branchId: String,
+        ingredientId: String?,
+        ingredientName: String,
+        purchaseQuantity: Double,
+        purchaseUnit: String,
+        weightPerBagGrams: Double?,
+        receivedTotalCostText: String,
+        reason: String
+    ) {
+        requireSameLiveSession(session)
+        require(runCatching { UUID.fromString(branchId) }.isSuccess)
+        require(ingredientName.isNotBlank() && purchaseQuantity > 0.0)
+        val totalCost = receivedTotalCostText.trim().ifBlank { "0" }.toBigDecimal()
+        require(totalCost >= BigDecimal.ZERO)
+        val payload = JSONObject()
+            .put("action", "add_ingredient_stock")
+            .put("branch_id", branchId)
+            .put("ingredient_name", ingredientName.trim())
+            .put("purchase_quantity", purchaseQuantity)
+            .put("purchase_unit", purchaseUnit)
+            .put("received_total_cost", totalCost)
+            .put("reason", reason.trim().ifBlank { "เติมสต๊อกจากการรับเข้า" })
+        ingredientId?.takeIf { it.isNotBlank() }?.let { payload.put("ingredient_id", it) }
+        weightPerBagGrams?.takeIf { it > 0.0 }?.let { payload.put("weight_per_bag_in_grams", it) }
+        call("POST", "/api/pos/catalog-management", payload)
+    }
+
+    suspend fun saveCatalogRow(
+        session: WebPosSession,
+        branchId: String,
+        ingredient: Boolean,
+        item: WebCatalogRow,
+        name: String,
+        skuOrUnit: String,
+        category: String,
+        priceText: String,
+        recommended: Boolean = item.recommended
+    ) {
+        requireSameLiveSession(session)
+        require(runCatching { UUID.fromString(branchId) }.isSuccess)
+        require(name.isNotBlank() && skuOrUnit.isNotBlank())
+        val payload = JSONObject()
+            .put("action", if (ingredient) "save_ingredient" else "save_product")
+            .put("branch_id", branchId)
+            .put("id", item.id)
+            .put("updated_at", item.updatedAt)
+            .put("name", name.trim())
+        if (ingredient) {
+            payload.put("base_unit", skuOrUnit.trim())
+        } else {
             require(category.isNotBlank())
             val price = Satang.fromBaht(priceText)
-            require(price > Satang.ZERO)
-            payload.put("sku", skuOrUnit.trim()).put("category", category.trim())
+            require(price >= Satang.ZERO)
+            payload.put("sku", skuOrUnit.trim())
+                .put("category", category.trim())
                 .put("price", BigDecimal(price.bahtText()))
-        }
-        item?.let {
-            payload.put("id", it.id).put("updated_at", it.updatedAt)
+                .put("is_recommended", recommended)
         }
         call("POST", "/api/pos/catalog-management", payload)
     }
 
-    /** PIN verification is performed by the canonical CpIPOS approval service. */
     suspend fun approveCatalogProductDeactivate(
-        session: WebPosSession, productId: String, pin: String
+        session: WebPosSession,
+        branchId: String,
+        productId: String,
+        pin: String
     ): String {
         requireSameLiveSession(session)
+        require(runCatching { UUID.fromString(branchId) }.isSuccess)
         require(UUID.fromString(productId).toString() == productId)
         require(pin.length in 4..12 && pin.all(Char::isDigit))
         val data = call("POST", "/api/backoffice/approvals/pin", JSONObject()
             .put("tenant_id", session.tenantId)
-            .put("branch_id", session.branchId)
+            .put("branch_id", branchId)
             .put("action", "product_deactivate")
             .put("target_table", "products")
             .put("target_id", productId)
@@ -881,16 +1043,18 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         return approvalId
     }
 
-    /** Product removal is an audited soft-deactivation, never a permanent delete. */
     suspend fun deactivateCatalogProduct(
-        session: WebPosSession, item: WebCatalogRow, approvalId: String
+        session: WebPosSession,
+        branchId: String,
+        item: WebCatalogRow,
+        approvalId: String
     ) {
         requireSameLiveSession(session)
         require(item.active)
         require(UUID.fromString(approvalId).toString() == approvalId)
         val response = call("POST", "/api/pos/catalog-management", JSONObject()
             .put("action", "deactivate_product")
-            .put("branch_id", session.branchId)
+            .put("branch_id", branchId)
             .put("id", item.id)
             .put("approval_id", approvalId))
         check(response.optBoolean("deactivated", false)) {
