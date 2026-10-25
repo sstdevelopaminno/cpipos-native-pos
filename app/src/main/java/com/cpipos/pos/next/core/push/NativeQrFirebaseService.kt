@@ -22,6 +22,10 @@ class NativeQrFirebaseService : FirebaseMessagingService() {
         if (data["type"] != "native_qr_event") return
         if ((application as? NativePosApplication)?.isForeground == true) return
 
+        val tenantId = data["tenant_id"] ?: return
+        val branchId = data["branch_id"] ?: return
+        if (!NativeFcmRegistration.sameBoundBranch(this, tenantId, branchId)) return
+
         val soundEnabled = data["sound_enabled"]?.let {
             when (it.lowercase()) {
                 "true" -> true
@@ -33,8 +37,8 @@ class NativeQrFirebaseService : FirebaseMessagingService() {
             context = this,
             eventId = data["event_id"] ?: return,
             tableId = data["table_id"] ?: return,
-            tenantId = data["tenant_id"] ?: return,
-            branchId = data["branch_id"] ?: return,
+            tenantId = tenantId,
+            branchId = branchId,
             eventType = data["event_type"] ?: return,
             tableCode = data["table_code"].orEmpty(),
             soundEnabledOverride = soundEnabled
