@@ -30,6 +30,7 @@ import com.cpipos.pos.next.core.webpos.DiningMutationJournal
 import com.cpipos.pos.next.core.webpos.*
 import com.cpipos.pos.next.core.offline.DemoSaleReceipt
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
+import com.cpipos.pos.next.core.print.NativePrintRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -397,6 +398,7 @@ internal fun NativeDiningOrderScreen(
                 mutationJournal.confirmed(session, table.id, requestId)
                 bill = verification
                 paidReceipt = paid.receipt
+                NativePrintRuntime.wake()
                 feedback = "success"
                 delay(650L)
                 draft.paymentRequestId = null
