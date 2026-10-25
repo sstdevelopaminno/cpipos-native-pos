@@ -50,6 +50,15 @@ internal fun NativeSettingsHubScreen(
             )
             return
         }
+        "payments" -> {
+            NativePaymentSettingsScreen(
+                client = client,
+                session = session,
+                onBack = { page = "hub" },
+                onTab = ::routeBottom
+            )
+            return
+        }
         "printer" -> {
             NativePrinterSettingsScreen(
                 client = client,
@@ -91,6 +100,12 @@ internal fun NativeSettingsHubScreen(
                     title = "ตั้งค่าการแจ้งเตือน",
                     subtitle = "POP UP, เสียง, ระดับเสียง และสถานะ Android Notification",
                     onClick = { page = "notifications" }
+                )
+                SettingsHubCard(
+                    icon = "💳",
+                    title = "ตั้งค่าชำระเงิน",
+                    subtitle = "บัญชีรับโอน PromptPay และ QR · ใช้ร่วมกับ CpIPOS และหน้าชำระเงิน",
+                    onClick = { page = "payments" }
                 )
                 SettingsHubCard(
                     icon = "🖨️",
