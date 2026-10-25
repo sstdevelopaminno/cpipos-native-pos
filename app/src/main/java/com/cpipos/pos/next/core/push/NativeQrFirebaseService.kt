@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import com.cpipos.pos.next.MainActivity
 import com.cpipos.pos.next.NativePosApplication
 import com.cpipos.pos.next.R
+import com.cpipos.pos.next.core.webpos.NativeQrNotificationPreferences
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import java.util.UUID
@@ -24,11 +25,19 @@ import java.util.UUID
 /** Receives DATA-only FCM while Android permits the app to run in background. */
 class NativeQrFirebaseService : FirebaseMessagingService() {
     companion object {
-        private const val CHANNEL_ID = "cpipos_qr_operations_v1"
+        private const val CHANNEL_SOUND_ID = "cpipos_qr_operations_sound_v2"
+        private const val CHANNEL_SILENT_ID = "cpipos_qr_operations_silent_v2"
+
+        /**
+         * Android 8+ channel sound cannot be changed after creation. Keep separate
+         * sound/silent channels so the CpIPOS branch sound switch is respected.
+         */
         fun ensureChannel(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    CHANNEL_ID, "CpIPOS • แจ้งเตือน QR โต๊ะ",
+                val manager =
+                    context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val sound = NotificationChannel(
+                    CHANNEL_SOUND_ID, "CpIPOS • QR โต๊ะ (มีเสียง)",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
                     description = "แจ้งอาหารใหม่ เรียกพนักงาน และเรียกชำระเงินจากโต๊ะ"
@@ -39,8 +48,16 @@ class NativeQrFirebaseService : FirebaseMessagingService() {
                             .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION).build()
                     )
                 }
-                (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                    .createNotificationChannel(channel)
+                val silent = NotificationChannel(
+                    CHANNEL_SILENT_ID, "CpIPOS • QR โต๊ะ (เงียบ)",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "แจ้งเตือน QR โต๊ะโดยไม่เล่นเสียง"
+                    enableVibration(true)
+                    setSound(null, null)
+                }
+                manager.createNotificationChannel(sound)
+                manager.createNotificationChannel(silent)
             }
         }
     }
@@ -66,6 +83,10 @@ class NativeQrFirebaseService : FirebaseMessagingService() {
             runCatching { UUID.fromString(tenantId) }.isFailure ||
             runCatching { UUID.fromString(branchId) }.isFailure) return
         if (!NativeFcmRegistration.sameBoundBranch(this, tenantId, branchId)) return
+        val policy = NativeQrNotificationPreferences(this).read(tenantId, branchId)
+        // Match the existing CpIPOS behavior: the popup switch suppresses food-order
+        // alerts; service calls remain operational alerts. Sound applies to all kinds.
+        if (eventType == "order" && !policy.popupEnabled) return
         // The in-app global alert already handles active foreground work.
         if ((application as? NativePosApplication)?.isForeground == true) return
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -95,7 +116,8 @@ class NativeQrFirebaseService : FirebaseMessagingService() {
             this, eventId.hashCode(), launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val channelId = if (policy.soundEnabled) CHANNEL_SOUND_ID else CHANNEL_SILENT_ID
+        val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_stat_qr_notification)
             .setContentTitle(title)
             .setContentText(body)
@@ -104,8 +126,11 @@ class NativeQrFirebaseService : FirebaseMessagingService() {
             .setContentIntent(pi)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .build()
-        NotificationManagerCompat.from(this).notify(eventId.hashCode(), notification)
+        if (policy.soundEnabled) {
+            builder.setDefaults(NotificationCompat.DEFAULT_ALL)
+        } else {
+            builder.setSilent(true).setDefaults(NotificationCompat.DEFAULT_VIBRATE)
+        }
+        NotificationManagerCompat.from(this).notify(eventId.hashCode(), builder.build())
     }
 }
