@@ -24,6 +24,18 @@ function Resolve-FirebaseConfig {
         (Join-Path $env:USERPROFILE "Desktop\google-services.json")
     )
 
+    foreach ($folder in @(
+        (Join-Path $env:USERPROFILE "Downloads"),
+        (Join-Path $env:USERPROFILE "Desktop")
+    )) {
+        if (Test-Path $folder) {
+            $latest = Get-ChildItem -Path $folder -Filter "google-services*.json" -File -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 3
+            foreach ($file in $latest) { $candidates += $file.FullName }
+        }
+    }
+
     foreach ($candidate in $candidates) {
         if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
         try {
