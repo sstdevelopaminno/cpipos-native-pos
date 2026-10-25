@@ -1126,8 +1126,9 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
      */
     suspend fun settleDiningBill(
         session: WebPosSession, tableId: String, expected: WebDiningBill,
-        method: String, cashReceived: Satang, requestId: String
-    ) {
+        method: String, cashReceived: Satang, requestId: String,
+        tableLabel: String = ""
+    ): WebPaidBill {
         require(method == "cash" || method == "bank_transfer")
         require(UUID.fromString(requestId).toString() == requestId)
         requireSameLiveSession(session)
@@ -1165,6 +1166,38 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         if (result.optBoolean("table_cleanup_ok", true) != true) {
             throw WebPosApiException("table_payment_cleanup_needs_review", 503)
         }
+        val receiptLines = expected.lines.map { line ->
+            DemoReceiptLine(
+                productId = line.productId,
+                name = line.name,
+                quantity = line.quantity,
+                unitPrice = line.unitPrice
+            )
+        }
+        val subtotal = Satang.of(receiptLines.sumOf { it.amount.value })
+        val received = if (method == "cash") cashReceived else expected.total
+        return WebPaidBill(
+            orderId = orderId,
+            receipt = DemoSaleReceipt(
+                id = orderId,
+                billNo = expected.orderNo?.takeIf { it.isNotBlank() } ?: orderId,
+                createdAtMs = System.currentTimeMillis(),
+                branchName = session.branchName,
+                counterCode = session.deviceCode,
+                modeLabel = if (tableLabel.isBlank()) "นั่งโต๊ะ" else "นั่งโต๊ะ · โต๊ะ $tableLabel",
+                lines = receiptLines,
+                total = expected.total,
+                received = received,
+                change = (received - expected.total).takeIf { it >= Satang.ZERO } ?: Satang.ZERO,
+                isDemo = false,
+                storeName = session.storeName,
+                cashierName = session.cashierName,
+                shiftLabel = "open",
+                paymentMethod = method,
+                discount = expected.discount,
+                subtotal = subtotal
+            )
+        )
     }
 
 
