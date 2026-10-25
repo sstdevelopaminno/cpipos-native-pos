@@ -84,6 +84,13 @@ class NativeQrFirebaseService : FirebaseMessagingService() {
             runCatching { UUID.fromString(branchId) }.isFailure) return
         if (!NativeFcmRegistration.sameBoundBranch(this, tenantId, branchId)) return
         val policy = NativeQrNotificationPreferences(this).read(tenantId, branchId)
+        val soundEnabled = d["sound_enabled"]?.let {
+            when (it.lowercase()) {
+                "true" -> true
+                "false" -> false
+                else -> null
+            }
+        } ?: policy.soundEnabled
         // Match the existing CpIPOS behavior: the popup switch suppresses food-order
         // alerts; service calls remain operational alerts. Sound applies to all kinds.
         if (eventType == "order" && !policy.popupEnabled) return
@@ -116,7 +123,7 @@ class NativeQrFirebaseService : FirebaseMessagingService() {
             this, eventId.hashCode(), launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val channelId = if (policy.soundEnabled) CHANNEL_SOUND_ID else CHANNEL_SILENT_ID
+        val channelId = if (soundEnabled) CHANNEL_SOUND_ID else CHANNEL_SILENT_ID
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_stat_qr_notification)
             .setContentTitle(title)
@@ -126,7 +133,7 @@ class NativeQrFirebaseService : FirebaseMessagingService() {
             .setContentIntent(pi)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-        if (policy.soundEnabled) {
+        if (soundEnabled) {
             builder.setDefaults(NotificationCompat.DEFAULT_ALL)
         } else {
             builder.setSilent(true).setDefaults(NotificationCompat.DEFAULT_VIBRATE)
