@@ -617,6 +617,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 client = client,
                 session = verified,
                 onBack = { step = "mode" },
+                onSelectMode = { step = "mode" },
                 onMainMenu = { tab -> navigateTab(tab) },
                 onEnterTable = { table ->
                     selectedDiningTable = table
@@ -640,7 +641,6 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     products = catalog,
                     draft = draft,
                     onTables = { step = "dine" },
-                    onMode = { step = "mode" },
                     onMainMenu = { tab -> navigateTab(tab) }
                 )
             }
