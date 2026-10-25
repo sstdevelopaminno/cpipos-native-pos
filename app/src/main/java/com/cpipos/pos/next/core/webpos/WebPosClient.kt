@@ -283,6 +283,46 @@ data class WebCatalogRecipeDraft(
     val quantity: Double,
     val unit: String
 )
+data class WebSalesSummarySnapshot(
+    val currencyCode: String,
+    val grossSales: Satang,
+    val netSales: Satang,
+    val receiptCount: Int,
+    val cashTotal: Satang,
+    val transferTotal: Satang,
+    val discountTotal: Satang,
+    val taxTotal: Satang,
+    val cancelledTotal: Satang,
+    val averageReceipt: Satang,
+    val bestSelling: List<WebBestSellingProduct>
+)
+data class WebBestSellingProduct(
+    val productId: String,
+    val productName: String,
+    val category: String,
+    val quantitySold: Double,
+    val grossAmount: Satang,
+    val netAmount: Satang
+)
+data class WebMemberRow(
+    val id: String,
+    val name: String,
+    val phone: String,
+    val email: String,
+    val points: Int,
+    val stamps: Int,
+    val updatedAt: String
+)
+data class WebTaxReceiptRow(
+    val id: String,
+    val orderNo: String,
+    val customerName: String,
+    val total: Satang,
+    val taxTotal: Satang,
+    val createdAt: String,
+    val invoiceNo: String?,
+    val issuedAt: String?
+)
 
 data class WebCreatedOrder(
     val id: String,
@@ -833,6 +873,96 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         }
     }
 
+
+    suspend fun salesSummary(
+        session: WebPosSession,
+        dateFrom: LocalDate = LocalDate.now(ZoneId.of("Asia/Bangkok")).minusDays(29),
+        dateTo: LocalDate = LocalDate.now(ZoneId.of("Asia/Bangkok"))
+    ): WebSalesSummarySnapshot {
+        requireSameLiveSession(session)
+        require(!dateTo.isBefore(dateFrom))
+        val data = call(
+            "GET",
+            "/api/pos/sales-summary?dateFrom=" + queryValue(dateFrom.toString()) +
+                "&dateTo=" + queryValue(dateTo.toString()) +
+                "&branchId=" + queryValue(session.branchId) +
+                "&paymentMethod=all&status=all"
+        )
+        val summary = data.optJSONObject("summary") ?: JSONObject()
+        val bestRows = data.optJSONArray("bestSellingProducts") ?: JSONArray()
+        fun money(key: String): Satang = Satang.fromBaht(summary.opt(key)?.toString() ?: "0")
+        return WebSalesSummarySnapshot(
+            currencyCode = data.optString("currencyCode").ifBlank { "THB" },
+            grossSales = money("grossSales"),
+            netSales = money("netSales"),
+            receiptCount = summary.optInt("receiptCount", 0),
+            cashTotal = money("cashTotal"),
+            transferTotal = money("qrTransferTotal"),
+            discountTotal = money("discountTotal"),
+            taxTotal = money("taxTotal"),
+            cancelledTotal = money("cancelledTotal"),
+            averageReceipt = money("averageReceiptValue"),
+            bestSelling = (0 until bestRows.length()).mapNotNull { index ->
+                val row = bestRows.optJSONObject(index) ?: return@mapNotNull null
+                WebBestSellingProduct(
+                    productId = row.optString("productId"),
+                    productName = row.optString("productName").ifBlank { "-" },
+                    category = row.optString("category").ifBlank { "-" },
+                    quantitySold = row.optDouble("quantitySold", 0.0),
+                    grossAmount = Satang.fromBaht(row.opt("grossAmount")?.toString() ?: "0"),
+                    netAmount = Satang.fromBaht(row.opt("netAmount")?.toString() ?: "0")
+                )
+            }
+        )
+    }
+
+    suspend fun members(session: WebPosSession, query: String = ""): List<WebMemberRow> {
+        requireSameLiveSession(session)
+        require(query.length <= 80)
+        val data = call(
+            "GET",
+            "/api/pos/members?q=" + queryValue(query.trim())
+        )
+        val rows = data.optJSONArray("members") ?: JSONArray()
+        return (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            WebMemberRow(
+                id = id,
+                name = row.optString("name").ifBlank { "-" },
+                phone = row.optString("phone"),
+                email = row.optString("email"),
+                points = row.optInt("points_balance", row.optInt("points", 0)),
+                stamps = row.optInt("stamp_balance", row.optInt("stamps", 0)),
+                updatedAt = row.optString("updated_at")
+            )
+        }
+    }
+
+    suspend fun taxReceipts(session: WebPosSession, query: String = ""): List<WebTaxReceiptRow> {
+        requireSameLiveSession(session)
+        require(query.length <= 80)
+        val data = call(
+            "GET",
+            "/api/pos/tax-invoices?mode=receipts&q=" + queryValue(query.trim())
+        )
+        val rows = data.optJSONArray("records") ?: JSONArray()
+        return (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val invoice = row.optJSONObject("invoice")
+            WebTaxReceiptRow(
+                id = id,
+                orderNo = row.optString("order_no").ifBlank { id },
+                customerName = row.optString("customer_name"),
+                total = Satang.fromBaht(row.opt("total")?.toString() ?: "0"),
+                taxTotal = Satang.fromBaht(row.opt("tax_total")?.toString() ?: "0"),
+                createdAt = row.optString("created_at"),
+                invoiceNo = invoice?.optString("invoice_no")?.takeIf { it.isNotBlank() },
+                issuedAt = invoice?.optString("issued_at")?.takeIf { it.isNotBlank() }
+            )
+        }
+    }
 
     /** POS-cookie catalog bridge backed by the same CpIPOS products/ingredients tables. */
     suspend fun catalogBranches(session: WebPosSession): List<WebCatalogBranch> {
