@@ -199,6 +199,30 @@ data class WebPaymentAccount(
     val qrImageUrl: String,
     val qrMode: String
 )
+data class WebPaymentSettingsBranch(
+    val id: String,
+    val name: String,
+    val code: String = "",
+    val active: Boolean = true
+)
+data class WebPaymentSettingsAccount(
+    val id: String = "",
+    val branchId: String,
+    val bankName: String,
+    val accountName: String,
+    val accountNumber: String,
+    val promptPayPhone: String,
+    val qrImageUrl: String,
+    val qrMode: String,
+    val appliesToAllBranches: Boolean,
+    val active: Boolean
+)
+data class WebPaymentSettingsSnapshot(
+    val accounts: List<WebPaymentSettingsAccount>,
+    val branches: List<WebPaymentSettingsBranch>,
+    val canManage: Boolean,
+    val ready: Boolean
+)
 data class WebPosProduct(
     val id: String,
     val name: String,
@@ -1202,6 +1226,110 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 .put("contact_phone", contactPhone.trim())
         )
         return parseStoreSettings(data)
+    }
+
+    /** Same payment-account settings used by CpIPOS Web. */
+    suspend fun paymentSettings(session: WebPosSession): WebPaymentSettingsSnapshot {
+        requireSameLiveSession(session)
+        val data = call("GET", "/api/pos/settings/payment-accounts")
+        val accountRows = data.optJSONArray("payment_accounts") ?: JSONArray()
+        val branchRows = data.optJSONArray("branches") ?: JSONArray()
+        val metadata = data.optJSONObject("metadata")
+        return WebPaymentSettingsSnapshot(
+            accounts = (0 until accountRows.length()).mapNotNull { index ->
+                val row = accountRows.optJSONObject(index) ?: return@mapNotNull null
+                val branchId = row.optString("branch_id").takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                WebPaymentSettingsAccount(
+                    id = row.optString("id"),
+                    branchId = branchId,
+                    bankName = row.optString("bank_name"),
+                    accountName = row.optString("account_name"),
+                    accountNumber = row.optString("account_number"),
+                    promptPayPhone = row.optString("promptpay_phone"),
+                    qrImageUrl = row.optString("qr_image_url"),
+                    qrMode = row.optString("qr_mode").ifBlank { "promptpay_link" },
+                    appliesToAllBranches = row.optBoolean("applies_to_all_branches", false),
+                    active = row.optBoolean("is_active", true)
+                )
+            },
+            branches = (0 until branchRows.length()).mapNotNull { index ->
+                val row = branchRows.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                WebPaymentSettingsBranch(
+                    id = id,
+                    name = row.optString("name").ifBlank { id },
+                    code = row.optString("code"),
+                    active = row.optBoolean("is_active", true)
+                )
+            },
+            canManage = metadata?.optBoolean("can_manage", false) ?: false,
+            ready = metadata?.optBoolean("payment_accounts_ready", false) ?: false
+        )
+    }
+
+    suspend fun savePaymentSettingsAccount(
+        session: WebPosSession,
+        account: WebPaymentSettingsAccount
+    ): WebPaymentSettingsAccount {
+        requireSameLiveSession(session)
+        require(runCatching { UUID.fromString(account.branchId) }.isSuccess)
+        require(account.bankName.trim().isNotBlank())
+        require(account.accountName.trim().isNotBlank())
+        require(account.qrMode in setOf("promptpay_link", "qr_image"))
+        if (account.qrMode == "promptpay_link") {
+            require(account.promptPayPhone.filter(Char::isDigit).length in 9..15)
+        } else {
+            require(account.qrImageUrl.startsWith("data:image/") ||
+                account.qrImageUrl.startsWith("https://"))
+            require(account.qrImageUrl.length <= 350_000)
+        }
+        val payload = JSONObject()
+            .put("branch_id", account.branchId)
+            .put("bank_name", account.bankName.trim())
+            .put("account_name", account.accountName.trim())
+            .put("account_number", account.accountNumber.trim())
+            .put("promptpay_phone", account.promptPayPhone.filter(Char::isDigit))
+            .put("qr_image_url", account.qrImageUrl.trim())
+            .put("qr_mode", account.qrMode)
+            .put("applies_to_all_branches", account.appliesToAllBranches)
+            .put("is_active", account.active)
+        if (account.id.isNotBlank()) payload.put("id", account.id)
+        val data = call(
+            if (account.id.isBlank()) "POST" else "PATCH",
+            "/api/pos/settings/payment-accounts",
+            payload
+        ).getJSONObject("account")
+        return WebPaymentSettingsAccount(
+            id = data.getString("id"),
+            branchId = data.getString("branch_id"),
+            bankName = data.optString("bank_name"),
+            accountName = data.optString("account_name"),
+            accountNumber = data.optString("account_number"),
+            promptPayPhone = data.optString("promptpay_phone"),
+            qrImageUrl = data.optString("qr_image_url"),
+            qrMode = data.optString("qr_mode").ifBlank { "promptpay_link" },
+            appliesToAllBranches = data.optBoolean("applies_to_all_branches", false),
+            active = data.optBoolean("is_active", true)
+        )
+    }
+
+    suspend fun deletePaymentSettingsAccount(
+        session: WebPosSession,
+        accountId: String,
+        managerPin: String
+    ) {
+        requireSameLiveSession(session)
+        require(runCatching { UUID.fromString(accountId) }.isSuccess)
+        require(managerPin.length in 4..12 && managerPin.all(Char::isDigit))
+        val data = call(
+            "DELETE",
+            "/api/pos/settings/payment-accounts?account_id=" + queryValue(accountId),
+            JSONObject().put("manager_pin", managerPin)
+        )
+        check(data.optBoolean("deleted", false) && data.optString("id") == accountId) {
+            "payment_account_delete_unconfirmed"
+        }
     }
 
     /** Shared branch policy used by CpIPOS Web and Native notification UI. */
