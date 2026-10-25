@@ -467,6 +467,59 @@ private fun MoreSalesSummaryScreen(
 }
 
 @Composable
+private fun BestSellerCard(
+    rank: Int,
+    row: WebBestSellingProduct,
+    large: Boolean = false
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = if (rank == 1) Color(0xFFEAF3FF) else Color.White,
+        shape = RoundedCornerShape(if (large) 22.dp else 18.dp),
+        shadowElevation = if (large) 3.dp else 1.dp
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(if (large) 17.dp else 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(if (large) 54.dp else 45.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = if (rank == 1) moreBlue else Color(0xFFF0F4FA)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        "#" + rank,
+                        color = if (rank == 1) Color.White else moreBlue,
+                        fontSize = if (large) 18.sp else 15.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    row.productName,
+                    color = moreInk,
+                    fontSize = if (large) 16.sp else 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(row.category, color = moreMuted, fontSize = 10.sp)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "ขาย " + formatQty(row.quantitySold) + " · ยอดสุทธิ ฿" + row.netAmount.bahtText(),
+                    color = if (rank == 1) moreBlue else moreInk,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun MoreBestSellingScreen(
     client: WebPosClient,
     session: WebPosSession,
@@ -476,38 +529,128 @@ private fun MoreBestSellingScreen(
     var data by remember(session.id) { mutableStateOf<WebSalesSummarySnapshot?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showMore by remember { mutableStateOf(false) }
 
     LaunchedEffect(client, session.id) {
         try {
-            val today = LocalDate.now(ZoneId.of("Asia/Bangkok"))
+            val today = LocalDate.now(moreBangkok)
             data = client.salesSummary(session, today.minusDays(29), today)
             error = null
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             error = "โหลดสินค้าขายดีไม่ได้: " + ((failure as? WebPosApiException)?.code ?: "network_error")
-        } finally { loading = false }
+        } finally {
+            loading = false
+        }
     }
 
+    val rows = data?.bestSelling.orEmpty()
+    val topThree = rows.take(3)
+    val remaining = rows.drop(3)
+
     MoreScaffold("สินค้าขายดี", session, onBack, onTab) {
-        item { Text("จัดอันดับจากยอดขายสำเร็จ 30 วันล่าสุด", color = moreMuted, fontSize = 11.sp) }
-        if (loading) item { LoadingBlock() }
-        else if (error != null) item { ErrorBlock(error.orEmpty()) }
-        else {
-            item { TableHeader(listOf("อันดับ" to .55f, "สินค้า" to 1.7f, "ขาย" to .65f, "ยอดสุทธิ" to .9f)) }
-            items(data?.bestSelling.orEmpty(), key = { it.productId }) { row ->
-                val rank = (data?.bestSelling?.indexOf(row) ?: 0) + 1
-                TableRow(
-                    listOf(
-                        ("#" + rank) to .55f,
-                        row.productName to 1.7f,
-                        formatQty(row.quantitySold) to .65f,
-                        ("฿" + row.netAmount.bahtText()) to .9f
-                    )
-                )
-            }
-            if (data?.bestSelling.isNullOrEmpty()) item { EmptyBlock("ยังไม่มีข้อมูลสินค้าขายดี") }
+        item {
+            Text("อันดับยอดขายสำเร็จ 30 วันล่าสุด", color = moreMuted, fontSize = 11.sp)
         }
+        if (loading) {
+            item { LoadingBlock() }
+        } else if (error != null) {
+            item { ErrorBlock(error.orEmpty()) }
+        } else if (rows.isEmpty()) {
+            item { EmptyBlock("ยังไม่มีข้อมูลสินค้าขายดี") }
+        } else {
+            topThree.forEachIndexed { index, row ->
+                item(key = row.productId) {
+                    BestSellerCard(rank = index + 1, row = row, large = index == 0)
+                }
+            }
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(17.dp),
+                    color = Color.White
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text(
+                            "Top 3 แสดงด้านบนเพื่อดูสินค้าหลักได้ทันที",
+                            color = moreMuted,
+                            fontSize = 10.sp
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = { showMore = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = moreBlue)
+                        ) {
+                            Text(
+                                if (remaining.isEmpty()) "ดูอันดับทั้งหมด"
+                                else "ดูรายการที่เหลือ (" + remaining.size + ")",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showMore) {
+        AlertDialog(
+            onDismissRequest = { showMore = false },
+            title = { Text("อันดับสินค้าขายดีทั้งหมด", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Box(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        items(rows, key = { it.productId }) { row ->
+                            val rank = rows.indexOf(row) + 1
+                            Surface(
+                                color = Color(0xFFF7F9FC),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "#" + rank,
+                                        modifier = Modifier.width(34.dp),
+                                        color = moreBlue,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 11.sp
+                                    )
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            row.productName,
+                                            color = moreInk,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 2
+                                        )
+                                        Text(
+                                            "ขาย " + formatQty(row.quantitySold),
+                                            color = moreMuted,
+                                            fontSize = 9.sp
+                                        )
+                                    }
+                                    Text(
+                                        "฿" + row.netAmount.bahtText(),
+                                        color = moreBlue,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMore = false }) { Text("ปิด") }
+            }
+        )
     }
 }
 
