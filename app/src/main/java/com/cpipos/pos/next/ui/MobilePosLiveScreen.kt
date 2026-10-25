@@ -56,6 +56,7 @@ import com.cpipos.pos.next.core.webpos.WebStore
 import com.cpipos.pos.next.core.webpos.WebPosApiException
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import com.cpipos.pos.next.core.push.NativeFcmRegistration
+import com.cpipos.pos.next.core.push.NativeQrBackgroundService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -113,6 +114,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     }
 
     fun goToStore() {
+        NativeQrBackgroundService.stop(ctx)
         NativeFcmRegistration.clearScope(ctx)
         employeeCode = ""
         employee = null
@@ -182,6 +184,15 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             } finally {
                 busy = false
             }
+    }
+
+    // Keep QR operations reachable when the cashier leaves/swipes away the UI.
+    // FCM remains preferred when configured; this foreground-service poller is
+    // a zero-cost fallback and stops automatically on POS-session revocation.
+    LaunchedEffect(session?.id) {
+        val active = session
+        if (active != null) NativeQrBackgroundService.start(ctx)
+        else NativeQrBackgroundService.stop(ctx)
     }
 
     // Firebase token registration is strictly POS-session scoped. Firebase may
