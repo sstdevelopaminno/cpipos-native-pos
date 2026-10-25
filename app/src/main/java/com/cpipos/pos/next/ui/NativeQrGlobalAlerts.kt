@@ -81,9 +81,12 @@ internal fun NativeQrGlobalAlerts(
                 // Timestamp overlap + local IDs prevents skipping same-ms events.
                 val newer = runCatching { Instant.parse(result.cursor) }.getOrNull()
                 val old = runCatching { Instant.parse(cursor) }.getOrNull()
-                if (newer != null && old != null && newer.isAfter(old)) {
-                    cursor = newer.minusMillis(1000).toString()
-                    store.setCursor(session, cursor)
+                if (newer != null && old != null) {
+                    val overlapped = newer.minusMillis(1000)
+                    if (overlapped.isAfter(old)) {
+                        cursor = overlapped.toString()
+                        store.setCursor(session, cursor)
+                    }
                 }
                 delayMs = if (fresh.isNotEmpty() || result.events.size >= 45) {
                     3000L
