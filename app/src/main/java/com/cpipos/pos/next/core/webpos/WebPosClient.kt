@@ -1782,8 +1782,19 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 }
                 val status = connection.responseCode
                 val contentType = connection.contentType.orEmpty().lowercase()
-                if (status !in 200..299 || !contentType.startsWith("image/")) {
-                    throw WebPosApiException("promptpay_qr_unavailable", status)
+                if (status !in 200..299) {
+                    val serverCode = runCatching {
+                        val raw = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                            .orEmpty()
+                        JSONObject(raw).optJSONObject("error")?.optString("code").orEmpty()
+                    }.getOrDefault("")
+                    throw WebPosApiException(
+                        serverCode.ifBlank { "promptpay_qr_unavailable" },
+                        status
+                    )
+                }
+                if (!contentType.startsWith("image/")) {
+                    throw WebPosApiException("promptpay_qr_upstream_not_image", status)
                 }
                 val bytes = connection.inputStream.use { stream ->
                     val out = java.io.ByteArrayOutputStream()
