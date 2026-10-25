@@ -28,6 +28,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.cpipos.pos.next.core.pos.Satang
 import com.cpipos.pos.next.core.webpos.*
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.CancellationException
@@ -355,6 +356,8 @@ internal fun NativePaymentSettingsScreen(
 
     if ((creating || editing != null) && branches.isNotEmpty()) {
         PaymentAccountFormDialog(
+            client = client,
+            session = session,
             initial = editing,
             branches = branches,
             currentBranchId = session.branchId,
@@ -425,6 +428,8 @@ internal fun NativePaymentSettingsScreen(
 
 @Composable
 private fun PaymentAccountFormDialog(
+    client: WebPosClient,
+    session: WebPosSession,
     initial: WebPaymentSettingsAccount?,
     branches: List<WebPaymentSettingsBranch>,
     currentBranchId: String,
@@ -450,6 +455,49 @@ private fun PaymentAccountFormDialog(
     var qrBusy by remember { mutableStateOf(false) }
     var formError by remember { mutableStateOf<String?>(null) }
     var qrPreview by remember(initial?.id) { mutableStateOf(decodePaymentQrData(qrImageUrl)) }
+    var promptPayPreview by remember(initial?.id) { mutableStateOf<Bitmap?>(null) }
+    var promptPayPreviewBusy by remember(initial?.id) { mutableStateOf(false) }
+    var promptPayPreviewError by remember(initial?.id) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(client, session.id, qrMode, promptPay) {
+        promptPayPreview = null
+        promptPayPreviewError = null
+        if (qrMode != "promptpay_link") {
+            promptPayPreviewBusy = false
+            return@LaunchedEffect
+        }
+        val digits = promptPay.filter(Char::isDigit)
+        if (digits.length !in 9..15) {
+            promptPayPreviewBusy = false
+            if (digits.isNotEmpty()) promptPayPreviewError = "กรอกเบอร์ PromptPay ให้ครบก่อนสร้าง QR"
+            return@LaunchedEffect
+        }
+        promptPayPreviewBusy = true
+        try {
+            kotlinx.coroutines.delay(350L)
+            val bytes = client.promptPayQrImage(digits, Satang.of(10_000L))
+            promptPayPreview = withContext(Dispatchers.Default) {
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } ?: throw IllegalStateException("promptpay_preview_decode_failed")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            val api = failure as? WebPosApiException
+            promptPayPreviewError = when (api?.code) {
+                "payment_provider_currency_unsupported" ->
+                    "PromptPay ตามยอดรองรับเฉพาะร้านที่ใช้สกุลเงินบาท (THB)"
+                "promptpay_qr_upstream_failed",
+                "promptpay_qr_upstream_not_image",
+                "promptpay_qr_image_size_invalid",
+                "promptpay_qr_proxy_failed",
+                "promptpay_qr_unavailable" ->
+                    "สร้าง QR PromptPay ไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่"
+                else -> "สร้าง QR PromptPay ตัวอย่างไม่สำเร็จ"
+            }
+        } finally {
+            promptPayPreviewBusy = false
+        }
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
@@ -573,7 +621,50 @@ private fun PaymentAccountFormDialog(
                     enabled = !busy
                 )
 
-                if (qrMode == "qr_image") {
+                if (qrMode == "promptpay_link") {
+                    Surface(
+                        color = Color(0xFFF7FAFE),
+                        shape = RoundedCornerShape(15.dp),
+                        modifier = Modifier.fillMaxWidth().height(220.dp)
+                    ) {
+                        Column(
+                            Modifier.fillMaxSize().padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterVertically)
+                        ) {
+                            Text(
+                                "ตัวอย่าง PromptPay QR · 100.00 บาท",
+                                fontWeight = FontWeight.Bold,
+                                color = paySettingsInk,
+                                fontSize = 12.sp
+                            )
+                            Box(
+                                modifier = Modifier.size(160.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                when {
+                                    promptPayPreviewBusy -> CircularProgressIndicator(color = paySettingsBlue)
+                                    promptPayPreview != null -> Image(
+                                        bitmap = requireNotNull(promptPayPreview).asImageBitmap(),
+                                        contentDescription = "ตัวอย่าง PromptPay QR 100 บาท",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                    else -> Text(
+                                        promptPayPreviewError ?: "กรอกเบอร์ PromptPay เพื่อสร้าง QR ตัวอย่าง",
+                                        color = if (promptPayPreviewError != null) Color(0xFFB13F4C) else paySettingsMuted,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Text(
+                        "ตัวอย่างนี้ใช้ยอด 100 บาทเหมือน CpIPOS Web · ตอนขายจริงระบบจะสร้าง QR ใหม่ตามยอดบิลจริง",
+                        fontSize = 10.sp,
+                        color = paySettingsMuted
+                    )
+                } else {
                     Surface(
                         color = Color(0xFFF7FAFE),
                         shape = RoundedCornerShape(15.dp),
@@ -601,7 +692,7 @@ private fun PaymentAccountFormDialog(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = { picker.launch("image/*") },
-                            enabled = !busy && !qrBusy,
+                            enabled = !busy && !qrBusy && !promptPayPreviewBusy,
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = paySettingsBlue)
                         ) { Text(if (qrBusy) "กำลังย่อรูป..." else "เลือกรูป QR") }
@@ -633,7 +724,7 @@ private fun PaymentAccountFormDialog(
                 )
 
                 formError?.let { Text(it, color = Color(0xFFB13F4C), fontSize = 11.sp) }
-                if (busy || qrBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (busy || qrBusy || promptPayPreviewBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
 
                 Row(
                     Modifier.fillMaxWidth(),
