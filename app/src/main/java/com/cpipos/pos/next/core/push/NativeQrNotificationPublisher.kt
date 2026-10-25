@@ -23,6 +23,7 @@ object NativeQrNotificationPublisher {
     const val CHANNEL_SILENT_ID = "cpipos_qr_operations_silent_v2"
     const val LISTENER_CHANNEL_ID = "cpipos_qr_background_listener_v1"
     const val LISTENER_NOTIFICATION_ID = 0x435049
+    private const val TEST_NOTIFICATION_ID = 0x435054
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -64,6 +65,42 @@ object NativeQrNotificationPublisher {
         manager.createNotificationChannel(listener)
     }
 
+    fun notificationsAllowed(context: Context): Boolean {
+        val runtimePermission = Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        return runtimePermission &&
+            NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
+    fun showTest(context: Context, soundEnabled: Boolean = true): Boolean {
+        if (!notificationsAllowed(context)) return false
+        ensureChannels(context)
+        val launch = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            TEST_NOTIFICATION_ID,
+            launch,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val channelId = if (soundEnabled) CHANNEL_SOUND_ID else CHANNEL_SILENT_ID
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.drawable.ic_stat_qr_notification)
+            .setContentTitle("ทดสอบแจ้งเตือน CpIPOS")
+            .setContentText("Android Notification พร้อมใช้งาน")
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+        if (soundEnabled) builder.setDefaults(NotificationCompat.DEFAULT_ALL)
+        else builder.setSilent(true)
+        NotificationManagerCompat.from(context).notify(TEST_NOTIFICATION_ID, builder.build())
+        return true
+    }
+
     fun listenerNotification(context: Context): android.app.Notification {
         ensureChannels(context)
         val launch = Intent(context, MainActivity::class.java).apply {
@@ -102,9 +139,7 @@ object NativeQrNotificationPublisher {
             runCatching { UUID.fromString(tableId) }.isFailure ||
             runCatching { UUID.fromString(tenantId) }.isFailure ||
             runCatching { UUID.fromString(branchId) }.isFailure) return false
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED) return false
+        if (!notificationsAllowed(context)) return false
         if (!NativeFcmRegistration.markReceived(context, eventId)) return false
 
         val policy = NativeQrNotificationPreferences(context).read(tenantId, branchId)
