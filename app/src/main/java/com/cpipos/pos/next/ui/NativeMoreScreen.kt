@@ -1,7 +1,10 @@
 package com.cpipos.pos.next.ui
 
+import android.app.DatePickerDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,14 +13,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cpipos.pos.next.core.print.NativePrintRuntime
 import com.cpipos.pos.next.core.webpos.*
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -31,6 +38,42 @@ private data class MoreMenu(
     val title: String,
     val subtitle: String
 )
+
+
+private data class MoreDateWindow(val start: LocalDate, val end: LocalDate)
+
+private fun moreDateWindow(
+    mode: String,
+    anchor: LocalDate,
+    customFrom: LocalDate,
+    customTo: LocalDate
+): MoreDateWindow = when (mode) {
+    "day" -> MoreDateWindow(anchor, anchor)
+    "month" -> MoreDateWindow(anchor.withDayOfMonth(1), anchor.withDayOfMonth(anchor.lengthOfMonth()))
+    "year" -> MoreDateWindow(anchor.withDayOfYear(1), anchor.withDayOfYear(anchor.lengthOfYear()))
+    else -> MoreDateWindow(customFrom, customTo)
+}
+
+private fun shiftMoreAnchor(mode: String, value: LocalDate, amount: Long): LocalDate = when (mode) {
+    "month" -> value.plusMonths(amount)
+    "year" -> value.plusYears(amount)
+    else -> value.plusDays(amount)
+}
+
+private val moreDateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.US)
+private val moreDateTimeFormat = DateTimeFormatter.ofPattern("dd/MM/yy HH:mm", Locale.US)
+private val moreBangkok = ZoneId.of("Asia/Bangkok")
+
+private fun moreDateTime(epochMs: Long): String =
+    Instant.ofEpochMilli(epochMs).atZone(moreBangkok).format(moreDateTimeFormat)
+
+private fun thaiTaxIdValid(value: String): Boolean {
+    val digits = value.filter(Char::isDigit)
+    if (digits.length != 13) return false
+    var sum = 0
+    for (index in 0 until 12) sum += (digits[index] - '0') * (13 - index)
+    return ((11 - (sum % 11)) % 10) == (digits[12] - '0')
+}
 
 @Composable
 internal fun NativeMoreScreen(
