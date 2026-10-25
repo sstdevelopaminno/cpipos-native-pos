@@ -31,7 +31,8 @@ private val notificationInk = Color(0xFF172B4E)
 internal fun NativeNotificationSettingsScreen(
     client: WebPosClient,
     session: WebPosSession,
-    onTab: (String) -> Unit
+    onTab: (String) -> Unit,
+    onBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val localStore = remember(context.applicationContext) {
@@ -125,12 +126,19 @@ internal fun NativeNotificationSettingsScreen(
                     .padding(start = 17.dp, end = 17.dp, top = 15.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text("ตั้งค่าการแจ้งเตือน", fontSize = 24.sp,
-                    color = notificationInk, fontWeight = FontWeight.ExtraBold)
-                Text(
-                    session.branchName + " · ใช้ค่าชุดเดียวกับ CpIPOS",
-                    color = Color(0xFF71849B), fontSize = 12.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onBack != null) {
+                        TextButton(onClick = onBack) { Text("‹ ตั้งค่า") }
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text("ตั้งค่าการแจ้งเตือน", fontSize = 24.sp,
+                            color = notificationInk, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            session.branchName + " · ใช้ค่าชุดเดียวกับ CpIPOS",
+                            color = Color(0xFF71849B), fontSize = 12.sp
+                        )
+                    }
+                }
 
                 if (loading) {
                     Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
