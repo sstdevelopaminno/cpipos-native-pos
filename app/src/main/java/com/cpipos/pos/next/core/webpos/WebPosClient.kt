@@ -337,6 +337,12 @@ data class WebTaxProfileRow(
     val invoiceCount: Int,
     val lastIssuedAt: String?
 )
+data class WebTaxAddressOption(
+    val postalCode: String,
+    val subdistrict: String,
+    val district: String,
+    val province: String
+)
 
 data class WebCreatedOrder(
     val id: String,
@@ -1064,6 +1070,119 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 invoiceCount = row.optInt("invoice_count", 0),
                 lastIssuedAt = row.optString("last_issued_at").takeIf { it.isNotBlank() }
             )
+        }
+    }
+
+    suspend fun createDiningTables(
+        session: WebPosSession,
+        zoneName: String,
+        tableName: String,
+        capacity: Int,
+        count: Int = 1
+    ): Int {
+        requireSameLiveSession(session)
+        require(session.canManageTables)
+        require(capacity in 1..100 && count in 1..50)
+        val data = call(
+            "POST",
+            "/api/pos/native-table-management",
+            JSONObject()
+                .put("action", if (count == 1) "create" else "bulk_create")
+                .put("zone_name", zoneName.trim())
+                .put("table_name", tableName.trim())
+                .put("capacity", capacity)
+                .put("count", count)
+        )
+        val created = data.optInt("created_count", 0)
+        if (created != count) throw WebPosApiException("native_table_create_unconfirmed", 503)
+        return created
+    }
+
+    suspend fun taxAddressOptions(
+        session: WebPosSession,
+        postalCode: String
+    ): List<WebTaxAddressOption> {
+        requireSameLiveSession(session)
+        val digits = postalCode.filter(Char::isDigit)
+        require(digits.length == 5)
+        val data = call(
+            "GET",
+            "/api/pos/tax-invoices?mode=address&postal_code=" + queryValue(digits)
+        )
+        val rows = data.optJSONArray("options") ?: JSONArray()
+        return (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            WebTaxAddressOption(
+                postalCode = row.optString("postal_code").ifBlank { digits },
+                subdistrict = row.optString("subdistrict"),
+                district = row.optString("district"),
+                province = row.optString("province")
+            )
+        }
+    }
+
+    suspend fun saveTaxProfile(
+        session: WebPosSession,
+        entityType: String,
+        displayName: String,
+        taxId: String,
+        addressLine: String,
+        postalCode: String,
+        subdistrict: String,
+        district: String,
+        province: String
+    ): WebTaxProfileRow {
+        requireSameLiveSession(session)
+        require(entityType in setOf("company", "limited_partnership", "shop", "individual"))
+        val digits = taxId.filter(Char::isDigit)
+        require(digits.length == 13 && postalCode.filter(Char::isDigit).length == 5)
+        val data = call(
+            "POST",
+            "/api/pos/tax-invoices",
+            JSONObject()
+                .put("action", "save_profile")
+                .put("entity_type", entityType)
+                .put("display_name", displayName.trim())
+                .put("tax_id", digits)
+                .put("address_line", addressLine.trim())
+                .put("postal_code", postalCode.filter(Char::isDigit))
+                .put("subdistrict", subdistrict.trim())
+                .put("district", district.trim())
+                .put("province", province.trim())
+        ).getJSONObject("profile")
+        return WebTaxProfileRow(
+            id = data.getString("id"),
+            displayName = data.optString("display_name"),
+            taxId = data.optString("tax_id"),
+            entityType = data.optString("entity_type"),
+            addressLine = data.optString("address_line"),
+            subdistrict = data.optString("subdistrict"),
+            district = data.optString("district"),
+            province = data.optString("province"),
+            postalCode = data.optString("postal_code"),
+            invoiceCount = 0,
+            lastIssuedAt = null
+        )
+    }
+
+    suspend fun deleteTaxProfile(
+        session: WebPosSession,
+        profileId: String,
+        managerPin: String
+    ) {
+        requireSameLiveSession(session)
+        require(runCatching { UUID.fromString(profileId) }.isSuccess)
+        require(managerPin.length in 4..12 && managerPin.all(Char::isDigit))
+        val data = call(
+            "POST",
+            "/api/pos/tax-invoices",
+            JSONObject()
+                .put("action", "delete_profile")
+                .put("profile_id", profileId)
+                .put("manager_pin", managerPin)
+        )
+        if (!data.optBoolean("deleted", false)) {
+            throw WebPosApiException("tax_profile_delete_unconfirmed", 503)
         }
     }
 
