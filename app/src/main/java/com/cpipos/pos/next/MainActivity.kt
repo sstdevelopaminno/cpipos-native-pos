@@ -1,6 +1,13 @@
 package com.cpipos.pos.next
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import com.cpipos.pos.next.core.push.NativeFcmRegistration
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,6 +20,16 @@ import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.ui.MobilePosLiveScreen
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* User may decline; in-app alerts continue independently. */ }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        NativeFcmRegistration.captureNotificationIntent(this, intent)
+    }
+
     // Android uses the existing public HTTPS POS API; privileged credentials remain server-side.
     private val webPosClient by lazy { WebPosClient(BuildConfig.WEB_POS_API_URL, applicationContext) }
 
@@ -33,6 +50,12 @@ class MainActivity : ComponentActivity() {
                 .start()
         }
         super.onCreate(savedInstanceState)
+        NativeFcmRegistration.captureNotificationIntent(this, intent)
+        if (NativeFcmRegistration.hasFirebase(this) && Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {

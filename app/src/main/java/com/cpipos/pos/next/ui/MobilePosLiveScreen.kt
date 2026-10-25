@@ -55,6 +55,7 @@ import com.cpipos.pos.next.core.webpos.WebPosSession
 import com.cpipos.pos.next.core.webpos.WebStore
 import com.cpipos.pos.next.core.webpos.WebPosApiException
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
+import com.cpipos.pos.next.core.push.NativeFcmRegistration
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -98,6 +99,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var selectedDiningTable by remember(session?.id) { mutableStateOf<com.cpipos.pos.next.core.webpos.WebDiningTable?>(null) }
     var mainTab by remember { mutableStateOf("history") }
     var tabRevision by remember { mutableStateOf(0) }
+    val fcmNavigationRevision = NativeFcmRegistration.navigationRevision.intValue
 
     fun navigateTab(tab: String) {
         if (takeaway.saving.value || dineWorkspace.drafts.values.any { it.busy }) return
@@ -111,6 +113,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     }
 
     fun goToStore() {
+        NativeFcmRegistration.clearScope(ctx)
         employeeCode = ""
         employee = null
         availableDevices = null
@@ -179,6 +182,57 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             } finally {
                 busy = false
             }
+    }
+
+    // Firebase token registration is strictly POS-session scoped. Firebase may
+    // be absent in CI or until the owner supplies app/google-services.json.
+    // Re-register periodically to recover token rotation / offline windows.
+    LaunchedEffect(client, session?.id) {
+        val active = session ?: return@LaunchedEffect
+        while (session?.id == active.id) {
+            try {
+                NativeFcmRegistration.register(ctx, client, active)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w("CpIPOSFCM", "Registration unavailable: " +
+                    failure.javaClass.simpleName)
+            }
+            kotlinx.coroutines.delay(60 * 60 * 1000L)
+        }
+    }
+
+    // OS notification opens the existing POS with a scoped, verified table ID.
+    // Never discard an unresolved sale or draft while navigating from FCM.
+    LaunchedEffect(client, session?.id, fcmNavigationRevision, step) {
+        val active = session ?: return@LaunchedEffect
+        val target = NativeFcmRegistration.pendingTable(ctx, active) ?: return@LaunchedEffect
+        if (step !in setOf("mode", "sale", "dine", "dine_order", "tab")) return@LaunchedEffect
+        if (busy || takeaway.saving.value || dineWorkspace.drafts.values.any {
+            it.busy || it.uncertain || it.items.isNotEmpty() || it.pendingQuantities.isNotEmpty()
+        }) return@LaunchedEffect
+        if (runCatching { journal.unresolved(active).isEmpty() }.getOrDefault(false).not())
+            return@LaunchedEffect
+        val floor = try {
+            client.diningTables(active)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        if (floor != null && session?.id == active.id) {
+            val table = floor.tables.firstOrNull {
+                it.id == target && it.sessionId != null &&
+                    it.status in setOf("occupied", "ordering", "pending_payment")
+            }
+            NativeFcmRegistration.clearPendingTable(ctx)
+            if (table != null) {
+                selectedDiningTable = table
+                step = "dine_order"
+            } else {
+                step = "dine"
+            }
+        }
     }
 
     // Resume the same backend-issued POS identity after process restart.
@@ -681,6 +735,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                                         try {
                                             // The POS server revokes the old device
                                             // lease and issues a scoped pre-entry cookie.
+                                            verified?.let {
+                                                runCatching { NativeFcmRegistration.unregister(ctx, client, it) }
+                                            }
                                             val nextStore = client.switchToBranchChooser()
                                             check(nextStore.branches.isNotEmpty()) {
                                                 "ไม่มีสาขาที่เปิดใช้งาน"
@@ -718,6 +775,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                                         busy = true
                                         step = "switching"
                                         try {
+                                            verified?.let {
+                                                runCatching { NativeFcmRegistration.unregister(ctx, client, it) }
+                                            }
                                             val remoteRevoked = client.logoutCurrentPosSession()
                                             goToStore()
                                             storeCode = ""

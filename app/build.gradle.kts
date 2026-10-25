@@ -1,5 +1,8 @@
 import java.util.Properties
 
+// Firebase is enabled only when an owner-provided, local Android configuration
+// exists. CI and preview debug builds remain usable without Firebase keys.
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -14,6 +17,10 @@ val localProperties = Properties().apply {
 }
 
 fun localProperty(name: String): String = localProperties.getProperty(name, "")
+
+if (file("google-services.json").isFile) {
+    apply(plugin = "com.google.gms.google-services")
+}
 fun quoted(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 android {
@@ -83,6 +90,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.core:core-splashscreen:1.2.0")
     implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("com.google.firebase:firebase-messaging:24.1.2")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")

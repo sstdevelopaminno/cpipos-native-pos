@@ -856,6 +856,29 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         }
     }
 
+    /** Register Firebase token for THIS verified tenant/branch/register only. */
+    suspend fun registerNativeQrPush(
+        session: WebPosSession, installationId: String, fcmToken: String, appId: String
+    ) {
+        requireSameLiveSession(session)
+        require(UUID.fromString(installationId).toString() == installationId)
+        require(fcmToken.length in 50..4096)
+        val data = call("PUT", "/api/pos/native-qr-push-registration", JSONObject()
+            .put("installation_id", installationId)
+            .put("fcm_token", fcmToken)
+            .put("app_id", appId))
+        check(data.optBoolean("registered", false) &&
+            data.optString("branch_id") == session.branchId) { "fcm_registration_unconfirmed" }
+    }
+
+    suspend fun unregisterNativeQrPush(session: WebPosSession, installationId: String) {
+        requireSameLiveSession(session)
+        require(UUID.fromString(installationId).toString() == installationId)
+        val data = call("DELETE", "/api/pos/native-qr-push-registration", JSONObject()
+            .put("installation_id", installationId))
+        check(data.optBoolean("unregistered", false)) { "fcm_unregistration_unconfirmed" }
+    }
+
     /** Canonical POS Web mobile/tablet global QR activity, scoped to the signed-in POS branch. */
     suspend fun qrActivity(session: WebPosSession, since: String): WebQrActivityPage {
         requireSameLiveSession(session)

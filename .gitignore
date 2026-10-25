@@ -24,3 +24,6 @@ Thumbs.db
 # Native / generated
 .externalNativeBuild/
 .cxx/
+
+# Firebase public app identifiers (configured per installation; not for CI)
+/app/google-services.json
