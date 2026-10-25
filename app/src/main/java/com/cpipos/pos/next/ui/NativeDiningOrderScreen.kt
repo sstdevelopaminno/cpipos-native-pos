@@ -91,6 +91,7 @@ internal fun NativeDiningOrderScreen(
     var search by remember(session.id, table.id) { mutableStateOf("") }
     var feedback by remember(session.id, table.id) { mutableStateOf("idle") }
     var paidReceipt by remember(session.id, table.id) { mutableStateOf<DemoSaleReceipt?>(null) }
+    var paymentNoticeBusy by remember(session.id, table.id) { mutableStateOf(false) }
     var drawerAvailable by remember(session.id) { mutableStateOf(false) }
     var drawerOpening by remember(session.id) { mutableStateOf(false) }
 
@@ -371,6 +372,47 @@ internal fun NativeDiningOrderScreen(
         }
     }
 
+    fun printPaymentNotice(qrDataUri: String, account: WebPaymentAccount) {
+        val reference = bill ?: return
+        if (paymentNoticeBusy || draft.busy || reference.orderId.isNullOrBlank() ||
+            reference.orderNo.isNullOrBlank() || reference.lines.isEmpty() ||
+            reference.total <= Satang.ZERO) return
+        paymentNoticeBusy = true
+        error = null
+        scope.launch {
+            try {
+                val queued = client.printDiningPaymentNotice(
+                    session = session,
+                    bill = reference,
+                    tableLabel = table.code.ifBlank { table.name },
+                    qrDataUri = qrDataUri,
+                    account = account
+                )
+                if (queued <= 0) throw IllegalStateException("payment_notice_queue_empty")
+                NativePrintRuntime.wake()
+                Toast.makeText(
+                    context,
+                    "ส่งพิมพ์ใบแจ้งชำระเงินแล้ว",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } catch (failure: Exception) {
+                val api = failure as? WebPosApiException
+                error = when (api?.code) {
+                    "payment_notice_printer_not_configured",
+                    "receipt_printer_not_configured" ->
+                        "ยังไม่ได้ตั้งค่าเครื่องพิมพ์ใบเสร็จสำหรับใบแจ้งชำระเงิน"
+                    "payment_notice_qr_required" ->
+                        "ยังไม่มี QR สำหรับพิมพ์ใบแจ้งชำระเงิน"
+                    else ->
+                        "พิมพ์ใบแจ้งชำระเงินไม่สำเร็จ: " +
+                            (api?.code ?: "printer_or_network_error")
+                }
+            } finally {
+                paymentNoticeBusy = false
+            }
+        }
+    }
+
     fun settle() {
         val reference = bill ?: return
         val method = draft.paymentMethod ?: return
@@ -604,7 +646,13 @@ internal fun NativeDiningOrderScreen(
             client = client, session = session,
             due = bill?.total ?: Satang.ZERO, saving = draft.busy,
             error = error,
-            onCancel = { if (!draft.busy) draft.paymentMethod = null },
+            printNoticeBusy = paymentNoticeBusy,
+            onPrintPaymentNotice = { qrDataUri, account ->
+                printPaymentNotice(qrDataUri, account)
+            },
+            onCancel = {
+                if (!draft.busy && !paymentNoticeBusy) draft.paymentMethod = null
+            },
             onConfirmReceived = { settle() }
         )
         PaymentFeedbackOverlay(feedback)
