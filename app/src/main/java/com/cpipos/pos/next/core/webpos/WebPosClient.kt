@@ -45,6 +45,55 @@ data class WebDiningTable(
     val capacity: Int, val status: String, val sessionId: String?, val orderId: String?
 )
 data class WebTableFloor(val zones: List<WebTableZone>, val tables: List<WebDiningTable>)
+data class WebTableOrderQr(
+    val tableId: String,
+    val tableCode: String,
+    val tableName: String,
+    val tableSessionId: String,
+    val qrSessionId: String,
+    val orderUrl: String,
+    val qrPngBase64: String,
+    val expiresAt: String,
+    val expiryMode: String
+)
+
+/** Reject incorrect table/session tokens and untrusted QR redirects before display or printing. */
+internal fun parseTableOrderQr(data: JSONObject, expectedTableId: String, trustedOrigin: String): WebTableOrderQr {
+    require(data.optString("table_id") == expectedTableId) { "qr_table_scope_mismatch" }
+    val source = URL(trustedOrigin)
+    val issuedUrl = data.optString("order_url")
+    val target = URL(issuedUrl)
+    require(target.protocol == "https" && target.host.equals(source.host, ignoreCase = true) &&
+        target.port == source.port && target.path.startsWith("/table-order/")) {
+        "qr_order_url_untrusted"
+    }
+    val image = data.optString("qr_data_url")
+    require(image.startsWith("data:image/png;base64,") && image.length <= 1_500_000) {
+        "qr_image_invalid"
+    }
+    val sessionId = data.optString("qr_session_id")
+    val billId = data.optString("table_session_id")
+    require(runCatching { UUID.fromString(sessionId) }.isSuccess &&
+        runCatching { UUID.fromString(billId) }.isSuccess) {
+        "qr_server_session_invalid"
+    }
+    val expiresAt = data.optString("expires_at")
+    require(runCatching { java.time.Instant.parse(expiresAt) }.isSuccess) {
+        "qr_expiry_invalid"
+    }
+    return WebTableOrderQr(
+        tableId = expectedTableId,
+        tableCode = data.optString("table_code"),
+        tableName = data.optString("table_name"),
+        tableSessionId = billId,
+        qrSessionId = sessionId,
+        orderUrl = issuedUrl,
+        qrPngBase64 = image.removePrefix("data:image/png;base64,"),
+        expiresAt = expiresAt,
+        expiryMode = data.optString("expiry_mode")
+    )
+}
+
 data class WebTableBillSummary(val sessionId: String?, val orderNo: String?, val status: String?, val itemCount: Int)
 data class WebDiningLine(
     val productId: String, val name: String, val quantity: Int,
@@ -421,7 +470,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     private suspend fun call(
-        method: String, path: String, json: JSONObject? = null, key: String? = null
+        method: String, path: String, json: JSONObject? = null, key: String? = null,
+        readTimeoutMs: Int = 15000
     ): JSONObject = withContext(Dispatchers.IO) {
         require(path.startsWith("/") && !path.startsWith("//"))
         val url = URL(base + path)
@@ -429,7 +479,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         try {
             conn.instanceFollowRedirects = false
             conn.connectTimeout = 8000
-            conn.readTimeout = 15000
+            conn.readTimeout = readTimeoutMs.coerceIn(1000, 60000)
             conn.requestMethod = method
             conn.setRequestProperty("Accept", "application/json")
             conn.setRequestProperty("User-Agent", "CpIPOS-Native-Android/2")
@@ -796,6 +846,21 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     /** Server validates tables:manage, active shift and restaurant feature flag. */
+    /**
+     * Existing CpIPOS restaurant QR issuing API. Server checks branch,
+     * active bill, QR policy, feature access and tables:manage.
+     * This never creates a bill or a second payment.
+     */
+    suspend fun issueTableOrderQr(session: WebPosSession, tableId: String): WebTableOrderQr {
+        require(UUID.fromString(tableId).toString() == tableId)
+        requireSameLiveSession(session)
+        val result = call(
+            "POST", "/api/pos/tables/$tableId/qr-order", JSONObject(),
+            readTimeoutMs = 50000
+        )
+        return parseTableOrderQr(result, tableId, base)
+    }
+
     suspend fun openDiningTable(session: WebPosSession, tableId: String) {
         require(UUID.fromString(tableId).toString() == tableId)
         requireSameLiveSession(session)

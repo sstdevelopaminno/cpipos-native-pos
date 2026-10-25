@@ -173,6 +173,7 @@ internal fun MobilePosSalePreview(
     var category by remember { mutableStateOf("ทั้งหมด") }
     var search by remember { mutableStateOf("") }
     var showScannerNotice by remember { mutableStateOf(false) }
+    var showTableQr by remember { mutableStateOf(false) }
     var showCart by workspace.showCart
     var showMethods by workspace.showMethods
     var selectedMethod by workspace.selectedMethod
@@ -242,7 +243,7 @@ internal fun MobilePosSalePreview(
     val parkedCount = heldDrafts.count { it.id != activeHeldId }
     val total = (subtotal - discountAmount).coerceAtLeast(0L)
     BackHandler(enabled = !showCart && !showMethods && !showHistory && !showLiveHistory &&
-        payment == null && !showScannerNotice && pendingAction == null && !showCancelBillConfirm && !saving) {
+        payment == null && !showScannerNotice && !showTableQr && pendingAction == null && !showCancelBillConfirm && !saving) {
         onBack()
     }
 
@@ -573,11 +574,24 @@ internal fun MobilePosSalePreview(
                         .height(64.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Image(
-                        painter = painterResource(R.drawable.cpipos_logo_symbol),
-                        contentDescription = "กลับหน้าเลือกโหมด",
-                        modifier = Modifier.size(39.dp).clickable(enabled = !saving) { onBack() }
-                    )
+                    Surface(
+                        modifier = Modifier.size(42.dp)
+                            .clickable(enabled = !saving) {
+                                if (liveClient != null && liveSession != null) showTableQr = true
+                                else notice = "QR โต๊ะใช้ได้เมื่อเข้าสู่ระบบ POS ร้านจริง"
+                            },
+                        color = Color(0xFFE8F2FF),
+                        shape = RoundedCornerShape(13.dp)
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("QR", color = saleBlue, fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold)
+                            Text("โต๊ะ", color = saleBlue, fontSize = 9.sp)
+                        }
+                    }
                     Spacer(modifier = Modifier.width(7.dp))
                     Text(
                         "CpIPOS",
@@ -786,6 +800,13 @@ internal fun MobilePosSalePreview(
                 onMenuClick = { tab -> if (!saving) onMainMenu(tab) }
             )
         }
+    }
+    if (showTableQr && liveClient != null && liveSession != null) {
+        NativeTableOrderQrDialog(
+            client = liveClient,
+            session = liveSession,
+            onDismiss = { showTableQr = false }
+        )
     }
     if (showScannerNotice) {
         AlertDialog(
