@@ -47,7 +47,7 @@ internal fun NativeMainTabScreen(
     onTab: (String) -> Unit
 ) {
     if (tab == "settings") {
-        NativeNotificationSettingsScreen(client = client, session = session, onTab = onTab)
+        NativeSettingsHubScreen(client = client, session = session, onTab = onTab)
         return
     }
     if (tab == "report") {
