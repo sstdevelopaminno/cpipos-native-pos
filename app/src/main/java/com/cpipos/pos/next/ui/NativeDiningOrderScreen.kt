@@ -1,5 +1,6 @@
 package com.cpipos.pos.next.ui
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -67,7 +68,7 @@ internal fun diningDiscountBase(bill: WebDiningBill?, newItemsSubtotalSatang: Lo
 internal fun NativeDiningOrderScreen(
     client: WebPosClient, session: WebPosSession, table: WebDiningTable,
     products: List<WebPosProduct>, draft: DiningDraft,
-    onTables: () -> Unit, onMode: () -> Unit, onMainMenu: (String) -> Unit
+    onTables: () -> Unit, onMainMenu: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -90,6 +91,12 @@ internal fun NativeDiningOrderScreen(
     var search by remember(session.id, table.id) { mutableStateOf("") }
     var feedback by remember(session.id, table.id) { mutableStateOf("idle") }
     var paidReceipt by remember(session.id, table.id) { mutableStateOf<DemoSaleReceipt?>(null) }
+    var drawerAvailable by remember(session.id) { mutableStateOf(false) }
+    var drawerOpening by remember(session.id) { mutableStateOf(false) }
+
+    LaunchedEffect(client, session.id) {
+        drawerAvailable = runCatching { client.cashDrawerStatus(session).visible }.getOrDefault(false)
+    }
 
     suspend fun refresh(accept: Boolean) {
         try {
@@ -450,7 +457,38 @@ internal fun NativeDiningOrderScreen(
                         showMoveTable = true
                     }
                     DiningTopAction(R.drawable.ic_nav_tables, "เลือกโต๊ะ", !draft.busy) { onTables() }
-                    DiningTopAction(R.drawable.ic_nav_select_mode, "เลือกโหมด", !draft.busy, onClick = onMode)
+                    if (drawerAvailable) {
+                        DiningTopAction(
+                            R.drawable.ic_nav_cash_drawer,
+                            "เปิดลิ้นชัก",
+                            !draft.busy && !drawerOpening
+                        ) {
+                            drawerOpening = true
+                            scope.launch {
+                                try {
+                                    val accepted = client.openCashDrawer(session)
+                                    if (!accepted) throw IllegalStateException("drawer_command_not_accepted")
+                                    NativePrintRuntime.wake()
+                                    Toast.makeText(context, "ส่งคำสั่งเปิดลิ้นชักแล้ว", Toast.LENGTH_SHORT).show()
+                                } catch (failure: Exception) {
+                                    val api = failure as? WebPosApiException
+                                    drawerAvailable = runCatching {
+                                        client.cashDrawerStatus(session).visible
+                                    }.getOrDefault(false)
+                                    val message = when (api?.code) {
+                                        "permission_denied" -> "บัญชีนี้ไม่มีสิทธิ์เปิดลิ้นชัก"
+                                        "drawer_route_not_ready",
+                                        "print_agent_unavailable" -> "ลิ้นชักหรือเครื่องพิมพ์ยังไม่พร้อม"
+                                        "drawer_cooldown" -> "กรุณารอสักครู่ก่อนเปิดลิ้นชักอีกครั้ง"
+                                        else -> "เปิดลิ้นชักไม่สำเร็จ"
+                                    }
+                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    drawerOpening = false
+                                }
+                            }
+                        }
+                    }
                     DiningTopAction(
                         R.drawable.ic_nav_cart, "ตะกร้า", !draft.busy,
                         count = combinedCount
