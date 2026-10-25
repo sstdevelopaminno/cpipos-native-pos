@@ -54,6 +54,10 @@ internal fun NativeMainTabScreen(
         NativeSalesListScreen(client = client, session = session, onTab = onTab)
         return
     }
+    if (tab == "history") {
+        NativeMoreScreen(client = client, session = session, products = products, onTab = onTab)
+        return
+    }
     if (tab == "stock") {
         NativeCatalogManagementScreen(client, session, products, onTab)
         return
