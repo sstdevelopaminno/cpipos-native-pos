@@ -321,7 +321,21 @@ data class WebTaxReceiptRow(
     val taxTotal: Satang,
     val createdAt: String,
     val invoiceNo: String?,
+    val invoiceProfileId: String?,
     val issuedAt: String?
+)
+data class WebTaxProfileRow(
+    val id: String,
+    val displayName: String,
+    val taxId: String,
+    val entityType: String,
+    val addressLine: String,
+    val subdistrict: String,
+    val district: String,
+    val province: String,
+    val postalCode: String,
+    val invoiceCount: Int,
+    val lastIssuedAt: String?
 )
 
 data class WebCreatedOrder(
@@ -959,9 +973,122 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 taxTotal = Satang.fromBaht(row.opt("tax_total")?.toString() ?: "0"),
                 createdAt = row.optString("created_at"),
                 invoiceNo = invoice?.optString("invoice_no")?.takeIf { it.isNotBlank() },
+                invoiceProfileId = invoice?.optString("profile_id")?.takeIf { it.isNotBlank() },
                 issuedAt = invoice?.optString("issued_at")?.takeIf { it.isNotBlank() }
             )
         }
+    }
+
+    suspend fun reprintReceipt(
+        session: WebPosSession,
+        orderId: String,
+        managerPin: String
+    ): Int {
+        requireSameLiveSession(session)
+        require(runCatching { UUID.fromString(orderId) }.isSuccess)
+        require(managerPin.length in 4..12 && managerPin.all(Char::isDigit))
+        val data = call(
+            "POST",
+            "/api/pos/receipts/" + orderId + "/reprint",
+            JSONObject()
+                .put("manager_pin", managerPin)
+                .put("note", "พิมพ์ย้อนหลังจาก POS มือถือ")
+        )
+        return data.optJSONArray("jobs")?.length()
+            ?: data.optInt("print_jobs_queued", 0)
+    }
+
+    suspend fun saveMember(
+        session: WebPosSession,
+        name: String,
+        phone: String,
+        email: String = "",
+        points: Int = 0,
+        stamps: Int = 0
+    ): WebMemberRow {
+        requireSameLiveSession(session)
+        val digits = phone.filter(Char::isDigit)
+        require(name.trim().isNotBlank() && digits.length in 9..10)
+        require(points >= 0 && stamps >= 0)
+        val data = call(
+            "POST",
+            "/api/pos/members",
+            JSONObject()
+                .put("name", name.trim())
+                .put("phone", digits)
+                .put("email", email.trim())
+                .put("points", points)
+                .put("stamps", stamps)
+        ).getJSONObject("member")
+        return WebMemberRow(
+            id = data.getString("id"),
+            name = data.optString("name").ifBlank { name.trim() },
+            phone = data.optString("phone").ifBlank { digits },
+            email = data.optString("email"),
+            points = data.optInt("points_balance", data.optInt("points", points)),
+            stamps = data.optInt("stamp_balance", data.optInt("stamps", stamps)),
+            updatedAt = data.optString("updated_at")
+        )
+    }
+
+    suspend fun deleteMember(session: WebPosSession, memberId: String) {
+        requireSameLiveSession(session)
+        require(runCatching { UUID.fromString(memberId) }.isSuccess)
+        val data = call("DELETE", "/api/pos/members?id=" + queryValue(memberId))
+        if (!data.optBoolean("deleted", false)) {
+            throw WebPosApiException("member_delete_unconfirmed", 503)
+        }
+    }
+
+    suspend fun taxProfiles(session: WebPosSession, query: String = ""): List<WebTaxProfileRow> {
+        requireSameLiveSession(session)
+        require(query.length <= 80)
+        val data = call(
+            "GET",
+            "/api/pos/tax-invoices?q=" + queryValue(query.trim())
+        )
+        val rows = data.optJSONArray("profiles") ?: JSONArray()
+        return (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            WebTaxProfileRow(
+                id = id,
+                displayName = row.optString("display_name").ifBlank { "-" },
+                taxId = row.optString("tax_id"),
+                entityType = row.optString("entity_type"),
+                addressLine = row.optString("address_line"),
+                subdistrict = row.optString("subdistrict"),
+                district = row.optString("district"),
+                province = row.optString("province"),
+                postalCode = row.optString("postal_code"),
+                invoiceCount = row.optInt("invoice_count", 0),
+                lastIssuedAt = row.optString("last_issued_at").takeIf { it.isNotBlank() }
+            )
+        }
+    }
+
+    suspend fun printTaxInvoice(
+        session: WebPosSession,
+        profileId: String,
+        orderId: String,
+        managerPin: String
+    ): String {
+        requireSameLiveSession(session)
+        require(runCatching { UUID.fromString(profileId) }.isSuccess)
+        require(runCatching { UUID.fromString(orderId) }.isSuccess)
+        require(managerPin.length in 4..12 && managerPin.all(Char::isDigit))
+        val data = call(
+            "POST",
+            "/api/pos/tax-invoices",
+            JSONObject()
+                .put("action", "print_invoice")
+                .put("profile_id", profileId)
+                .put("order_id", orderId)
+                .put("manager_pin", managerPin)
+        )
+        val invoiceNo = data.optString("invoice_no")
+        if (invoiceNo.isBlank()) throw WebPosApiException("tax_invoice_print_unconfirmed", 503)
+        return invoiceNo
     }
 
     /** POS-cookie catalog bridge backed by the same CpIPOS products/ingredients tables. */
