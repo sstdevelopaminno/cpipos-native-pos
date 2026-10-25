@@ -18,6 +18,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.cpipos.pos.next.core.webpos.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalContext
+import java.util.UUID
 
 private val moveBlue = Color(0xFF176DED)
 private val moveInk = Color(0xFF182C4E)
@@ -40,14 +42,26 @@ internal fun NativeTableMoveDialog(
     onMoved: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val journal = remember(context.applicationContext) {
+        NativeTableMoveJournal(context.applicationContext)
+    }
+    val billSession = originalBill?.sessionId ?: source.sessionId
+    var pending by remember(session.tenantId, session.branchId,
+        session.deviceCode, source.id, billSession) {
+        mutableStateOf(billSession?.let { journal.pending(session, source.id, it) })
+    }
     var tables by remember(session.id, source.id) { mutableStateOf<List<WebDiningTable>>(emptyList()) }
-    var target by remember(session.id, source.id) { mutableStateOf<String?>(null) }
+    var target by remember(session.id, source.id, billSession) {
+        mutableStateOf<String?>(pending?.targetId)
+    }
     var loading by remember(session.id, source.id) { mutableStateOf(true) }
     var saving by remember(session.id, source.id) { mutableStateOf(false) }
-    var uncertain by remember(session.id, source.id) { mutableStateOf(false) }
+    var uncertain by remember(session.id, source.id, billSession) {
+        mutableStateOf(pending != null)
+    }
     var error by remember(session.id, source.id) { mutableStateOf<String?>(null) }
     var confirmed by remember(session.id, source.id) { mutableStateOf(false) }
-    val billSession = originalBill?.sessionId ?: source.sessionId
 
     suspend fun refresh() {
         val floor = client.diningTables(session)
@@ -159,6 +173,13 @@ internal fun NativeTableMoveDialog(
                                     val original = tables.firstOrNull { it.id == source.id }
                                     if (current?.sessionId == billSession &&
                                         original?.sessionId != billSession) {
+                                        val entry = pending
+                                        if (entry != null && billSession != null &&
+                                            entry.requestId.isNotBlank()) {
+                                            journal.confirmed(
+                                                session, source.id, billSession, entry.requestId)
+                                            pending = null
+                                        }
                                         onMoved()
                                     } else {
                                         error = "ยังยืนยันผลย้ายไม่ได้ กรุณาตรวจบิลบน CpIPOS หลัก"
@@ -196,7 +217,13 @@ internal fun NativeTableMoveDialog(
                                     val serverBill = client.diningBill(session, source.id)
                                     check(serverBill.sessionId == billSession &&
                                         !serverBill.paid) { "bill_changed" }
-                                    // Server-side atomic RPC guarantees one source/target bill.
+                                    // Durable marker MUST commit before the first POST. Never
+                                    // send a second request after an uncertain response.
+                                    val requestId = UUID.randomUUID().toString()
+                                    journal.prepare(
+                                        session, source.id, targetId, billSession, requestId
+                                    )
+                                    pending = journal.pending(session, source.id, billSession)
                                     submitted = true
                                     val result = client.moveDiningBill(session, source.id, targetId)
                                     check(result.billSessionId == billSession && result.moved) {
@@ -206,6 +233,10 @@ internal fun NativeTableMoveDialog(
                                     check(newFloor.tables.any {
                                         it.id == targetId && it.sessionId == billSession
                                     }) { "move_needs_reconcile" }
+                                    val entry = pending
+                                    check(entry != null && entry.requestId == requestId)
+                                    journal.confirmed(session, source.id, billSession, requestId)
+                                    pending = null
                                     onMoved()
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
