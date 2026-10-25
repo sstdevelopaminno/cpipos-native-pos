@@ -57,6 +57,7 @@ import com.cpipos.pos.next.core.webpos.WebPosApiException
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import com.cpipos.pos.next.core.push.NativeFcmRegistration
 import com.cpipos.pos.next.core.push.NativeQrBackgroundService
+import com.cpipos.pos.next.core.print.NativePrintRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -114,6 +115,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     }
 
     fun goToStore() {
+        NativePrintRuntime.stop()
         NativeQrBackgroundService.stop(ctx)
         NativeFcmRegistration.clearScope(ctx)
         employeeCode = ""
@@ -191,8 +193,13 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     // a zero-cost fallback and stops automatically on POS-session revocation.
     LaunchedEffect(session?.id) {
         val active = session
-        if (active != null) NativeQrBackgroundService.start(ctx)
-        else NativeQrBackgroundService.stop(ctx)
+        if (active != null) {
+            NativeQrBackgroundService.start(ctx)
+            NativePrintRuntime.start(ctx, client, active)
+        } else {
+            NativePrintRuntime.stop()
+            NativeQrBackgroundService.stop(ctx)
+        }
     }
 
     // Firebase token registration is strictly POS-session scoped. Firebase may
