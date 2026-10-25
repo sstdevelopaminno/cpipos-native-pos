@@ -1361,157 +1361,340 @@ private fun MemberEditorDialog(
 }
 
 @Composable
-private fun MoreTaxInvoiceScreen(
+private fun TaxProfileEditorDialog(
     client: WebPosClient,
     session: WebPosSession,
-    onBack: () -> Unit,
-    onTab: (String) -> Unit
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (
+        entityType: String,
+        displayName: String,
+        taxId: String,
+        addressLine: String,
+        postalCode: String,
+        subdistrict: String,
+        district: String,
+        province: String
+    ) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    var rows by remember(session.id) { mutableStateOf<List<WebTaxReceiptRow>>(emptyList()) }
-    var profiles by remember(session.id) { mutableStateOf<List<WebTaxProfileRow>>(emptyList()) }
-    var query by remember { mutableStateOf("") }
-    var submitted by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var selected by remember { mutableStateOf<WebTaxReceiptRow?>(null) }
-    var printing by remember { mutableStateOf(false) }
-    var refresh by remember { mutableIntStateOf(0) }
+    var entityType by remember { mutableStateOf("company") }
+    var typeExpanded by remember { mutableStateOf(false) }
+    var displayName by remember { mutableStateOf("") }
+    var taxId by remember { mutableStateOf("") }
+    var addressLine by remember { mutableStateOf("") }
+    var postalCode by remember { mutableStateOf("") }
+    var addressOptions by remember { mutableStateOf<List<WebTaxAddressOption>>(emptyList()) }
+    var selectedAddress by remember { mutableStateOf<WebTaxAddressOption?>(null) }
+    var addressLoading by remember { mutableStateOf(false) }
+    var addressError by remember { mutableStateOf<String?>(null) }
+    var formError by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(client, session.id, submitted, refresh) {
-        loading = true
+    LaunchedEffect(postalCode) {
+        addressOptions = emptyList()
+        selectedAddress = null
+        addressError = null
+        val digits = postalCode.filter(Char::isDigit)
+        if (digits.length != 5) return@LaunchedEffect
+        addressLoading = true
         try {
-            rows = client.taxReceipts(session, submitted)
-            profiles = client.taxProfiles(session)
-            error = null
+            val result = client.taxAddressOptions(session, digits)
+            addressOptions = result
+            if (result.size == 1) selectedAddress = result.first()
+            if (result.isEmpty()) addressError = "ไม่พบข้อมูลพื้นที่สำหรับรหัสไปรษณีย์นี้"
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            error = "โหลดข้อมูลใบกำกับภาษีไม่ได้: " + ((failure as? WebPosApiException)?.code ?: "network_error")
-        } finally { loading = false }
+            addressError = "ค้นหาที่อยู่ไม่สำเร็จ: " + ((failure as? WebPosApiException)?.code ?: "network_error")
+        } finally {
+            addressLoading = false
+        }
     }
 
-    MoreScaffold("ออกใบกำกับภาษี", session, onBack, onTab) {
-        item {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it.take(80) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("ค้นหาเลขบิล") },
-                singleLine = true,
-                trailingIcon = { TextButton(onClick = { submitted = query.trim() }) { Text("ค้นหา") } }
-            )
-        }
-        if (loading) item { LoadingBlock() }
-        else if (error != null) item { ErrorBlock(error.orEmpty()) }
-        else {
-            item {
+    val entityLabel = when (entityType) {
+        "limited_partnership" -> "หจก."
+        "shop" -> "ร้านค้า"
+        "individual" -> "บุคคลธรรมดา"
+        else -> "บริษัท"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("เพิ่มข้อมูลผู้เสียภาษี", fontWeight = FontWeight.ExtraBold)
                 Text(
-                    if (profiles.isEmpty())
-                        "ยังไม่มีข้อมูลผู้เสียภาษีของลูกค้าในสาขานี้ · ต้องสร้างข้อมูลผู้เสียภาษีในทะเบียนก่อนออกใบกำกับ"
-                    else "แตะบิลเพื่อเลือกผู้เสียภาษีและยืนยัน PIN Owner/Manager ก่อนออก/พิมพ์",
+                    "ฟอร์มเดียวกับ CpIPOS · เลือกพื้นที่จากรหัสไปรษณีย์",
                     color = moreMuted,
                     fontSize = 10.sp
                 )
             }
-            item { TableHeader(listOf("เลขบิล" to 1.5f, "ลูกค้า" to 1.1f, "ยอด" to .9f, "ใบกำกับ" to 1f)) }
-            items(rows, key = { it.id }) { row ->
-                Surface(
-                    color = Color.White,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().clickable(enabled = !printing && profiles.isNotEmpty()) {
-                        selected = row
-                    }
-                ) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 11.dp)) {
-                        Text(row.orderNo, Modifier.weight(1.5f), fontSize = 10.sp, color = moreInk, maxLines = 2)
-                        Text(row.customerName.ifBlank { "-" }, Modifier.weight(1.1f), fontSize = 10.sp, color = moreInk, maxLines = 2)
-                        Text("฿" + row.total.bahtText(), Modifier.weight(.9f), fontSize = 10.sp, color = moreBlue)
-                        Text(row.invoiceNo ?: "ยังไม่ออก", Modifier.weight(1f), fontSize = 10.sp, color = moreInk, maxLines = 2)
-                    }
-                }
-            }
-            if (rows.isEmpty()) item { EmptyBlock("ไม่พบบิลสำหรับออกใบกำกับภาษี") }
-        }
-    }
-
-    selected?.let { row ->
-        TaxInvoicePrintDialog(
-            receipt = row,
-            profiles = profiles,
-            busy = printing,
-            onDismiss = { if (!printing) selected = null },
-            onPrint = { profileId, pin ->
-                printing = true
-                scope.launch {
-                    try {
-                        client.printTaxInvoice(session, profileId, row.id, pin)
-                        NativePrintRuntime.wake()
-                        selected = null
-                        refresh += 1
-                    } catch (failure: Exception) {
-                        error = "ออก/พิมพ์ใบกำกับภาษีไม่สำเร็จ: " +
-                            ((failure as? WebPosApiException)?.code ?: "printer_or_network_error")
-                    } finally { printing = false }
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun TaxInvoicePrintDialog(
-    receipt: WebTaxReceiptRow,
-    profiles: List<WebTaxProfileRow>,
-    busy: Boolean,
-    onDismiss: () -> Unit,
-    onPrint: (String, String) -> Unit
-) {
-    var profileId by remember(receipt.id) {
-        mutableStateOf(receipt.invoiceProfileId?.takeIf { id -> profiles.any { it.id == id } } ?: profiles.firstOrNull()?.id.orEmpty())
-    }
-    var expanded by remember { mutableStateOf(false) }
-    var pin by remember(receipt.id) { mutableStateOf("") }
-    var formError by remember(receipt.id) { mutableStateOf<String?>(null) }
-    val profile = profiles.firstOrNull { it.id == profileId }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text((if (receipt.invoiceNo == null) "ออกใบกำกับภาษี" else "พิมพ์ใบกำกับภาษี") + " " + receipt.orderNo) },
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                Text("ผู้เสียภาษี", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                Text("ประเภทนาม", color = moreInk, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 Box {
                     OutlinedButton(
-                        onClick = { expanded = true },
-                        enabled = !busy && receipt.invoiceProfileId == null,
+                        onClick = { typeExpanded = true },
+                        enabled = !busy,
                         modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(profile?.displayName ?: "เลือกผู้เสียภาษี")
-                    }
-                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        profiles.forEach { row ->
+                    ) { Text(entityLabel) }
+                    DropdownMenu(expanded = typeExpanded, onDismissRequest = { typeExpanded = false }) {
+                        listOf(
+                            "company" to "บริษัท",
+                            "limited_partnership" to "หจก.",
+                            "shop" to "ร้านค้า",
+                            "individual" to "บุคคลธรรมดา"
+                        ).forEach { item ->
                             DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(row.displayName)
-                                        Text(row.taxId, fontSize = 10.sp, color = moreMuted)
-                                    }
-                                },
+                                text = { Text(item.second) },
                                 onClick = {
-                                    profileId = row.id
-                                    expanded = false
+                                    entityType = item.first
+                                    typeExpanded = false
                                 }
                             )
                         }
                     }
                 }
-                profile?.let {
-                    Text("เลขผู้เสียภาษี " + it.taxId, fontSize = 10.sp, color = moreMuted)
+                OutlinedTextField(
+                    value = displayName,
+                    onValueChange = { displayName = it.take(160) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("ชื่อสำหรับออกภาษี") }
+                )
+                OutlinedTextField(
+                    value = taxId,
+                    onValueChange = { taxId = it.filter(Char::isDigit).take(13) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("เลขผู้เสียภาษี 13 หลัก") }
+                )
+                if (taxId.length == 13 && !thaiTaxIdValid(taxId)) {
+                    Text("เลขผู้เสียภาษีไม่ผ่านการตรวจสอบ", color = Color(0xFFB13F4C), fontSize = 10.sp)
+                }
+                OutlinedTextField(
+                    value = postalCode,
+                    onValueChange = { postalCode = it.filter(Char::isDigit).take(5) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("รหัสไปรษณีย์") }
+                )
+                OutlinedTextField(
+                    value = addressLine,
+                    onValueChange = { addressLine = it.take(240) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("ที่อยู่ผู้เสียภาษี (บ้านเลขที่ / หมู่ / ถนน / อาคาร)") }
+                )
+                if (addressLoading) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text("กำลังค้นหาที่อยู่จากรหัสไปรษณีย์...", color = moreBlue, fontSize = 10.sp)
+                }
+                addressError?.let {
+                    Text(it, color = Color(0xFFB13F4C), fontSize = 10.sp)
+                }
+                if (addressOptions.size > 1 && selectedAddress == null) {
+                    Text("รหัสนี้มีหลายพื้นที่ กรุณาเลือกให้ตรงกับที่อยู่จริง", color = moreInk, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    addressOptions.forEach { option ->
+                        OutlinedButton(
+                            onClick = { selectedAddress = option },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                option.subdistrict + " · " + option.district + " · " + option.province,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
+                selectedAddress?.let { address ->
+                    Surface(color = Color(0xFFF2F5F9), shape = RoundedCornerShape(12.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(11.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("ตำบล / แขวง: " + address.subdistrict, fontSize = 10.sp, color = moreInk)
+                            Text("อำเภอ / เขต: " + address.district, fontSize = 10.sp, color = moreInk)
+                            Text("จังหวัด: " + address.province, fontSize = 10.sp, color = moreInk)
+                        }
+                    }
+                }
+                formError?.let {
+                    Text(it, color = Color(0xFFB13F4C), fontSize = 11.sp)
+                }
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !busy,
+                onClick = {
+                    val address = selectedAddress
+                    when {
+                        displayName.isBlank() -> formError = "กรุณากรอกชื่อสำหรับออกภาษี"
+                        !thaiTaxIdValid(taxId) -> formError = "เลขผู้เสียภาษี 13 หลักไม่ถูกต้อง"
+                        postalCode.length != 5 -> formError = "กรุณากรอกรหัสไปรษณีย์ 5 หลัก"
+                        addressLine.isBlank() -> formError = "กรุณากรอกที่อยู่ผู้เสียภาษี"
+                        address == null -> formError = "กรุณาเลือกตำบล/อำเภอ/จังหวัดจากรหัสไปรษณีย์"
+                        else -> {
+                            formError = null
+                            onSave(
+                                entityType,
+                                displayName.trim(),
+                                taxId,
+                                addressLine.trim(),
+                                postalCode,
+                                address.subdistrict,
+                                address.district,
+                                address.province
+                            )
+                        }
+                    }
+                }
+            ) { Text("บันทึก") }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onDismiss) { Text("ยกเลิก") }
+        }
+    )
+}
+
+@Composable
+private fun TaxReceiptPickerDialog(
+    client: WebPosClient,
+    session: WebPosSession,
+    profile: WebTaxProfileRow,
+    onDismiss: () -> Unit,
+    onSelect: (WebTaxReceiptRow) -> Unit
+) {
+    var query by remember(profile.id) { mutableStateOf("") }
+    var submitted by remember(profile.id) { mutableStateOf("") }
+    var rows by remember(profile.id) { mutableStateOf<List<WebTaxReceiptRow>>(emptyList()) }
+    var loading by remember(profile.id) { mutableStateOf(true) }
+    var error by remember(profile.id) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(profile.id, submitted) {
+        loading = true
+        try {
+            rows = client.taxReceipts(session, submitted)
+            error = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            error = "โหลดบิลไม่สำเร็จ: " + ((failure as? WebPosApiException)?.code ?: "network_error")
+        } finally {
+            loading = false
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("เลือกบิล / ออกใบกำกับ", fontWeight = FontWeight.ExtraBold)
+                Text(profile.displayName + " · " + profile.taxId, color = moreMuted, fontSize = 10.sp)
+            }
+        },
+        text = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it.take(80) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("ค้นหาเลขบิล") },
+                    trailingIcon = {
+                        TextButton(onClick = { submitted = query.trim() }) { Text("ค้นหา") }
+                    }
+                )
+                Text("ไม่กรอกเลขบิลจะแสดงบิลที่ชำระล่าสุด", color = moreMuted, fontSize = 9.sp)
+                Box(Modifier.fillMaxWidth().heightIn(max = 390.dp)) {
+                    when {
+                        loading -> Box(Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = moreBlue)
+                        }
+                        error != null -> ErrorBlock(error.orEmpty())
+                        rows.isEmpty() -> EmptyBlock("ไม่พบบิล")
+                        else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            items(rows, key = { it.id }) { receipt ->
+                                val conflict = receipt.invoiceProfileId != null && receipt.invoiceProfileId != profile.id
+                                Surface(
+                                    color = if (conflict) Color(0xFFFFEEEE) else Color(0xFFF7F9FC),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth().clickable(enabled = !conflict) {
+                                        onSelect(receipt)
+                                    }
+                                ) {
+                                    Column(Modifier.fillMaxWidth().padding(10.dp)) {
+                                        Row(Modifier.fillMaxWidth()) {
+                                            Text(receipt.orderNo, Modifier.weight(1f), color = moreInk, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                                            Text("฿" + receipt.total.bahtText(), color = moreBlue, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                                        }
+                                        Spacer(Modifier.height(3.dp))
+                                        Text(
+                                            when {
+                                                conflict -> "ออกแล้วให้ผู้เสียภาษีรายอื่น: " + (receipt.invoiceNo ?: "-")
+                                                receipt.invoiceNo != null -> "เคยออกแล้ว: " + receipt.invoiceNo + " · แตะเพื่อพิมพ์ซ้ำ"
+                                                else -> "ยังไม่เคยออกใบกำกับ"
+                                            },
+                                            color = if (conflict) Color(0xFFB13F4C) else moreMuted,
+                                            fontSize = 9.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("ปิด") }
+        }
+    )
+}
+
+@Composable
+private fun TaxInvoicePrintDialog(
+    receipt: WebTaxReceiptRow,
+    profile: WebTaxProfileRow,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onPrint: (String) -> Unit
+) {
+    var pin by remember(receipt.id, profile.id) { mutableStateOf("") }
+    var formError by remember(receipt.id, profile.id) { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                (if (receipt.invoiceNo == null) "ออกใบกำกับภาษี" else "พิมพ์ใบกำกับภาษีซ้ำ") +
+                    " " + receipt.orderNo,
+                fontWeight = FontWeight.ExtraBold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Surface(color = Color(0xFFF3F7FD), shape = RoundedCornerShape(12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(11.dp)) {
+                        Text(profile.displayName, fontWeight = FontWeight.ExtraBold, color = moreInk)
+                        Text("เลขผู้เสียภาษี " + profile.taxId, fontSize = 10.sp, color = moreMuted)
+                        Text(
+                            profile.addressLine + " " + profile.subdistrict + " " +
+                                profile.district + " " + profile.province + " " + profile.postalCode,
+                            fontSize = 9.sp,
+                            color = moreMuted
+                        )
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("ยอดบิล", color = moreMuted, fontSize = 11.sp)
+                    Text("฿" + receipt.total.bahtText(), color = moreBlue, fontWeight = FontWeight.ExtraBold)
                 }
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { pin = it.filter(Char::isDigit).take(12) },
+                    modifier = Modifier.fillMaxWidth(),
                     label = { Text("PIN Owner/Manager") },
                     singleLine = true
                 )
@@ -1523,19 +1706,292 @@ private fun TaxInvoicePrintDialog(
             Button(
                 enabled = !busy,
                 onClick = {
-                    when {
-                        profileId.isBlank() -> formError = "กรุณาเลือกผู้เสียภาษี"
-                        pin.length < 4 -> formError = "กรุณากรอก PIN อย่างน้อย 4 หลัก"
-                        else -> {
-                            formError = null
-                            onPrint(profileId, pin)
+                    if (pin.length < 4) formError = "กรุณากรอก PIN อย่างน้อย 4 หลัก"
+                    else {
+                        formError = null
+                        onPrint(pin)
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = moreBlue)
+            ) {
+                Text(if (receipt.invoiceNo == null) "ยืนยันออกและพิมพ์" else "พิมพ์อีกครั้ง")
+            }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onDismiss) { Text("ยกเลิก") }
+        }
+    )
+}
+
+@Composable
+private fun MoreTaxInvoiceScreen(
+    client: WebPosClient,
+    session: WebPosSession,
+    onBack: () -> Unit,
+    onTab: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var profiles by remember(session.id) { mutableStateOf<List<WebTaxProfileRow>>(emptyList()) }
+    var query by remember { mutableStateOf("") }
+    var submitted by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var addOpen by remember { mutableStateOf(false) }
+    var savingProfile by remember { mutableStateOf(false) }
+    var issueProfile by remember { mutableStateOf<WebTaxProfileRow?>(null) }
+    var selectedReceipt by remember { mutableStateOf<WebTaxReceiptRow?>(null) }
+    var printing by remember { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<WebTaxProfileRow?>(null) }
+    var deleting by remember { mutableStateOf(false) }
+    var deleteError by remember { mutableStateOf<String?>(null) }
+    var success by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(client, session.id, submitted, refresh) {
+        loading = true
+        try {
+            profiles = client.taxProfiles(session, submitted)
+            error = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            error = "โหลดทะเบียนผู้เสียภาษีไม่ได้: " + ((failure as? WebPosApiException)?.code ?: "network_error")
+        } finally {
+            loading = false
+        }
+    }
+
+    MoreScaffold("ออกใบกำกับภาษี", session, onBack, onTab) {
+        item {
+            Button(
+                onClick = { addOpen = true },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !savingProfile && !deleting,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = moreBlue)
+            ) {
+                Text("+ เพิ่มรายการใหม่", fontWeight = FontWeight.ExtraBold)
+            }
+        }
+        item {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it.take(80) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("ค้นหาชื่อ หรือเลขผู้เสียภาษี") },
+                trailingIcon = {
+                    TextButton(onClick = { submitted = query.trim() }) { Text("ค้นหา") }
+                }
+            )
+        }
+        item {
+            Text(
+                "ทะเบียนผู้เสียภาษี → เลือกบิลย้อนหลัง → ตรวจสิทธิ์/PIN → พิมพ์ตามเครื่องที่ตั้งไว้ใน CpIPOS",
+                color = moreMuted,
+                fontSize = 10.sp
+            )
+        }
+        success?.let { message ->
+            item {
+                Surface(color = Color(0xFFEAF8EF), shape = RoundedCornerShape(13.dp)) {
+                    Text(message, Modifier.padding(12.dp), color = Color(0xFF237A45), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        if (loading) {
+            item { LoadingBlock() }
+        } else if (error != null) {
+            item { ErrorBlock(error.orEmpty()) }
+        } else {
+            item {
+                TableHeader(
+                    listOf(
+                        "ชื่อ / เลขผู้เสียภาษี" to 1.8f,
+                        "เคยออก" to .65f,
+                        "ดำเนินการ" to 1.25f
+                    )
+                )
+            }
+            items(profiles, key = { it.id }) { profile ->
+                Surface(color = Color.White, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1.8f)) {
+                            Text(
+                                profile.displayName,
+                                color = moreInk,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 2
+                            )
+                            Text(profile.taxId, color = moreMuted, fontSize = 9.sp)
+                        }
+                        Text(
+                            profile.invoiceCount.toString(),
+                            Modifier.weight(.65f),
+                            color = moreInk,
+                            fontSize = 10.sp
+                        )
+                        Row(
+                            Modifier.weight(1.25f),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    issueProfile = profile
+                                    selectedReceipt = null
+                                },
+                                enabled = !printing && !deleting
+                            ) {
+                                Text("ออกใบกำกับ", fontSize = 9.sp, color = moreBlue, fontWeight = FontWeight.Bold)
+                            }
+                            if (session.canManageTables) {
+                                TextButton(
+                                    onClick = {
+                                        deleteError = null
+                                        deleteTarget = profile
+                                    },
+                                    enabled = !printing && !deleting
+                                ) {
+                                    Text("ลบ", fontSize = 9.sp, color = Color(0xFFB13F4C), fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }
-            ) { Text(if (receipt.invoiceNo == null) "ออกและพิมพ์" else "พิมพ์อีกครั้ง") }
-        },
-        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("ยกเลิก") } }
-    )
+            }
+            if (profiles.isEmpty()) {
+                item { EmptyBlock("ยังไม่มีทะเบียนผู้เสียภาษี") }
+            }
+        }
+    }
+
+    if (addOpen) {
+        TaxProfileEditorDialog(
+            client = client,
+            session = session,
+            busy = savingProfile,
+            onDismiss = { if (!savingProfile) addOpen = false },
+            onSave = { entityType, displayName, taxId, addressLine, postalCode, subdistrict, district, province ->
+                savingProfile = true
+                error = null
+                success = null
+                scope.launch {
+                    try {
+                        client.saveTaxProfile(
+                            session = session,
+                            entityType = entityType,
+                            displayName = displayName,
+                            taxId = taxId,
+                            addressLine = addressLine,
+                            postalCode = postalCode,
+                            subdistrict = subdistrict,
+                            district = district,
+                            province = province
+                        )
+                        addOpen = false
+                        success = "เพิ่มทะเบียนผู้เสียภาษีสำเร็จ"
+                        refresh += 1
+                    } catch (failure: Exception) {
+                        error = "บันทึกทะเบียนผู้เสียภาษีไม่สำเร็จ: " +
+                            ((failure as? WebPosApiException)?.code ?: "network_error")
+                    } finally {
+                        savingProfile = false
+                    }
+                }
+            }
+        )
+    }
+
+    issueProfile?.let { profile ->
+        if (selectedReceipt == null) {
+            TaxReceiptPickerDialog(
+                client = client,
+                session = session,
+                profile = profile,
+                onDismiss = { issueProfile = null },
+                onSelect = { selectedReceipt = it }
+            )
+        }
+    }
+
+    val receipt = selectedReceipt
+    val profile = issueProfile
+    if (receipt != null && profile != null) {
+        TaxInvoicePrintDialog(
+            receipt = receipt,
+            profile = profile,
+            busy = printing,
+            onDismiss = {
+                if (!printing) selectedReceipt = null
+            },
+            onPrint = { pin ->
+                printing = true
+                error = null
+                success = null
+                scope.launch {
+                    try {
+                        val invoiceNo = client.printTaxInvoice(session, profile.id, receipt.id, pin)
+                        NativePrintRuntime.wake()
+                        success = "ออก/ส่งพิมพ์ใบกำกับภาษี " + invoiceNo + " แล้ว"
+                        selectedReceipt = null
+                        issueProfile = null
+                        refresh += 1
+                    } catch (failure: Exception) {
+                        val api = failure as? WebPosApiException
+                        error = when (api?.code) {
+                            "pin_rejected", "pin_required" -> "PIN Owner/Manager ไม่ถูกต้อง"
+                            "receipt_printer_not_configured" -> "ยังไม่ได้ตั้งค่าเครื่องพิมพ์ใบเสร็จ/ใบกำกับภาษี"
+                            else -> "ออก/พิมพ์ใบกำกับภาษีไม่สำเร็จ: " + (api?.code ?: "printer_or_network_error")
+                        }
+                    } finally {
+                        printing = false
+                    }
+                }
+            }
+        )
+    }
+
+    deleteTarget?.let { target ->
+        NativeCancelBillPinDialog(
+            title = "ลบทะเบียน " + target.displayName,
+            busy = deleting,
+            error = deleteError,
+            actionLabel = "ยืนยัน PIN และลบ",
+            actionNote = "รายการจะถูกปิดใช้งาน แต่ประวัติใบกำกับที่เคยออกจะยังคงอยู่",
+            onDismiss = {
+                if (!deleting) {
+                    deleteTarget = null
+                    deleteError = null
+                }
+            },
+            onApprove = { pin ->
+                deleting = true
+                deleteError = null
+                scope.launch {
+                    try {
+                        client.deleteTaxProfile(session, target.id, pin)
+                        deleteTarget = null
+                        success = "ลบทะเบียนผู้เสียภาษีแล้ว"
+                        refresh += 1
+                    } catch (failure: Exception) {
+                        val api = failure as? WebPosApiException
+                        deleteError = when (api?.code) {
+                            "pin_rejected", "pin_required" -> "PIN Owner/Manager ไม่ถูกต้อง"
+                            "forbidden_role" -> "บัญชีนี้ไม่มีสิทธิ์ลบทะเบียนผู้เสียภาษี"
+                            "http_404" -> "CpIPOS Server ยังไม่รองรับการลบรายการจาก POS มือถือรุ่นนี้"
+                            else -> "ลบไม่สำเร็จ: " + (api?.code ?: "network_error")
+                        }
+                    } finally {
+                        deleting = false
+                    }
+                }
+            }
+        )
+    }
 }
 
 @Composable
