@@ -143,7 +143,7 @@ internal fun NativeNotificationSettingsScreen(
     val androidAudio = context.getSystemService(AudioManager::class.java)
     val notificationVolumeReady = androidAudio?.getStreamVolume(AudioManager.STREAM_NOTIFICATION)
         ?.let { it > 0 } ?: true
-    val ringerReady = androidAudio?.ringerMode != AudioManager.RINGER_MODE_SILENT
+    val ringerReady = androidAudio?.ringerMode == AudioManager.RINGER_MODE_NORMAL
     val soundChannelReady = NativeQrNotificationPublisher.soundChannelReady(context)
     val androidSoundReady = !settings.soundEnabled ||
         (notificationAllowed && soundChannelReady && notificationVolumeReady && ringerReady)
