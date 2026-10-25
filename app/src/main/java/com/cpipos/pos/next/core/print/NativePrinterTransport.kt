@@ -11,13 +11,22 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.drawable.Drawable
+import android.util.Base64
 import android.os.Build
 import androidx.core.content.ContextCompat
+import com.cpipos.pos.next.R
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.URL
 import java.nio.charset.Charset
 import java.util.UUID
 
@@ -27,6 +36,7 @@ data class NativePrinterProfile(
     val connectionType: String,
     val ipAddress: String?,
     val port: Int?,
+    val paperWidthMm: Int,
     val metadata: JSONObject
 )
 
@@ -34,6 +44,7 @@ data class NativePrintJob(
     val id: String,
     val attemptId: String,
     val payloadText: String,
+    val payloadJson: JSONObject,
     val metadata: JSONObject,
     val printer: NativePrinterProfile
 )
@@ -66,6 +77,7 @@ class NativePrinterTransport(context: Context) {
             id = row.getString("id"),
             attemptId = row.getString("agent_attempt_id"),
             payloadText = row.optString("payload_text", ""),
+            payloadJson = row.optJSONObject("payload_json") ?: JSONObject(),
             metadata = row.optJSONObject("metadata") ?: JSONObject(),
             printer = NativePrinterProfile(
                 id = printer.optString("id"),
@@ -74,6 +86,10 @@ class NativePrinterTransport(context: Context) {
                 ipAddress = printer.optString("ip_address").trim().takeIf { it.isNotEmpty() },
                 port = if (printer.has("port") && !printer.isNull("port"))
                     printer.optInt("port", 9100) else null,
+                paperWidthMm = printer.optInt(
+                    "paper_width_mm",
+                    row.optJSONObject("metadata")?.optInt("paper_width_mm", 58) ?: 58
+                ).let { if (it == 80) 80 else 58 },
                 metadata = printer.optJSONObject("metadata") ?: JSONObject()
             )
         )
@@ -116,11 +132,124 @@ class NativePrinterTransport(context: Context) {
         val autoCut = job.printer.metadata.optBoolean("auto_cut", false)
         return ByteArrayOutputStream().apply {
             write(byteArrayOf(0x1B, 0x40))
+            val logo = loadReceiptLogo(job)
+            if (logo != null) {
+                try {
+                    write(byteArrayOf(0x1B, 0x61, 0x01))
+                    write(escPosRaster(logo, job.printer.paperWidthMm))
+                    write('\n'.code)
+                    write(byteArrayOf(0x1B, 0x61, 0x00))
+                } finally {
+                    logo.recycle()
+                }
+            }
             write(byteArrayOf(0x1B, 0x74, codeTable.toByte()))
             write(job.payloadText.replace("\r\n", "\n").toByteArray(charset))
             repeat(feed) { write('\n'.code) }
             if (autoCut) write(byteArrayOf(0x1D, 0x56, 0x00))
         }.toByteArray()
+    }
+
+    private fun loadReceiptLogo(job: NativePrintJob): Bitmap? {
+        val logoUrl = sequenceOf(
+            job.payloadJson.optString("store_logo_url"),
+            job.payloadJson.optString("logo_url"),
+            job.payloadJson.optString("logo")
+        ).map(String::trim).firstOrNull { it.isNotEmpty() }
+
+        val configured = logoUrl?.let { value ->
+            when {
+                value.startsWith("data:image/") -> decodeDataBitmap(value)
+                value.startsWith("https://") || value.startsWith("http://") -> downloadBitmap(value)
+                else -> null
+            }
+        }
+        if (configured != null) return configured
+        return drawableBitmap(ContextCompat.getDrawable(appContext, R.drawable.ic_cpipos_receipt_logo))
+    }
+
+    private fun decodeDataBitmap(value: String): Bitmap? = runCatching {
+        val comma = value.indexOf(',')
+        if (comma <= 0 || value.length > 250_000) return@runCatching null
+        val bytes = Base64.decode(value.substring(comma + 1), Base64.DEFAULT)
+        if (bytes.size > 190_000) return@runCatching null
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }.getOrNull()
+
+    private fun downloadBitmap(value: String): Bitmap? = runCatching {
+        val url = URL(value)
+        if (url.protocol != "https") return@runCatching null
+        val connection = url.openConnection() as HttpURLConnection
+        try {
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = 3000
+            connection.readTimeout = 3500
+            connection.setRequestProperty("Accept", "image/*")
+            val status = connection.responseCode
+            if (status !in 200..299) return@runCatching null
+            val declared = connection.contentLengthLong
+            if (declared > 1_000_000L) return@runCatching null
+            connection.inputStream.use { BitmapFactory.decodeStream(it) }
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrNull()
+
+    private fun drawableBitmap(drawable: Drawable?): Bitmap? {
+        drawable ?: return null
+        val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 220
+        val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 140
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(Color.WHITE)
+            drawable.setBounds(0, 0, width, height)
+            drawable.draw(canvas)
+        }
+    }
+
+    private fun escPosRaster(source: Bitmap, paperWidthMm: Int): ByteArray {
+        val maxWidth = if (paperWidthMm == 80) 480 else 320
+        val maxHeight = if (paperWidthMm == 80) 180 else 140
+        val ratio = minOf(
+            maxWidth.toFloat() / source.width.coerceAtLeast(1),
+            maxHeight.toFloat() / source.height.coerceAtLeast(1),
+            1f
+        )
+        val width = (source.width * ratio).toInt().coerceAtLeast(1)
+        val height = (source.height * ratio).toInt().coerceAtLeast(1)
+        val bitmap = if (width == source.width && height == source.height) source
+            else Bitmap.createScaledBitmap(source, width, height, true)
+        try {
+            val widthBytes = (width + 7) / 8
+            val image = ByteArray(widthBytes * height)
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    val pixel = bitmap.getPixel(x, y)
+                    val alpha = Color.alpha(pixel)
+                    val luminance = (
+                        Color.red(pixel) * 299 +
+                            Color.green(pixel) * 587 +
+                            Color.blue(pixel) * 114
+                        ) / 1000
+                    if (alpha >= 64 && luminance < 190) {
+                        val index = y * widthBytes + (x / 8)
+                        image[index] = (image[index].toInt() or (0x80 shr (x % 8))).toByte()
+                    }
+                }
+            }
+            return ByteArrayOutputStream().apply {
+                write(byteArrayOf(
+                    0x1D, 0x76, 0x30, 0x00,
+                    (widthBytes and 0xFF).toByte(),
+                    ((widthBytes shr 8) and 0xFF).toByte(),
+                    (height and 0xFF).toByte(),
+                    ((height shr 8) and 0xFF).toByte()
+                ))
+                write(image)
+            }.toByteArray()
+        } finally {
+            if (bitmap !== source) bitmap.recycle()
+        }
     }
 
     private fun printLan(printer: NativePrinterProfile, payload: ByteArray): NativePrintResult {
