@@ -155,7 +155,7 @@ class NativePrinterTransport(context: Context) {
             job.payloadJson.optString("store_logo_url"),
             job.payloadJson.optString("logo_url"),
             job.payloadJson.optString("logo")
-        ).map(String::trim).firstOrNull { it.isNotEmpty() }
+        ).map { it.trim() }.firstOrNull { it.isNotEmpty() }
 
         val configured = logoUrl?.let { value ->
             when {
