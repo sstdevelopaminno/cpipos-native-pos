@@ -28,6 +28,8 @@ import com.cpipos.pos.next.R
 import com.cpipos.pos.next.core.pos.Satang
 import com.cpipos.pos.next.core.webpos.DiningMutationJournal
 import com.cpipos.pos.next.core.webpos.*
+import com.cpipos.pos.next.core.offline.DemoSaleReceipt
+import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -86,6 +88,7 @@ internal fun NativeDiningOrderScreen(
     var category by remember(session.id, table.id) { mutableStateOf("ทั้งหมด") }
     var search by remember(session.id, table.id) { mutableStateOf("") }
     var feedback by remember(session.id, table.id) { mutableStateOf("idle") }
+    var paidReceipt by remember(session.id, table.id) { mutableStateOf<DemoSaleReceipt?>(null) }
 
     suspend fun refresh(accept: Boolean) {
         try {
@@ -379,20 +382,26 @@ internal fun NativeDiningOrderScreen(
         error = null
         scope.launch {
             try {
-                client.settleDiningBill(session, table.id, reference,
-                    if (method == PreviewPayment.Cash) "cash" else "bank_transfer",
-                    received, requireNotNull(draft.paymentRequestId))
+                val paid = client.settleDiningBill(
+                    session = session,
+                    tableId = table.id,
+                    expected = reference,
+                    method = if (method == PreviewPayment.Cash) "cash" else "bank_transfer",
+                    cashReceived = received,
+                    requestId = requireNotNull(draft.paymentRequestId),
+                    tableLabel = table.code.ifBlank { table.name }
+                )
                 val verification = client.diningBill(session, table.id)
                 if (!verification.paid || verification.sessionStatus != "closed")
                     throw IllegalStateException("payment_or_table_cleanup_unconfirmed")
                 mutationJournal.confirmed(session, table.id, requestId)
                 bill = verification
+                paidReceipt = paid.receipt
                 feedback = "success"
-                delay(900L)
+                delay(650L)
                 draft.paymentRequestId = null
                 draft.paymentMethod = null
                 draft.cashInput = ""
-                onTables()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -646,6 +655,16 @@ internal fun NativeDiningOrderScreen(
             session = session,
             selectedTableId = table.id,
             onDismiss = { showTableQr = false }
+        )
+    }
+    paidReceipt?.let { receipt ->
+        SavedDemoReceiptSheet(
+            receipt = receipt,
+            onPrint = { runCatching { DemoReceiptPrinter.print(context, receipt) } },
+            onDone = {
+                paidReceipt = null
+                onTables()
+            }
         )
     }
     PaymentFeedbackOverlay(feedback)
