@@ -51,7 +51,9 @@ class MainActivity : ComponentActivity() {
         }
         super.onCreate(savedInstanceState)
         NativeFcmRegistration.captureNotificationIntent(this, intent)
-        if (NativeFcmRegistration.hasFirebase(this) && Build.VERSION.SDK_INT >= 33 &&
+        // Android 13+ permission is required for BOTH Firebase push and the
+        // zero-cost foreground QR listener. Do not gate this on Firebase.
+        if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
