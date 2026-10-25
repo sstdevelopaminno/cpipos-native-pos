@@ -46,6 +46,10 @@ internal fun NativeMainTabScreen(
     products: List<WebPosProduct>,
     onTab: (String) -> Unit
 ) {
+    if (tab == "settings") {
+        NativeNotificationSettingsScreen(client = client, session = session, onTab = onTab)
+        return
+    }
     if (tab == "report") {
         NativeSalesListScreen(client = client, session = session, onTab = onTab)
         return
