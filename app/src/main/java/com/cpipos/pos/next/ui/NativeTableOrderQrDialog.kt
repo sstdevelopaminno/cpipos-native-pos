@@ -58,7 +58,8 @@ internal fun eligibleForTableOrderQr(table: WebDiningTable): Boolean =
 internal fun NativeTableOrderQrDialog(
     client: WebPosClient,
     session: WebPosSession,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    selectedTableId: String? = null
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -68,6 +69,7 @@ internal fun NativeTableOrderQrDialog(
     var error by remember(session.id) { mutableStateOf<String?>(null) }
     var issued by remember(session.id) { mutableStateOf<WebTableOrderQr?>(null) }
     var bitmap by remember(session.id) { mutableStateOf<Bitmap?>(null) }
+    var autoRequested by remember(session.id, selectedTableId) { mutableStateOf(false) }
 
     LaunchedEffect(client, session.id) {
         try {
@@ -136,6 +138,18 @@ internal fun NativeTableOrderQrDialog(
                 }
             } finally {
                 working = false
+            }
+        }
+    }
+
+    LaunchedEffect(floor, selectedTableId) {
+        if (selectedTableId != null && !autoRequested && floor != null) {
+            autoRequested = true
+            val current = floor?.tables?.firstOrNull { it.id == selectedTableId }
+            if (current != null && eligibleForTableOrderQr(current)) {
+                getQr(current)
+            } else {
+                error = "ยังไม่มีบิลที่เปิดอยู่สำหรับโต๊ะนี้ กรุณาเปิดโต๊ะก่อนออก QR"
             }
         }
     }

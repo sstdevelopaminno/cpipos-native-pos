@@ -80,6 +80,7 @@ internal fun NativeDiningOrderScreen(
     var cancelPinError by remember(session.id, table.id) { mutableStateOf<String?>(null) }
     var showMethods by remember(session.id, table.id) { mutableStateOf(false) }
     var showDiscount by remember(session.id, table.id) { mutableStateOf(false) }
+    var showTableQr by remember(session.id, table.id) { mutableStateOf(false) }
     var selectedPaymentMethod by remember(session.id, table.id) { mutableStateOf(PreviewPayment.Cash) }
     var category by remember(session.id, table.id) { mutableStateOf("ทั้งหมด") }
     var search by remember(session.id, table.id) { mutableStateOf("") }
@@ -134,7 +135,7 @@ internal fun NativeDiningOrderScreen(
             if (!draft.busy) refresh(false)
         }
     }
-    BackHandler(enabled = !draft.busy) {
+    BackHandler(enabled = !draft.busy && !showTableQr) {
         when {
             draft.paymentMethod != null -> draft.paymentMethod = null
             cartOpen -> cartOpen = false
@@ -429,7 +430,9 @@ internal fun NativeDiningOrderScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    DiningTopAction(R.drawable.ic_nav_back, "กลับ", !draft.busy) { onTables() }
+                    DiningTopAction(R.drawable.ic_nav_qr_table, "QR โต๊ะ", !draft.busy) {
+                        showTableQr = true
+                    }
                     DiningTopAction(R.drawable.ic_nav_tables, "เลือกโต๊ะ", !draft.busy) { onTables() }
                     DiningTopAction(R.drawable.ic_nav_select_mode, "เลือกโหมด", !draft.busy, onClick = onMode)
                     DiningTopAction(
@@ -614,6 +617,14 @@ internal fun NativeDiningOrderScreen(
         },
         onApprove = { pin -> cancelBillWithPin(pin) }
     )
+    if (showTableQr) {
+        NativeTableOrderQrDialog(
+            client = client,
+            session = session,
+            selectedTableId = table.id,
+            onDismiss = { showTableQr = false }
+        )
+    }
     PaymentFeedbackOverlay(feedback)
 }
 
