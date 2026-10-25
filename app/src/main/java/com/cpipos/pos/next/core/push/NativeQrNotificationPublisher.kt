@@ -19,8 +19,8 @@ import com.cpipos.pos.next.core.webpos.WebQrActivityEvent
 import java.util.UUID
 
 object NativeQrNotificationPublisher {
-    const val CHANNEL_SOUND_ID = "cpipos_qr_operations_sound_v2"
-    const val CHANNEL_SILENT_ID = "cpipos_qr_operations_silent_v2"
+    const val CHANNEL_SOUND_ID = "cpipos_qr_operations_sound_v3"
+    const val CHANNEL_SILENT_ID = "cpipos_qr_operations_silent_v3"
     const val LISTENER_CHANNEL_ID = "cpipos_qr_background_listener_v1"
     const val LISTENER_NOTIFICATION_ID = 0x435049
     private const val TEST_NOTIFICATION_ID = 0x435054
@@ -38,7 +38,7 @@ object NativeQrNotificationPublisher {
             setSound(
                 RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
                 android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_EVENT)
                     .build()
             )
         }
@@ -63,6 +63,15 @@ object NativeQrNotificationPublisher {
         manager.createNotificationChannel(sound)
         manager.createNotificationChannel(silent)
         manager.createNotificationChannel(listener)
+    }
+
+    fun soundChannelReady(context: Context): Boolean {
+        if (!notificationsAllowed(context)) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        ensureChannels(context)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = manager.getNotificationChannel(CHANNEL_SOUND_ID) ?: return false
+        return channel.importance != NotificationManager.IMPORTANCE_NONE && channel.sound != null
     }
 
     fun notificationsAllowed(context: Context): Boolean {
