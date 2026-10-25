@@ -964,17 +964,122 @@ private fun MoreReceiptsScreen(
 }
 
 @Composable
+private fun TableCreateDialog(
+    bulk: Boolean,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onCreate: (String, String, Int, Int) -> Unit
+) {
+    var zoneName by remember(bulk) { mutableStateOf("") }
+    var tableName by remember(bulk) { mutableStateOf("") }
+    var capacity by remember(bulk) { mutableStateOf("4") }
+    var count by remember(bulk) { mutableStateOf(if (bulk) "5" else "1") }
+    var formError by remember(bulk) { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    if (bulk) "เพิ่มโต๊ะหลายรายการ" else "เพิ่มโต๊ะทีละรายการ",
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    "ฟอร์มเดียวกับ CpIPOS · เลขโต๊ะสร้างอัตโนมัติ",
+                    color = moreMuted,
+                    fontSize = 10.sp
+                )
+            }
+        },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                OutlinedTextField(
+                    value = zoneName,
+                    onValueChange = { zoneName = it.take(80) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("โซน") },
+                    supportingText = { Text("ถ้าโซนยังไม่มี ระบบ CpIPOS จะสร้างให้") }
+                )
+                OutlinedTextField(
+                    value = tableName,
+                    onValueChange = { tableName = it.take(100) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text(if (bulk) "ชื่อโต๊ะ / คำนำหน้าชื่อ" else "ชื่อโต๊ะ") },
+                    supportingText = {
+                        if (bulk) Text("เช่น โต๊ะ VIP → โต๊ะ VIP 1, โต๊ะ VIP 2 ...")
+                    }
+                )
+                OutlinedTextField(
+                    value = capacity,
+                    onValueChange = { capacity = it.filter(Char::isDigit).take(3) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("จำนวนที่นั่ง") }
+                )
+                if (bulk) {
+                    OutlinedTextField(
+                        value = count,
+                        onValueChange = { count = it.filter(Char::isDigit).take(2) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("จำนวนโต๊ะที่ต้องการเพิ่ม") },
+                        supportingText = { Text("เพิ่มได้ครั้งละ 1–50 โต๊ะ") }
+                    )
+                }
+                formError?.let {
+                    Text(it, color = Color(0xFFB13F4C), fontSize = 11.sp)
+                }
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !busy,
+                onClick = {
+                    val seats = capacity.toIntOrNull()
+                    val total = if (bulk) count.toIntOrNull() else 1
+                    when {
+                        seats == null || seats !in 1..100 -> formError = "จำนวนที่นั่งต้องอยู่ระหว่าง 1-100"
+                        total == null || total !in 1..50 -> formError = "จำนวนโต๊ะต้องอยู่ระหว่าง 1-50"
+                        else -> {
+                            formError = null
+                            onCreate(zoneName.trim(), tableName.trim(), seats, total)
+                        }
+                    }
+                }
+            ) {
+                Text(if (bulk) "เพิ่ม " + (count.ifBlank { "หลาย" }) + " โต๊ะ" else "เพิ่มโต๊ะ")
+            }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onDismiss) { Text("ยกเลิก") }
+        }
+    )
+}
+
+@Composable
 private fun MoreTablesScreen(
     client: WebPosClient,
     session: WebPosSession,
     onBack: () -> Unit,
     onTab: (String) -> Unit
 ) {
+    val scope = rememberCoroutineScope()
     var floor by remember(session.id) { mutableStateOf<WebTableFloor?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var createMode by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    var success by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(client, session.id) {
+    LaunchedEffect(client, session.id, refresh) {
+        loading = true
         try {
             floor = client.diningTables(session)
             error = null
@@ -982,14 +1087,64 @@ private fun MoreTablesScreen(
             throw cancelled
         } catch (failure: Exception) {
             error = "โหลดข้อมูลโต๊ะไม่ได้: " + ((failure as? WebPosApiException)?.code ?: "network_error")
-        } finally { loading = false }
+        } finally {
+            loading = false
+        }
     }
 
     MoreScaffold("จัดการโต๊ะ", session, onBack, onTab) {
-        item { Text("ข้อมูลโต๊ะ/โซนชุดเดียวกับ CpIPOS", color = moreMuted, fontSize = 11.sp) }
-        if (loading) item { LoadingBlock() }
-        else if (error != null) item { ErrorBlock(error.orEmpty()) }
-        else {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("ข้อมูลโต๊ะ/โซนชุดเดียวกับ CpIPOS", modifier = Modifier.weight(1f), color = moreMuted, fontSize = 11.sp)
+                TextButton(onClick = { refresh += 1 }, enabled = !loading && !saving) { Text("↻ รีเฟรช") }
+            }
+        }
+        if (session.canManageTables) {
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Button(
+                        onClick = { createMode = "single" },
+                        modifier = Modifier.weight(1f),
+                        enabled = !saving,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = moreBlue)
+                    ) {
+                        Text("+ เพิ่มทีละรายการ", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = { createMode = "bulk" },
+                        modifier = Modifier.weight(1f),
+                        enabled = !saving,
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text("+ เพิ่มหลายรายการ", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        } else {
+            item {
+                Surface(color = Color(0xFFFFF7E7), shape = RoundedCornerShape(13.dp)) {
+                    Text(
+                        "บัญชีนี้ดูสถานะโต๊ะได้ แต่ไม่มีสิทธิ์ tables:manage สำหรับเพิ่มโต๊ะ",
+                        Modifier.padding(12.dp),
+                        color = Color(0xFF8A5A00),
+                        fontSize = 10.sp
+                    )
+                }
+            }
+        }
+        success?.let { message ->
+            item {
+                Surface(color = Color(0xFFEAF8EF), shape = RoundedCornerShape(13.dp)) {
+                    Text(message, Modifier.padding(12.dp), color = Color(0xFF237A45), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        if (loading) {
+            item { LoadingBlock() }
+        } else if (error != null) {
+            item { ErrorBlock(error.orEmpty()) }
+        } else {
             item { TableHeader(listOf("โต๊ะ" to 1.2f, "โซน" to 1.1f, "ที่นั่ง" to .65f, "สถานะ" to 1f)) }
             val zones = floor?.zones.orEmpty().associateBy { it.id }
             items(floor?.tables.orEmpty(), key = { it.id }) { row ->
@@ -1010,8 +1165,47 @@ private fun MoreTablesScreen(
                     )
                 )
             }
-            if (floor?.tables.isNullOrEmpty()) item { EmptyBlock("ยังไม่มีโต๊ะในสาขานี้") }
+            if (floor?.tables.isNullOrEmpty()) {
+                item { EmptyBlock("ยังไม่มีโต๊ะในสาขานี้") }
+            }
         }
+    }
+
+    createMode?.let { mode ->
+        TableCreateDialog(
+            bulk = mode == "bulk",
+            busy = saving,
+            onDismiss = { if (!saving) createMode = null },
+            onCreate = { zoneName, tableName, capacity, count ->
+                saving = true
+                error = null
+                success = null
+                scope.launch {
+                    try {
+                        val created = client.createDiningTables(
+                            session = session,
+                            zoneName = zoneName,
+                            tableName = tableName,
+                            capacity = capacity,
+                            count = count
+                        )
+                        success = "เพิ่มโต๊ะสำเร็จ " + created + " รายการ"
+                        createMode = null
+                        refresh += 1
+                    } catch (failure: Exception) {
+                        val api = failure as? WebPosApiException
+                        error = when (api?.code) {
+                            "forbidden_role", "permission_denied" -> "บัญชีนี้ไม่มีสิทธิ์เพิ่มโต๊ะ"
+                            "feature_not_enabled" -> "แพ็กเกจนี้ยังไม่เปิดระบบจัดการโต๊ะ"
+                            "http_404" -> "CpIPOS Server ยังไม่รองรับการเพิ่มโต๊ะจาก POS มือถือรุ่นนี้"
+                            else -> "เพิ่มโต๊ะไม่สำเร็จ: " + (api?.code ?: "network_error")
+                        }
+                    } finally {
+                        saving = false
+                    }
+                }
+            }
+        )
     }
 }
 
