@@ -32,6 +32,15 @@ internal fun NativeSettingsHubScreen(
     }
 
     when (page) {
+        "store" -> {
+            NativeStoreSettingsScreen(
+                client = client,
+                session = session,
+                onBack = { page = "hub" },
+                onTab = ::routeBottom
+            )
+            return
+        }
         "notifications" -> {
             NativeNotificationSettingsScreen(
                 client = client,
@@ -72,6 +81,12 @@ internal fun NativeSettingsHubScreen(
                 )
 
                 SettingsHubCard(
+                    icon = "🏪",
+                    title = "ตั้งชื่อร้านค้า / บริษัท",
+                    subtitle = "ชื่อร้าน โลโก้ ที่อยู่ และเบอร์ติดต่อ · ใช้ร่วมกับ CpIPOS และใบเสร็จ",
+                    onClick = { page = "store" }
+                )
+                SettingsHubCard(
                     icon = "🔔",
                     title = "ตั้งค่าการแจ้งเตือน",
                     subtitle = "POP UP, เสียง, ระดับเสียง และสถานะ Android Notification",
@@ -83,28 +98,6 @@ internal fun NativeSettingsHubScreen(
                     subtitle = "ค้นหาและเชื่อมต่อ LAN / USB / Bluetooth พร้อมกำหนดเส้นทางพิมพ์",
                     onClick = { page = "printer" }
                 )
-
-                Surface(
-                    color = Color(0xFFEAF3FF),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(
-                        Modifier.fillMaxWidth().padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Text(
-                            "พิมพ์ใบเสร็จอัตโนมัติ",
-                            fontWeight = FontWeight.ExtraBold,
-                            color = settingsHubInk
-                        )
-                        Text(
-                            "เมื่อชำระเงินสำเร็จทั้งโหมดกลับบ้านและนั่งโต๊ะ CpIPOS จะคิวงานพิมพ์ตามเส้นทาง receipt " +
-                                "จากนั้น Android Print Agent ของเครื่องนี้รับงานไปพิมพ์ โดยความสำเร็จของการขายไม่ขึ้นกับสถานะเครื่องพิมพ์",
-                            fontSize = 11.sp,
-                            color = settingsHubMuted
-                        )
-                    }
-                }
             }
 
             HomeBottomMenu(
