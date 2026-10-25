@@ -61,11 +61,14 @@ internal fun TransferQrCheckoutScreen(
     due: Satang,
     saving: Boolean,
     error: String?,
+    printNoticeBusy: Boolean = false,
+    onPrintPaymentNotice: ((String, WebPaymentAccount) -> Unit)? = null,
     onCancel: () -> Unit,
     onConfirmReceived: () -> Unit
 ) {
     var account by remember(session.id) { mutableStateOf<WebPaymentAccount?>(null) }
     var qrImage by remember(session.id, due.value) { mutableStateOf<Bitmap?>(null) }
+    var qrDataUri by remember(session.id, due.value) { mutableStateOf<String?>(null) }
     var loading by remember(session.id, due.value) { mutableStateOf(true) }
     var qrError by remember(session.id, due.value) { mutableStateOf<String?>(null) }
 
@@ -73,6 +76,7 @@ internal fun TransferQrCheckoutScreen(
         loading = true
         account = null
         qrImage = null
+        qrDataUri = null
         qrError = null
         try {
             val selected = client.activePaymentAccounts(session).firstOrNull()
@@ -87,6 +91,7 @@ internal fun TransferQrCheckoutScreen(
                 withContext(Dispatchers.IO) { fetchConfiguredQr(selected.qrImageUrl) }
             } else null
             qrImage = bitmap ?: throw IllegalStateException("บัญชีนี้ยังไม่มี PromptPay หรือรูป QR ที่ใช้ได้")
+            qrDataUri = bitmapToPngDataUri(requireNotNull(bitmap))
         } catch (failure: Exception) {
             qrError = "ไม่สามารถแสดง QR ได้: " + (failure.message ?: "โปรดตรวจสอบการตั้งค่ารับชำระ").take(100)
         } finally {
@@ -189,44 +194,6 @@ internal fun TransferQrCheckoutScreen(
                             textAlign = TextAlign.Center)
                     }
                 }
-                account?.let { selected ->
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = Color.White,
-                        shape = RoundedCornerShape(18.dp)
-                    ) {
-                        Column(
-                            Modifier.fillMaxWidth().padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            Text(
-                                "บัญชีรับโอนจากการตั้งค่า CpIPOS",
-                                fontWeight = FontWeight.ExtraBold,
-                                color = ink,
-                                fontSize = 13.sp
-                            )
-                            Text(
-                                selected.bankName + " · " + selected.accountName,
-                                color = ink,
-                                fontSize = 12.sp
-                            )
-                            if (selected.accountNumber.isNotBlank()) {
-                                Text("เลขบัญชี " + selected.accountNumber, color = muted, fontSize = 11.sp)
-                            }
-                            if (selected.promptPayPhone.isNotBlank()) {
-                                Text("PromptPay " + selected.promptPayPhone, color = muted, fontSize = 11.sp)
-                            }
-                            Text(
-                                if (selected.qrMode == "qr_image")
-                                    "QR รูปภาพที่ตั้งไว้ในเมนูตั้งค่าชำระเงิน"
-                                else "PromptPay QR สร้างตามยอดบิลนี้",
-                                color = blue,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
                 qrError?.let { Text(it, color = Color(0xFFB42336), fontSize = 12.sp) }
                 error?.let { Text(it, color = Color(0xFFB42336), fontSize = 12.sp) }
             }
@@ -235,15 +202,43 @@ internal fun TransferQrCheckoutScreen(
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
                 fontSize = 11.sp, color = muted, textAlign = TextAlign.Center
             )
-            Button(
-                onClick = onConfirmReceived,
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = blue),
-                enabled = !saving && !loading && qrImage != null
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
             ) {
-                Text(if (saving) "กำลังบันทึก..." else "ยืนยันรับเงินโอน",
-                    fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                if (onPrintPaymentNotice != null) {
+                    OutlinedButton(
+                        onClick = {
+                            val dataUri = qrDataUri
+                            val selected = account
+                            if (dataUri != null && selected != null) {
+                                onPrintPaymentNotice(dataUri, selected)
+                            }
+                        },
+                        modifier = Modifier.weight(1f).height(54.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        enabled = !saving && !printNoticeBusy && !loading &&
+                            qrDataUri != null && account != null
+                    ) {
+                        Text(
+                            if (printNoticeBusy) "กำลังพิมพ์..." else "พิมพ์ใบแจ้งชำระเงิน",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+                Button(
+                    onClick = onConfirmReceived,
+                    modifier = Modifier.weight(1f).height(54.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = blue),
+                    enabled = !saving && !printNoticeBusy && !loading && qrImage != null
+                ) {
+                    Text(if (saving) "กำลังบันทึก..." else "ยืนยันรับเงินโอน",
+                        fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                        textAlign = TextAlign.Center)
+                }
             }
             androidx.compose.material3.TextButton(
                 onClick = onCancel,
@@ -290,4 +285,15 @@ private fun fetchConfiguredQr(rawUrl: String): Bitmap? {
     } finally {
         conn.disconnect()
     }
+}
+
+
+private fun bitmapToPngDataUri(bitmap: Bitmap): String {
+    val output = java.io.ByteArrayOutputStream()
+    bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+    val bytes = output.toByteArray()
+    require(bytes.isNotEmpty() && bytes.size <= 500_000) {
+        "payment_notice_qr_too_large"
+    }
+    return "data:image/png;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
 }
