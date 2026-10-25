@@ -70,19 +70,20 @@ internal fun NativeStoreSettingsScreen(
     val logoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        logoBusy = true
-        error = null
-        scope.launch {
-            try {
-                val encoded = resizeStoreLogo(context, uri)
-                logoUrl = encoded
-                logoPreview = decodeDataImage(encoded)
-                notice = "เตรียมโลโก้แล้ว กดบันทึกเพื่อใช้กับ CpIPOS และใบเสร็จ"
-            } catch (failure: Exception) {
-                error = failure.message ?: "อ่านรูปโลโก้ไม่สำเร็จ"
-            } finally {
-                logoBusy = false
+        if (uri != null) {
+            logoBusy = true
+            error = null
+            scope.launch {
+                try {
+                    val encoded = resizeStoreLogo(context, uri)
+                    logoUrl = encoded
+                    logoPreview = decodeDataImage(encoded)
+                    notice = "เตรียมโลโก้แล้ว กดบันทึกเพื่อใช้กับ CpIPOS และใบเสร็จ"
+                } catch (failure: Exception) {
+                    error = failure.message ?: "อ่านรูปโลโก้ไม่สำเร็จ"
+                } finally {
+                    logoBusy = false
+                }
             }
         }
     }
