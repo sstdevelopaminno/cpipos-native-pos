@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 data class WebBranch(val id: String, val name: String, val code: String)
@@ -901,38 +902,81 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     ): WebSalesSummarySnapshot {
         requireSameLiveSession(session)
         require(!dateTo.isBefore(dateFrom))
-        val data = call(
-            "GET",
-            "/api/pos/sales-summary?dateFrom=" + queryValue(dateFrom.toString()) +
-                "&dateTo=" + queryValue(dateTo.toString()) +
-                "&branchId=" + queryValue(session.branchId) +
-                "&paymentMethod=all&status=all"
-        )
-        val summary = data.optJSONObject("summary") ?: JSONObject()
-        val bestRows = data.optJSONArray("bestSellingProducts") ?: JSONArray()
-        fun money(key: String): Satang = Satang.fromBaht(summary.opt(key)?.toString() ?: "0")
-        return WebSalesSummarySnapshot(
-            currencyCode = data.optString("currencyCode").ifBlank { "THB" },
-            grossSales = money("grossSales"),
-            netSales = money("netSales"),
-            receiptCount = summary.optInt("receiptCount", 0),
-            cashTotal = money("cashTotal"),
-            transferTotal = money("qrTransferTotal"),
-            discountTotal = money("discountTotal"),
-            taxTotal = money("taxTotal"),
-            cancelledTotal = money("cancelledTotal"),
-            averageReceipt = money("averageReceiptValue"),
-            bestSelling = (0 until bestRows.length()).mapNotNull { index ->
-                val row = bestRows.optJSONObject(index) ?: return@mapNotNull null
-                WebBestSellingProduct(
-                    productId = row.optString("productId"),
-                    productName = row.optString("productName").ifBlank { "-" },
-                    category = row.optString("category").ifBlank { "-" },
-                    quantitySold = row.optDouble("quantitySold", 0.0),
-                    grossAmount = Satang.fromBaht(row.opt("grossAmount")?.toString() ?: "0"),
-                    netAmount = Satang.fromBaht(row.opt("netAmount")?.toString() ?: "0")
+
+        suspend fun loadChunk(from: LocalDate, to: LocalDate): WebSalesSummarySnapshot {
+            val data = call(
+                "GET",
+                "/api/pos/sales-summary?dateFrom=" + queryValue(from.toString()) +
+                    "&dateTo=" + queryValue(to.toString()) +
+                    "&branchId=" + queryValue(session.branchId) +
+                    "&paymentMethod=all&status=all"
+            )
+            val summary = data.optJSONObject("summary") ?: JSONObject()
+            val bestRows = data.optJSONArray("bestSellingProducts") ?: JSONArray()
+            fun money(key: String): Satang = Satang.fromBaht(summary.opt(key)?.toString() ?: "0")
+            return WebSalesSummarySnapshot(
+                currencyCode = data.optString("currencyCode").ifBlank { "THB" },
+                grossSales = money("grossSales"),
+                netSales = money("netSales"),
+                receiptCount = summary.optInt("receiptCount", 0),
+                cashTotal = money("cashTotal"),
+                transferTotal = money("qrTransferTotal"),
+                discountTotal = money("discountTotal"),
+                taxTotal = money("taxTotal"),
+                cancelledTotal = money("cancelledTotal"),
+                averageReceipt = money("averageReceiptValue"),
+                bestSelling = (0 until bestRows.length()).mapNotNull { index ->
+                    val row = bestRows.optJSONObject(index) ?: return@mapNotNull null
+                    WebBestSellingProduct(
+                        productId = row.optString("productId"),
+                        productName = row.optString("productName").ifBlank { "-" },
+                        category = row.optString("category").ifBlank { "-" },
+                        quantitySold = row.optDouble("quantitySold", 0.0),
+                        grossAmount = Satang.fromBaht(row.opt("grossAmount")?.toString() ?: "0"),
+                        netAmount = Satang.fromBaht(row.opt("netAmount")?.toString() ?: "0")
+                    )
+                }
+            )
+        }
+
+        val totalDays = ChronoUnit.DAYS.between(dateFrom, dateTo) + 1
+        if (totalDays <= 120) return loadChunk(dateFrom, dateTo)
+
+        val chunks = mutableListOf<WebSalesSummarySnapshot>()
+        var cursor = dateFrom
+        while (!cursor.isAfter(dateTo)) {
+            val chunkEnd = minOf(cursor.plusDays(89), dateTo)
+            chunks += loadChunk(cursor, chunkEnd)
+            cursor = chunkEnd.plusDays(1)
+        }
+
+        val productBuckets = linkedMapOf<String, WebBestSellingProduct>()
+        for (snapshot in chunks) {
+            for (row in snapshot.bestSelling) {
+                val current = productBuckets[row.productId]
+                productBuckets[row.productId] = if (current == null) row else current.copy(
+                    quantitySold = current.quantitySold + row.quantitySold,
+                    grossAmount = current.grossAmount + row.grossAmount,
+                    netAmount = current.netAmount + row.netAmount
                 )
             }
+        }
+        val receiptCount = chunks.sumOf { it.receiptCount }
+        val netSales = chunks.fold(Satang.ZERO) { sum, row -> sum + row.netSales }
+        return WebSalesSummarySnapshot(
+            currencyCode = chunks.firstOrNull()?.currencyCode ?: "THB",
+            grossSales = chunks.fold(Satang.ZERO) { sum, row -> sum + row.grossSales },
+            netSales = netSales,
+            receiptCount = receiptCount,
+            cashTotal = chunks.fold(Satang.ZERO) { sum, row -> sum + row.cashTotal },
+            transferTotal = chunks.fold(Satang.ZERO) { sum, row -> sum + row.transferTotal },
+            discountTotal = chunks.fold(Satang.ZERO) { sum, row -> sum + row.discountTotal },
+            taxTotal = chunks.fold(Satang.ZERO) { sum, row -> sum + row.taxTotal },
+            cancelledTotal = chunks.fold(Satang.ZERO) { sum, row -> sum + row.cancelledTotal },
+            averageReceipt = if (receiptCount > 0) Satang.of(netSales.value / receiptCount) else Satang.ZERO,
+            bestSelling = productBuckets.values
+                .sortedByDescending { it.quantitySold }
+                .take(20)
         )
     }
 
