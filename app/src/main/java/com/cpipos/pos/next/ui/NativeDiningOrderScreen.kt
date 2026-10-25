@@ -95,7 +95,16 @@ internal fun NativeDiningOrderScreen(
     var drawerOpening by remember(session.id) { mutableStateOf(false) }
 
     LaunchedEffect(client, session.id) {
-        drawerAvailable = runCatching { client.cashDrawerStatus(session).visible }.getOrDefault(false)
+        while (true) {
+            drawerAvailable = try {
+                client.cashDrawerStatus(session).visible
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            }
+            delay(10_000L)
+        }
     }
 
     suspend fun refresh(accept: Boolean) {
