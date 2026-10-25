@@ -213,6 +213,16 @@ internal fun MobilePosSalePreview(
     var saveError by workspace.saveError
     var paymentFeedback by workspace.paymentFeedback
     val snackbarHostState = remember { SnackbarHostState() }
+    var drawerAvailable by remember(liveSession?.id) { mutableStateOf(false) }
+    var drawerOpening by remember(liveSession?.id) { mutableStateOf(false) }
+
+    LaunchedEffect(liveClient, liveSession?.id) {
+        val client = liveClient
+        val session = liveSession
+        drawerAvailable = if (client != null && session != null) {
+            runCatching { client.cashDrawerStatus(session).visible }.getOrDefault(false)
+        } else false
+    }
 
     LaunchedEffect(notice) {
         if (notice.isNotBlank()) {
@@ -611,6 +621,56 @@ internal fun MobilePosSalePreview(
                         }
                     }
                     Spacer(modifier = Modifier.width(5.dp))
+                    if (drawerAvailable && liveClient != null && liveSession != null) {
+                        Box(
+                            modifier = Modifier.size(54.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .shadow(2.dp, CircleShape)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                                    .clickable(
+                                        enabled = !saving && !drawerOpening,
+                                        onClickLabel = "เปิดลิ้นชัก"
+                                    ) {
+                                        drawerOpening = true
+                                        scope.launch {
+                                            try {
+                                                val accepted = liveClient.openCashDrawer(liveSession)
+                                                if (!accepted) throw IllegalStateException("drawer_command_not_accepted")
+                                                NativePrintRuntime.wake()
+                                                notice = "ส่งคำสั่งเปิดลิ้นชักแล้ว"
+                                            } catch (failure: Exception) {
+                                                val api = failure as? WebPosApiException
+                                                drawerAvailable = runCatching {
+                                                    liveClient.cashDrawerStatus(liveSession).visible
+                                                }.getOrDefault(false)
+                                                notice = when (api?.code) {
+                                                    "permission_denied" -> "บัญชีนี้ไม่มีสิทธิ์เปิดลิ้นชัก"
+                                                    "drawer_route_not_ready",
+                                                    "print_agent_unavailable" -> "ลิ้นชักหรือเครื่องพิมพ์ยังไม่พร้อม"
+                                                    "drawer_cooldown" -> "กรุณารอสักครู่ก่อนเปิดลิ้นชักอีกครั้ง"
+                                                    else -> "เปิดลิ้นชักไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ"
+                                                }
+                                            } finally {
+                                                drawerOpening = false
+                                            }
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Image(
+                                    painter = painterResource(R.drawable.ic_nav_cash_drawer),
+                                    contentDescription = "เปิดลิ้นชัก",
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(5.dp))
+                    }
                     if (liveSession != null) {
                         Box(
                             modifier = Modifier.size(48.dp).shadow(2.dp, CircleShape)
