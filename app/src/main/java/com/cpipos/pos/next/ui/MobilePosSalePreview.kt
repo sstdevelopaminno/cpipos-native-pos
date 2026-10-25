@@ -94,6 +94,7 @@ import com.cpipos.pos.next.core.webpos.WebPosProduct
 import com.cpipos.pos.next.core.webpos.WebPosSession
 import com.cpipos.pos.next.core.webpos.WebReceiptHistory
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
+import com.cpipos.pos.next.core.print.NativePrintRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -419,6 +420,7 @@ internal fun MobilePosSalePreview(
                             payment = null
                             cashInput = ""
                             receipt = saved
+                            if (!saved.isDemo) NativePrintRuntime.wake()
                             notice = if (saved.isDemo) "บันทึกบิลทดลองในเครื่องแล้ว: ${saved.billNo}" else "บันทึกยอดขายจริงแล้ว: ${saved.billNo}"
                         } catch (error: Exception) {
                             paymentFeedback = "idle"
@@ -532,6 +534,7 @@ internal fun MobilePosSalePreview(
                             showMethods = false
                             payment = null
                             receipt = paid.receipt
+                            NativePrintRuntime.wake()
                             notice = "บันทึกเงินโอนที่ตรวจสอบแล้ว: ${paid.receipt.billNo}"
                         } catch (failure: Exception) {
                             paymentFeedback = "idle"
