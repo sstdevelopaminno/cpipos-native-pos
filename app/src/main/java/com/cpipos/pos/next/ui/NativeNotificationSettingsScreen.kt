@@ -232,6 +232,18 @@ internal fun NativeNotificationSettingsScreen(
                                 ) {
                                     Text("อนุญาต Android Notification", fontWeight = FontWeight.Bold)
                                 }
+                                OutlinedButton(
+                                    onClick = {
+                                        context.startActivity(
+                                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                            }
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("เปิด Android Settings")
+                                }
                             } else if (!notificationAllowed) {
                                 OutlinedButton(
                                     onClick = {
