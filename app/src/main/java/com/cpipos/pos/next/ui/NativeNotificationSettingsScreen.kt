@@ -5,6 +5,10 @@ import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Build
+import android.provider.Settings
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -18,6 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.cpipos.pos.next.core.push.NativeFcmRegistration
+import com.cpipos.pos.next.core.push.NativeQrBackgroundService
+import com.cpipos.pos.next.core.push.NativeQrNotificationPublisher
 import com.cpipos.pos.next.core.webpos.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -46,6 +52,18 @@ internal fun NativeNotificationSettingsScreen(
     var saving by remember(session.id) { mutableStateOf(false) }
     var error by remember(session.id) { mutableStateOf<String?>(null) }
     var savedNotice by remember(session.id) { mutableStateOf("") }
+    var permissionRevision by remember { mutableIntStateOf(0) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        permissionRevision++
+        if (granted) {
+            NativeQrBackgroundService.start(context)
+            savedNotice = "อนุญาต Android Notification แล้ว"
+        } else {
+            error = "ยังไม่ได้อนุญาต Android Notification กรุณากดอนุญาตหรือเปิดสิทธิ์จาก Android Settings"
+        }
+    }
 
     LaunchedEffect(client, session.id) {
         try {
@@ -112,12 +130,16 @@ internal fun NativeNotificationSettingsScreen(
         }
     }
 
+    @Suppress("UNUSED_VARIABLE")
+    val refreshPermissionState = permissionRevision
     val firebaseReady = NativeFcmRegistration.hasFirebase(context)
     val pushBound = firebaseReady &&
         NativeFcmRegistration.sameBoundBranch(context, session.tenantId, session.branchId)
-    val permissionGranted = Build.VERSION.SDK_INT < 33 ||
+    val runtimePermissionGranted = Build.VERSION.SDK_INT < 33 ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
         PackageManager.PERMISSION_GRANTED
+    val notificationAllowed = NativeQrNotificationPublisher.notificationsAllowed(context)
+    val backgroundListenerReady = notificationAllowed && settings.popupEnabled
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Box(Modifier.fillMaxSize()) {
@@ -193,16 +215,62 @@ internal fun NativeNotificationSettingsScreen(
                         ) {
                             Text("Android Push Notification", fontWeight = FontWeight.ExtraBold,
                                 color = notificationInk)
-                            PushStateRow("Firebase ใน APK", firebaseReady)
-                            PushStateRow("ผูกเครื่องกับสาขานี้", pushBound)
-                            PushStateRow("สิทธิ์แจ้งเตือน Android", permissionGranted)
-                            if (!firebaseReady) {
-                                Text(
-                                    "APK นี้ยังไม่มี Firebase config จึงยังรับแจ้งเตือนตอนปิดแอปไม่ได้ " +
-                                        "แต่ POP UP ตอนเปิดแอปยังทำงานผ่าน POS API ได้",
-                                    fontSize = 11.sp, color = Color(0xFFB05A36)
-                                )
+                            PushStateRow("Background Listener", backgroundListenerReady)
+                            PushStateRow("สิทธิ์แจ้งเตือน Android", notificationAllowed)
+                            PushStateRow("Firebase ใน APK (เสริม)", firebaseReady)
+                            PushStateRow("ผูก FCM กับสาขานี้ (เสริม)", pushBound)
+
+                            if (!runtimePermissionGranted && Build.VERSION.SDK_INT >= 33) {
+                                Button(
+                                    onClick = {
+                                        notificationPermissionLauncher.launch(
+                                            Manifest.permission.POST_NOTIFICATIONS
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = notificationBlue)
+                                ) {
+                                    Text("อนุญาต Android Notification", fontWeight = FontWeight.Bold)
+                                }
+                            } else if (!notificationAllowed) {
+                                OutlinedButton(
+                                    onClick = {
+                                        context.startActivity(
+                                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                            }
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("เปิดสิทธิ์แจ้งเตือนใน Android Settings")
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = {
+                                        val shown = NativeQrNotificationPublisher.showTest(
+                                            context, settings.soundEnabled
+                                        )
+                                        savedNotice = if (shown)
+                                            "ส่ง Android Notification ทดสอบแล้ว"
+                                        else "ส่ง Notification ไม่สำเร็จ กรุณาตรวจสิทธิ์ Android"
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("ทดสอบ Android Notification")
+                                }
                             }
+
+                            Text(
+                                if (firebaseReady)
+                                    "ระบบใช้ FCM เมื่อพร้อม และมี Background Listener เป็น fallback"
+                                else
+                                    "Firebase ยังไม่ถูกตั้งค่า แต่ Background Listener สามารถรับ QR ตอนออกจากแอปได้ " +
+                                        "เมื่อ Android Notification ได้รับอนุญาตและเปิด POP UP จาก QR โต๊ะ",
+                                fontSize = 11.sp,
+                                color = if (backgroundListenerReady) Color(0xFF178A50)
+                                    else Color(0xFFB05A36)
+                            )
                         }
                     }
 
