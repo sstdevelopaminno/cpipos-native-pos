@@ -59,6 +59,22 @@ data class WebQrActivityPage(
     val events: List<WebQrActivityEvent>, val cursor: String, val serverTime: String
 )
 
+data class WebPosNotificationSettings(
+    val popupEnabled: Boolean = true,
+    val soundEnabled: Boolean = true,
+    val soundVolume: Float = 0.8f
+)
+
+internal fun parsePosNotificationSettings(data: JSONObject): WebPosNotificationSettings {
+    val row = data.optJSONObject("notification_settings") ?: data
+    return WebPosNotificationSettings(
+        popupEnabled = row.optBoolean("table_qr_popup_enabled", true),
+        soundEnabled = row.optBoolean("table_qr_sound_enabled", true),
+        soundVolume = row.optDouble("table_qr_sound_volume", 0.8)
+            .toFloat().coerceIn(0f, 1f)
+    )
+}
+
 internal fun parseQrActivityPage(data: JSONObject, fallbackCursor: String): WebQrActivityPage {
     val array = data.optJSONArray("events") ?: JSONArray()
     val events = (0 until array.length()).mapNotNull { index ->
@@ -854,6 +870,25 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         check(response.optBoolean("deactivated", false)) {
             "catalog_deactivation_unconfirmed"
         }
+    }
+
+    /** Shared branch policy used by CpIPOS Web and Native notification UI. */
+    suspend fun notificationSettings(session: WebPosSession): WebPosNotificationSettings {
+        requireSameLiveSession(session)
+        return parsePosNotificationSettings(call("GET", "/api/pos/settings/notifications"))
+    }
+
+    suspend fun updateNotificationSettings(
+        session: WebPosSession,
+        settings: WebPosNotificationSettings
+    ): WebPosNotificationSettings {
+        requireSameLiveSession(session)
+        val data = call("PATCH", "/api/pos/settings/notifications", JSONObject()
+            .put("branch_id", session.branchId)
+            .put("table_qr_popup_enabled", settings.popupEnabled)
+            .put("table_qr_sound_enabled", settings.soundEnabled)
+            .put("table_qr_sound_volume", settings.soundVolume.coerceIn(0f, 1f).toDouble()))
+        return parsePosNotificationSettings(data)
     }
 
     /** Register Firebase token for THIS verified tenant/branch/register only. */
