@@ -89,6 +89,7 @@ import com.cpipos.pos.next.core.pos.CashTenderInput
 import com.cpipos.pos.next.core.pos.Satang
 import com.cpipos.pos.next.core.webpos.LiveSaleJournal
 import com.cpipos.pos.next.core.webpos.NativeHeldBillStore
+import com.cpipos.pos.next.core.webpos.WebPosApiException
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.core.webpos.WebPosProduct
 import com.cpipos.pos.next.core.webpos.WebPosSession
