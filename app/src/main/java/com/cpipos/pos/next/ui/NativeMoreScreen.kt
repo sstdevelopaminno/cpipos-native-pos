@@ -188,55 +188,278 @@ internal fun NativeMoreScreen(
 }
 
 @Composable
+private fun MorePeriodControls(
+    mode: String,
+    anchor: LocalDate,
+    customFrom: LocalDate,
+    customTo: LocalDate,
+    onModeChange: (String) -> Unit,
+    onAnchorChange: (LocalDate) -> Unit,
+    onCustomRange: (LocalDate, LocalDate) -> Unit
+) {
+    val context = LocalContext.current
+    var rangeDialog by remember { mutableStateOf(false) }
+    var draftFrom by remember(customFrom, rangeDialog) { mutableStateOf(customFrom) }
+    var draftTo by remember(customTo, rangeDialog) { mutableStateOf(customTo) }
+    val window = moreDateWindow(mode, anchor, customFrom, customTo)
+
+    fun pickDate(current: LocalDate, onSelected: (LocalDate) -> Unit) {
+        DatePickerDialog(
+            context,
+            { _, year, month, day -> onSelected(LocalDate.of(year, month + 1, day)) },
+            current.year,
+            current.monthValue - 1,
+            current.dayOfMonth
+        ).show()
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            listOf("day" to "รายวัน", "month" to "รายเดือน", "year" to "รายปี").forEach { option ->
+                val selected = mode == option.first
+                Surface(
+                    modifier = Modifier.weight(1f).clickable { onModeChange(option.first) },
+                    color = if (selected) moreBlue else Color.White,
+                    shape = RoundedCornerShape(14.dp),
+                    tonalElevation = if (selected) 2.dp else 0.dp
+                ) {
+                    Text(
+                        option.second,
+                        modifier = Modifier.padding(vertical = 11.dp),
+                        color = if (selected) Color.White else moreInk,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            TextButton(
+                enabled = mode != "custom",
+                onClick = { onAnchorChange(shiftMoreAnchor(mode, anchor, -1)) }
+            ) { Text("‹", fontSize = 23.sp, color = moreBlue) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    if (window.start == window.end)
+                        window.start.format(moreDateFormat)
+                    else window.start.format(moreDateFormat) + " – " + window.end.format(moreDateFormat),
+                    color = moreInk,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    when (mode) {
+                        "day" -> "สรุปรายวัน"
+                        "month" -> "สรุปรายเดือน"
+                        "year" -> "สรุปรายปี"
+                        else -> "ช่วงวันที่กำหนด"
+                    },
+                    color = moreMuted,
+                    fontSize = 10.sp
+                )
+            }
+            TextButton(
+                enabled = mode != "custom",
+                onClick = { onAnchorChange(shiftMoreAnchor(mode, anchor, 1)) }
+            ) { Text("›", fontSize = 23.sp, color = moreBlue) }
+        }
+        OutlinedButton(
+            onClick = {
+                draftFrom = customFrom
+                draftTo = customTo
+                rangeDialog = true
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Text("ปฏิทิน  เลือกวันที่เริ่มต้น – วันที่สิ้นสุด", color = moreBlue, fontSize = 12.sp)
+        }
+    }
+
+    if (rangeDialog) {
+        AlertDialog(
+            onDismissRequest = { rangeDialog = false },
+            title = { Text("เลือกช่วงวันที่", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = { pickDate(draftFrom) { draftFrom = it } },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("วันที่เริ่มต้น  " + draftFrom.format(moreDateFormat))
+                    }
+                    OutlinedButton(
+                        onClick = { pickDate(draftTo) { draftTo = it } },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("วันที่สิ้นสุด  " + draftTo.format(moreDateFormat))
+                    }
+                    if (draftTo.isBefore(draftFrom)) {
+                        Text("วันที่สิ้นสุดต้องไม่น้อยกว่าวันที่เริ่มต้น", color = Color(0xFFB13F4C), fontSize = 11.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !draftTo.isBefore(draftFrom),
+                    onClick = {
+                        onCustomRange(draftFrom, draftTo)
+                        rangeDialog = false
+                    }
+                ) { Text("ใช้ช่วงวันที่") }
+            },
+            dismissButton = {
+                TextButton(onClick = { rangeDialog = false }) { Text("ยกเลิก") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SummaryMetricCard(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    accent: Boolean = false
+) {
+    Surface(
+        modifier = modifier,
+        color = if (accent) Color(0xFFEAF3FF) else Color.White,
+        shape = RoundedCornerShape(17.dp),
+        shadowElevation = 1.dp
+    ) {
+        Column(Modifier.padding(13.dp)) {
+            Text(label, color = moreMuted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(5.dp))
+            Text(
+                value,
+                color = if (accent) moreBlue else moreInk,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
 private fun MoreSalesSummaryScreen(
     client: WebPosClient,
     session: WebPosSession,
     onBack: () -> Unit,
     onTab: (String) -> Unit
 ) {
+    val today = remember { LocalDate.now(moreBangkok) }
+    var mode by remember { mutableStateOf("day") }
+    var anchor by remember { mutableStateOf(today) }
+    var customFrom by remember { mutableStateOf(today.minusDays(6)) }
+    var customTo by remember { mutableStateOf(today) }
     var data by remember(session.id) { mutableStateOf<WebSalesSummarySnapshot?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
-    val today = remember { LocalDate.now(ZoneId.of("Asia/Bangkok")) }
-    val fromDate = remember { today.minusDays(29) }
+    val window = moreDateWindow(mode, anchor, customFrom, customTo)
 
-    LaunchedEffect(client, session.id, refresh) {
+    LaunchedEffect(client, session.id, window.start, window.end, refresh) {
         loading = true
         try {
-            data = client.salesSummary(session, fromDate, today)
+            data = client.salesSummary(session, window.start, window.end)
             error = null
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             error = "โหลดสรุปยอดขายไม่ได้: " + ((failure as? WebPosApiException)?.code ?: "network_error")
-        } finally { loading = false }
+        } finally {
+            loading = false
+        }
     }
 
     MoreScaffold("สรุปยอดขาย", session, onBack, onTab) {
         item {
-            Text("ช่วง 30 วันล่าสุด · " + fromDate + " – " + today, color = moreMuted, fontSize = 11.sp)
-            TextButton(onClick = { refresh += 1 }, enabled = !loading) { Text("↻ รีเฟรช") }
+            MorePeriodControls(
+                mode = mode,
+                anchor = anchor,
+                customFrom = customFrom,
+                customTo = customTo,
+                onModeChange = { mode = it },
+                onAnchorChange = { anchor = it },
+                onCustomRange = { from, to ->
+                    customFrom = from
+                    customTo = to
+                    mode = "custom"
+                }
+            )
         }
-        if (loading) item { LoadingBlock() }
-        else if (error != null) item { ErrorBlock(error.orEmpty()) }
-        else {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = { refresh += 1 }, enabled = !loading) { Text("↻ รีเฟรช") }
+            }
+        }
+        if (loading) {
+            item { LoadingBlock() }
+        } else if (error != null) {
+            item { ErrorBlock(error.orEmpty()) }
+        } else {
             val snapshot = data
             if (snapshot != null) {
                 item {
-                    MoreMetricTable(
-                        listOf(
-                            "ยอดขายรวม" to snapshot.grossSales.bahtText(),
-                            "ยอดขายสุทธิ" to snapshot.netSales.bahtText(),
-                            "จำนวนบิล" to snapshot.receiptCount.toString(),
-                            "เงินสด" to snapshot.cashTotal.bahtText(),
-                            "โอน / QR" to snapshot.transferTotal.bahtText(),
-                            "ส่วนลด" to snapshot.discountTotal.bahtText(),
-                            "ภาษี" to snapshot.taxTotal.bahtText(),
-                            "ยกเลิก" to snapshot.cancelledTotal.bahtText(),
-                            "เฉลี่ยต่อบิล" to snapshot.averageReceipt.bahtText()
-                        )
-                    )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color(0xFF176DED),
+                        shape = RoundedCornerShape(22.dp),
+                        shadowElevation = 3.dp
+                    ) {
+                        Column(Modifier.padding(18.dp)) {
+                            Text("ยอดขายสุทธิ", color = Color(0xFFDCEBFF), fontSize = 12.sp)
+                            Text(
+                                "฿" + snapshot.netSales.bahtText(),
+                                color = Color.White,
+                                fontSize = 30.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Spacer(Modifier.height(5.dp))
+                            Text(
+                                snapshot.receiptCount.toString() + " บิล · " +
+                                    window.start.format(moreDateFormat) + " – " +
+                                    window.end.format(moreDateFormat),
+                                color = Color(0xFFEAF3FF),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        SummaryMetricCard("ยอดขายรวม", "฿" + snapshot.grossSales.bahtText(), Modifier.weight(1f))
+                        SummaryMetricCard("เฉลี่ยต่อบิล", "฿" + snapshot.averageReceipt.bahtText(), Modifier.weight(1f), true)
+                    }
+                }
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        SummaryMetricCard("เงินสด", "฿" + snapshot.cashTotal.bahtText(), Modifier.weight(1f))
+                        SummaryMetricCard("โอน / QR", "฿" + snapshot.transferTotal.bahtText(), Modifier.weight(1f), true)
+                    }
+                }
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        SummaryMetricCard("ส่วนลด", "฿" + snapshot.discountTotal.bahtText(), Modifier.weight(1f))
+                        SummaryMetricCard("ภาษี", "฿" + snapshot.taxTotal.bahtText(), Modifier.weight(1f))
+                    }
+                }
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        SummaryMetricCard("ยกเลิก", "฿" + snapshot.cancelledTotal.bahtText(), Modifier.weight(1f))
+                        SummaryMetricCard("สกุลเงิน", snapshot.currencyCode, Modifier.weight(1f), true)
+                    }
                 }
             }
         }
