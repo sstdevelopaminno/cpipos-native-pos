@@ -20,6 +20,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
+import kotlin.math.roundToInt
 
 private val noticeBlue = Color(0xFF176DED)
 private val noticeInk = Color(0xFF192C4D)
@@ -39,6 +40,12 @@ internal fun NativeQrGlobalAlerts(
     val store = remember(context.applicationContext) {
         NativeQrAlertStore(context.applicationContext)
     }
+    val policyStore = remember(context.applicationContext) {
+        NativeQrNotificationPreferences(context.applicationContext)
+    }
+    var notificationSettings by remember(session.tenantId, session.branchId) {
+        mutableStateOf(policyStore.read(session.tenantId, session.branchId))
+    }
     var alerts by remember(session.tenantId, session.branchId, session.deviceCode) {
         mutableStateOf(store.readPending(session))
     }
@@ -47,6 +54,26 @@ internal fun NativeQrGlobalAlerts(
     }
     val scope = rememberCoroutineScope()
     val event = alerts.firstOrNull()
+
+    // Keep Android sound behavior aligned with the same branch setting used by CpIPOS Web.
+    // Cashiers without settings:view keep the last verified local value; the QR activity
+    // endpoint remains authoritative for whether order popups are emitted.
+    LaunchedEffect(client, session.id) {
+        while (true) {
+            try {
+                val server = client.notificationSettings(session)
+                policyStore.save(session.tenantId, session.branchId, server)
+                notificationSettings = server
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: WebPosApiException) {
+                if (failure.status == 401 || failure.status == 403) return@LaunchedEffect
+            } catch (_: Exception) {
+                // Keep cached policy while offline; operational QR polling is independent.
+            }
+            delay(60_000L)
+        }
+    }
 
     // One register-scoped poller for ALL Native screens; not restarted on tabs.
     LaunchedEffect(client, session.id) {
@@ -106,9 +133,11 @@ internal fun NativeQrGlobalAlerts(
     }
 
     LaunchedEffect(event?.id) {
-        if (event != null) {
+        if (event != null && notificationSettings.soundEnabled) {
+            val volume = (notificationSettings.soundVolume * 100f)
+                .roundToInt().coerceIn(1, 100)
             val sound = runCatching {
-                ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
+                ToneGenerator(AudioManager.STREAM_NOTIFICATION, volume)
             }.getOrNull()
             if (sound != null) {
                 try {
