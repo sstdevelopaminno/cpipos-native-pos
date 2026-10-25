@@ -45,6 +45,44 @@ data class WebDiningTable(
     val capacity: Int, val status: String, val sessionId: String?, val orderId: String?
 )
 data class WebTableFloor(val zones: List<WebTableZone>, val tables: List<WebDiningTable>)
+data class WebTableMoveResult(
+    val sourceId: String, val targetId: String, val billSessionId: String,
+    val orderId: String?, val moved: Boolean
+)
+
+data class WebQrActivityEvent(
+    val id: String, val tableId: String, val tableCode: String,
+    val type: String, val itemCount: Int, val subtotal: Satang?,
+    val createdAt: String
+)
+data class WebQrActivityPage(
+    val events: List<WebQrActivityEvent>, val cursor: String, val serverTime: String
+)
+
+internal fun parseQrActivityPage(data: JSONObject, fallbackCursor: String): WebQrActivityPage {
+    val array = data.optJSONArray("events") ?: JSONArray()
+    val events = (0 until array.length()).mapNotNull { index ->
+        val row = array.optJSONObject(index) ?: return@mapNotNull null
+        val eventType = row.optString("event_type")
+        if (eventType !in setOf("order", "call_staff", "request_checkout")) return@mapNotNull null
+        val id = row.optString("id")
+        val tableId = row.optString("table_id")
+        if (runCatching { UUID.fromString(id) }.isFailure ||
+            runCatching { UUID.fromString(tableId) }.isFailure) return@mapNotNull null
+        val table = row.optJSONObject("table")
+        val total = row.opt("subtotal")?.takeUnless { it == JSONObject.NULL }
+            ?.toString()?.let { runCatching { Satang.fromBaht(it) }.getOrNull() }
+        WebQrActivityEvent(
+            id = id, tableId = tableId, tableCode = table?.optString("table_code") ?: "—",
+            type = eventType, itemCount = row.optInt("item_count", 0).coerceAtLeast(0),
+            subtotal = total, createdAt = row.optString("created_at")
+        )
+    }
+    val cursor = data.optString("cursor").takeUnless { it.isBlank() } ?: fallbackCursor
+    val time = data.optString("server_time").takeUnless { it.isBlank() } ?: fallbackCursor
+    return WebQrActivityPage(events, cursor, time)
+}
+
 data class WebTableOrderQr(
     val tableId: String,
     val tableCode: String,
@@ -816,6 +854,56 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         check(response.optBoolean("deactivated", false)) {
             "catalog_deactivation_unconfirmed"
         }
+    }
+
+    /** Canonical POS Web mobile/tablet global QR activity, scoped to the signed-in POS branch. */
+    suspend fun qrActivity(session: WebPosSession, since: String): WebQrActivityPage {
+        requireSameLiveSession(session)
+        require(runCatching { java.time.Instant.parse(since) }.isSuccess)
+        val data = call("GET", "/api/pos/table-qr-activity?since=" + queryValue(since))
+        return parseQrActivityPage(data, since)
+    }
+
+    /** Service events are acknowledged on the server; a food order is not. */
+    suspend fun acknowledgeQrService(
+        session: WebPosSession, eventId: String, goToTable: Boolean
+    ) {
+        requireSameLiveSession(session)
+        require(UUID.fromString(eventId).toString() == eventId)
+        val data = call("POST", "/api/pos/table-qr-activity", JSONObject()
+            .put("event_id", eventId)
+            .put("action", if (goToTable) "go_to_table" else "acknowledge"))
+        check(data.optBoolean("acknowledged", false)) { "qr_service_ack_unconfirmed" }
+    }
+
+    /**
+     * Existing transaction-locked move-bill endpoint. Never retries automatically:
+     * an HTTP timeout might mean that the bill already moved at the server.
+     */
+    suspend fun moveDiningBill(
+        session: WebPosSession, sourceTableId: String, targetTableId: String
+    ): WebTableMoveResult {
+        requireSameLiveSession(session)
+        require(UUID.fromString(sourceTableId).toString() == sourceTableId)
+        require(UUID.fromString(targetTableId).toString() == targetTableId)
+        require(sourceTableId != targetTableId)
+        val result = call(
+            "POST", "/api/pos/tables/$sourceTableId/move-bill",
+            JSONObject().put("target_table_id", targetTableId)
+        )
+        check(result.optString("from_table_id") == sourceTableId &&
+            result.optString("to_table_id") == targetTableId) {
+            "table_move_scope_mismatch"
+        }
+        val sessionId = result.optString("table_session_id")
+        check(runCatching { UUID.fromString(sessionId) }.isSuccess) {
+            "table_move_session_unconfirmed"
+        }
+        return WebTableMoveResult(
+            sourceId = sourceTableId, targetId = targetTableId, billSessionId = sessionId,
+            orderId = result.optString("order_id").takeUnless { it.isBlank() || it == "null" },
+            moved = result.optBoolean("moved", false)
+        )
     }
 
     suspend fun diningTables(session: WebPosSession): WebTableFloor {

@@ -753,4 +753,43 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             onDone = { recoveredReceipt = null }
         )
     }
+
+    // One app-wide listener survives switching tabs, sale screens and table modes.
+    // The server owns QR order state; dismissing a food notification NEVER accepts an order.
+    val verifiedForAlerts = session
+    if (verifiedForAlerts != null &&
+        step in setOf("shift", "review", "mode", "sale", "dine", "dine_order", "tab")) {
+        NativeQrGlobalAlerts(
+            client = client,
+            session = verifiedForAlerts,
+            canNavigate = !busy && !takeaway.saving.value &&
+                dineWorkspace.drafts.values.none { it.busy || it.uncertain },
+            onGoToTable = { event ->
+                if (!busy && !takeaway.saving.value &&
+                    dineWorkspace.drafts.values.none { it.busy || it.uncertain }) {
+                    scope.launch {
+                        val floor = try {
+                            client.diningTables(verifiedForAlerts)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            null
+                        }
+                        val destination = floor?.tables?.firstOrNull {
+                            it.id == event.tableId && it.sessionId != null &&
+                                it.status in setOf("occupied", "ordering", "pending_payment")
+                        }
+                        if (session?.id == verifiedForAlerts.id) {
+                            if (destination != null) {
+                                selectedDiningTable = destination
+                                step = "dine_order"
+                            } else {
+                                step = "dine"
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    }
 }
