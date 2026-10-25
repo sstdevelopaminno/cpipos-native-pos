@@ -43,6 +43,7 @@ data class NativePrinterProfile(
 data class NativePrintJob(
     val id: String,
     val attemptId: String,
+    val printerRole: String,
     val payloadText: String,
     val payloadJson: JSONObject,
     val metadata: JSONObject,
@@ -76,6 +77,7 @@ class NativePrinterTransport(context: Context) {
         return NativePrintJob(
             id = row.getString("id"),
             attemptId = row.getString("agent_attempt_id"),
+            printerRole = row.optString("printer_role"),
             payloadText = row.optString("payload_text", ""),
             payloadJson = row.optJSONObject("payload_json") ?: JSONObject(),
             metadata = row.optJSONObject("metadata") ?: JSONObject(),
@@ -151,6 +153,7 @@ class NativePrinterTransport(context: Context) {
     }
 
     private fun loadReceiptLogo(job: NativePrintJob): Bitmap? {
+        if (job.printerRole.lowercase() != "receipt") return null
         val logoUrl = sequenceOf(
             job.payloadJson.optString("store_logo_url"),
             job.payloadJson.optString("logo_url"),
