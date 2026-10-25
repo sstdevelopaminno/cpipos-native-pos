@@ -7,6 +7,8 @@ import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -145,6 +147,7 @@ internal fun NativeStoreSettingsScreen(
         Box(Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
+                    .verticalScroll(rememberScrollState())
                     .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
