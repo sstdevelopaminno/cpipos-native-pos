@@ -95,7 +95,9 @@ import com.cpipos.pos.next.core.webpos.WebPosSession
 import com.cpipos.pos.next.core.webpos.WebReceiptHistory
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import com.cpipos.pos.next.core.print.NativePrintRuntime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -219,9 +221,20 @@ internal fun MobilePosSalePreview(
     LaunchedEffect(liveClient, liveSession?.id) {
         val client = liveClient
         val session = liveSession
-        drawerAvailable = if (client != null && session != null) {
-            runCatching { client.cashDrawerStatus(session).visible }.getOrDefault(false)
-        } else false
+        if (client == null || session == null) {
+            drawerAvailable = false
+            return@LaunchedEffect
+        }
+        while (true) {
+            drawerAvailable = try {
+                client.cashDrawerStatus(session).visible
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            }
+            delay(10_000L)
+        }
     }
 
     LaunchedEffect(notice) {
