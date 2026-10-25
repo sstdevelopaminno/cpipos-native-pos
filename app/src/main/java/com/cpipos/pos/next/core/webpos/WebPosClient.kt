@@ -300,6 +300,15 @@ data class WebOrderRecovery(
 )
 
 data class WebPaidBill(val orderId: String, val receipt: DemoSaleReceipt)
+data class WebCashDrawerStatus(
+    val configured: Boolean,
+    val ready: Boolean,
+    val reason: String,
+    val selectedMode: String?,
+    val printerName: String?
+) {
+    val visible: Boolean get() = configured && ready
+}
 class WebPosApiException(val code: String, val status: Int) : Exception("POS API: $code ($status)")
 
 internal fun productImageUrlFrom(
@@ -1666,6 +1675,40 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 connection.disconnect()
             }
         }
+
+    /** Cash drawer readiness is owned by CpIPOS printer/drawer routing. */
+    suspend fun cashDrawerStatus(session: WebPosSession): WebCashDrawerStatus {
+        requireSameLiveSession(session)
+        val data = call("GET", "/api/pos/cash-drawer/open")
+        val printer = data.optJSONObject("printer")
+        return WebCashDrawerStatus(
+            configured = data.optBoolean("configured", false),
+            ready = data.optBoolean("ready", false),
+            reason = data.optString("reason", "drawer_not_configured"),
+            selectedMode = data.optString("selected_mode").takeIf { it.isNotBlank() },
+            printerName = printer?.optString("printer_name")?.takeIf { it.isNotBlank() }
+        )
+    }
+
+    /**
+     * Manual drawer opening stays server-audited and uses the same printer route
+     * as CpIPOS Web. The fixed reason keeps the button one-tap while satisfying
+     * the existing manual-open audit requirement.
+     */
+    suspend fun openCashDrawer(
+        session: WebPosSession,
+        reason: String = "เปิดลิ้นชักด้วยตนเองจาก POS มือถือ"
+    ): Boolean {
+        requireSameLiveSession(session)
+        require(reason.trim().isNotBlank())
+        val data = call(
+            "POST",
+            "/api/pos/cash-drawer/open",
+            JSONObject().put("reason", reason.trim().take(160))
+        )
+        return data.optBoolean("command_sent", false) ||
+            data.optBoolean("command_queued", false)
+    }
 
     /** Retrieve the canonical image map using the SAME verified POS Web cookie session.
      * The server scopes assets to the current tenant and branch. Images are optional;
