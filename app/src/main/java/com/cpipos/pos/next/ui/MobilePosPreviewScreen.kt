@@ -1141,7 +1141,7 @@ internal fun HomeBottomMenu(
             Spacer(modifier = Modifier.weight(1f))
             BottomMenuItem(
                 iconRes = R.drawable.ic_nav_history,
-                label = stringResource(R.string.pos_nav_history),
+                label = "เพิ่มเติม",
                 selected = selectedTab == "history",
                 onClick = { onMenuClick("history") },
                 modifier = Modifier.weight(1f)
