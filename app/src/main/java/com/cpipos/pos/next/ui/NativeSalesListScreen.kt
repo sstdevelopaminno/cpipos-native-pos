@@ -59,7 +59,9 @@ internal fun nativeSalesWindow(mode: String, anchor: LocalDate,
 internal fun NativeSalesListScreen(
     client: WebPosClient,
     session: WebPosSession,
-    onTab: (String) -> Unit
+    onTab: (String) -> Unit,
+    onBack: (() -> Unit)? = null,
+    selectedBottomTab: String = "report"
 ) {
     val context = LocalContext.current
     val deleteJournal = remember(context.applicationContext) {
@@ -141,8 +143,13 @@ internal fun NativeSalesListScreen(
                     modifier = Modifier.fillMaxWidth().padding(top = 13.dp, bottom = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (onBack != null) {
+                        TextButton(onClick = onBack, enabled = !deleteBusy) {
+                            Text("‹ เพิ่มเติม", color = salesBlue)
+                        }
+                    }
                     Column(Modifier.weight(1f)) {
-                        Text("รายการขาย", fontSize = 23.sp,
+                        Text("รายการขายสินค้า", fontSize = 23.sp,
                             fontWeight = FontWeight.ExtraBold, color = salesInk)
                         Text(session.branchName + " · CpIPOS", fontSize = 11.sp,
                             color = salesMuted)
@@ -340,7 +347,7 @@ internal fun NativeSalesListScreen(
             }
             HomeBottomMenu(
                 modifier = Modifier.align(Alignment.BottomCenter),
-                selectedTab = "report", onMenuClick = { tab ->
+                selectedTab = selectedBottomTab, onMenuClick = { tab ->
                     if (!deleteBusy) onTab(tab)
                 }
             )
