@@ -110,16 +110,23 @@ object NativeDeviceManagementRuntime {
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: WebPosApiException) {
-                    if (failure.code == "device_or_session_blocked") {
+                    val blocked = failure.code == "device_or_session_blocked"
+                    if (blocked) {
                         _deviceLocked.value = true
+                        _lastHealth.value = "blocked"
+                        // A remote IT enable command must become visible quickly.
+                        // Do not exponentially back off while the device is
+                        // intentionally blocked; keep a bounded 15s recheck.
+                        failures.set(0)
+                    } else {
+                        _lastHealth.value = "degraded"
                     }
                     if (failure.status == 401 || failure.status == 403 || failure.status == 409) {
                         Log.w("CpIPOSMDM", "MDM heartbeat rejected: " + failure.code)
                     } else {
                         Log.w("CpIPOSMDM", "MDM heartbeat failed: " + failure.code)
                     }
-                    _lastHealth.value = "degraded"
-                    delay(backoff())
+                    delay(if (blocked) 15_000L else backoff())
                 } catch (failure: Exception) {
                     Log.w("CpIPOSMDM", "MDM heartbeat failed: " + failure.javaClass.simpleName)
                     _lastHealth.value = "degraded"
