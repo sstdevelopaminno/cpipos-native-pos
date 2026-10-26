@@ -1309,7 +1309,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             canSell = "sale:create" in values && "sales:enter" in values,
             canManageTables = "tables:manage" in values,
             canCloseShift = "shift:close" in values,
-            role = user.optString("role").ifBlank { "staff" }
+            role = d.optString("role").ifBlank { "staff" }
         )
     }
 
