@@ -96,6 +96,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var showLogoutConfirm by remember { mutableStateOf(false) }
     var browsingWithoutShift by remember { mutableStateOf(false) }
     var showShiftRequiredDialog by remember { mutableStateOf(false) }
+    var showSalePermissionDialog by remember { mutableStateOf(false) }
     // Single workspace for the authenticated register. Switching to the mode
     // chooser never disposes its cart, entered cash or checkout step.
     val takeaway = remember(session?.id) { TakeawayWorkspace() }
@@ -130,6 +131,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         recoveredReceipt = null
         browsingWithoutShift = false
         showShiftRequiredDialog = false
+        showSalePermissionDialog = false
         step = "store"
     }
 
@@ -613,6 +615,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 val current = session
                 if (current == null || current.shiftId == null) {
                     showShiftRequiredDialog = true
+                } else if (!current.canSell) {
+                    showSalePermissionDialog = true
                 } else if (mode == MockSaleMode.Takeaway) {
                     scope.launch {
                         val pending = runCatching { journal.unresolved(current) }.getOrNull()
@@ -720,6 +724,39 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 onMainMenu = { tab -> navigateTab(tab) }
             )
         }
+    }
+
+    if (showSalePermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) showSalePermissionDialog = false },
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text(
+                    "ไม่มีสิทธิ์ขาย",
+                    fontWeight = FontWeight.ExtraBold,
+                    color = liveInk
+                )
+            },
+            text = {
+                Text(
+                    "บัญชีพนักงานนี้สามารถเข้าเมนูที่ได้รับสิทธิ์ได้ แต่ไม่สามารถเข้าโหมดขายได้ " +
+                        "กรุณาติดต่อ Owner หรือ Manager เพื่อกำหนดสิทธิ์ขาย",
+                    color = Color(0xFF66758D),
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showSalePermissionDialog = false },
+                    enabled = !busy,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = liveBlue)
+                ) {
+                    Text("รับทราบ", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 
     if (showShiftRequiredDialog) {
