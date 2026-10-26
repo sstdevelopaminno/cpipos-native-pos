@@ -2,6 +2,8 @@ package com.cpipos.pos.next.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -71,12 +73,45 @@ internal fun NativeSettingsHubScreen(
             )
             return
         }
+        "branches" -> {
+            NativeBranchSettingsScreen(client, session, { page = "hub" }, ::routeBottom)
+            return
+        }
+        "devices" -> {
+            NativeDeviceSettingsScreen(client, session, { page = "hub" }, ::routeBottom)
+            return
+        }
+        "users" -> {
+            NativePosUsersSettingsScreen(client, session, { page = "hub" }, ::routeBottom)
+            return
+        }
+        "table_qr" -> {
+            NativeTableQrSettingsScreen(client, session, { page = "hub" }, ::routeBottom)
+            return
+        }
+        "taxes" -> {
+            NativeTaxSettingsScreen(client, session, { page = "hub" }, ::routeBottom)
+            return
+        }
+        "language" -> {
+            NativeLanguageSettingsScreen(session, { page = "hub" }, ::routeBottom)
+            return
+        }
+        "order_kitchen" -> {
+            NativeOrderKitchenSettingsScreen(client, session, { page = "hub" }, ::routeBottom)
+            return
+        }
+        "support" -> {
+            NativeHelpCenterScreen(client, session, { page = "hub" }, ::routeBottom)
+            return
+        }
     }
 
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Box(Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
+                    .verticalScroll(rememberScrollState())
                     .padding(start = 17.dp, end = 17.dp, top = 15.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
@@ -109,6 +144,81 @@ internal fun NativeSettingsHubScreen(
                         if (storeAllowed) page = "store"
                         else packageLockTarget = "ตั้งชื่อร้านค้า / บริษัท"
                     }
+                )
+
+                val branchesAllowed = allowed("branch_management", "settings.branches")
+                SettingsHubCard(
+                    icon = "🏬",
+                    title = "เพิ่มสาขา",
+                    subtitle = "เพิ่ม แก้ไข และปิดใช้งานสาขา · ใช้ข้อมูลชุดเดียวกับ CpIPOS",
+                    locked = !branchesAllowed,
+                    onClick = { if (branchesAllowed) page = "branches" else packageLockTarget = "เพิ่มสาขา" }
+                )
+
+                val devicesAllowed = allowed("mobile_device_enrollment", "settings.devices")
+                SettingsHubCard(
+                    icon = "🧾",
+                    title = "เพิ่มเครื่องแคชเชียร์",
+                    subtitle = "ผูกเครื่อง POS กับสาขา รหัสเครื่อง Counter สถานะ และนโยบายล็อกอิน",
+                    locked = !devicesAllowed,
+                    onClick = { if (devicesAllowed) page = "devices" else packageLockTarget = "เพิ่มเครื่องแคชเชียร์" }
+                )
+
+                val usersAllowed = allowed("user_management", "settings.users")
+                SettingsHubCard(
+                    icon = "👥",
+                    title = "ผู้ใช้งาน POS",
+                    subtitle = "พนักงาน บทบาท รหัสพนักงาน PIN Permission Role และขอบเขตเครื่อง",
+                    locked = !usersAllowed,
+                    onClick = { if (usersAllowed) page = "users" else packageLockTarget = "ผู้ใช้งาน POS" }
+                )
+
+                val tableQrAllowed = (entitlements?.menuEnabled("settings.table_qr", "main.settings") ?: true) &&
+                    (entitlements?.featureEnabled("table_management") ?: true) &&
+                    (entitlements?.featureEnabled("qr_table_ordering") ?: true)
+                SettingsHubCard(
+                    icon = "▦",
+                    title = "ตั้งค่า QR โต๊ะ",
+                    subtitle = "กำหนดอายุ QR แบบตามเวลา/ชั่วโมง หรือใช้งานจนปิดบิล",
+                    locked = !tableQrAllowed,
+                    onClick = { if (tableQrAllowed) page = "table_qr" else packageLockTarget = "ตั้งค่า QR โต๊ะ" }
+                )
+
+                val taxesAllowed = allowed("core_pos_sales", "settings.taxes")
+                SettingsHubCard(
+                    icon = "％",
+                    title = "ตั้งค่าภาษี",
+                    subtitle = "VAT และภาษีหัก ณ ที่จ่าย · คำนวณจากยอดหลังส่วนลดเหมือน CpIPOS",
+                    locked = !taxesAllowed,
+                    onClick = { if (taxesAllowed) page = "taxes" else packageLockTarget = "ตั้งค่าภาษี" }
+                )
+
+                val languageAllowed = entitlements?.menuEnabled("settings.language", "main.settings") ?: true
+                SettingsHubCard(
+                    icon = "🌐",
+                    title = "เปลี่ยนภาษา",
+                    subtitle = "ไทย / English / ລາວ ตามตัวเลือกของ CpIPOS",
+                    locked = !languageAllowed,
+                    onClick = { if (languageAllowed) page = "language" else packageLockTarget = "เปลี่ยนภาษา" }
+                )
+
+                val orderKitchenAllowed = (entitlements?.menuEnabled("settings.order_kitchen", "main.settings") ?: true) &&
+                    (entitlements?.featureEnabled("qr_table_ordering") ?: true)
+                SettingsHubCard(
+                    icon = "🍳",
+                    title = "การแจ้งเตือนออเดอร์และครัว",
+                    subtitle = "POP UP, ส่งเข้าครัวอัตโนมัติ และพิมพ์ครัวอัตโนมัติ พร้อม IT override",
+                    locked = !orderKitchenAllowed,
+                    onClick = { if (orderKitchenAllowed) page = "order_kitchen" else packageLockTarget = "การแจ้งเตือนออเดอร์และครัว" }
+                )
+
+                val supportAllowed = entitlements?.menuEnabled("settings.support", "main.settings") ?: true
+                SettingsHubCard(
+                    icon = "🎧",
+                    title = "ศูนย์ช่วยเหลือ",
+                    subtitle = "CpIPOS Support Center · LINE และช่องทางติดต่อบริษัท",
+                    locked = !supportAllowed,
+                    onClick = { if (supportAllowed) page = "support" else packageLockTarget = "ศูนย์ช่วยเหลือ" }
                 )
 
                 val notificationsAllowed = allowed("qr_table_ordering", "settings.notifications")
