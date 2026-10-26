@@ -24,6 +24,8 @@ class NativeBillingLanguageContractTest {
             assertTrue("$method must not require sale permission", window.contains("requireSell = false"))
         }
         assertTrue(client.contains("require(session.role == \"owner\")"))
+        assertTrue(client.contains("role = d.optString(\"role\")"))
+        assertFalse(client.contains("role = user.optString(\"role\")"))
         assertTrue(client.contains("X-CpIPOS-Client"))
         assertTrue(client.contains("native-android"))
     }
