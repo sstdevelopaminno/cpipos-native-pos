@@ -785,6 +785,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     private suspend fun call(
         method: String, path: String, json: JSONObject? = null, key: String? = null,
         readTimeoutMs: Int = 15000,
+        connectTimeoutMs: Int = 8000,
         headers: Map<String, String> = emptyMap()
     ): JSONObject = withContext(Dispatchers.IO) {
         require(path.startsWith("/") && !path.startsWith("//"))
@@ -792,7 +793,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         val conn = url.openConnection() as HttpURLConnection
         try {
             conn.instanceFollowRedirects = false
-            conn.connectTimeout = 8000
+            conn.connectTimeout = connectTimeoutMs.coerceIn(1000, 30000)
             conn.readTimeout = readTimeoutMs.coerceIn(1000, 60000)
             conn.requestMethod = method
             conn.setRequestProperty("Accept", "application/json")
@@ -933,7 +934,15 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         forceFresh: Boolean = false
     ): WebPosEntitlements {
         val path = if (forceFresh) "/api/pos/features?refresh=1" else "/api/pos/features"
-        val data = call("GET", path)
+        // Entitlement checks are UX/control-plane reads, never payment writes.
+        // Keep a short bounded timeout so a slow network cannot make the POS
+        // appear frozen while IT settings are being refreshed.
+        val data = call(
+            method = "GET",
+            path = path,
+            readTimeoutMs = 5000,
+            connectTimeoutMs = 3000
+        )
         val tenantId = data.optString("tenant_id")
         val branchId = data.optString("branch_id")
         if (tenantId != session.tenantId || branchId != session.branchId) {
