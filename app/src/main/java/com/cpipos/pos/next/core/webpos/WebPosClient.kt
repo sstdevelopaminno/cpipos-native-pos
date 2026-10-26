@@ -456,6 +456,40 @@ data class WebSubscriptionSubmitResult(
     val provisionalAccessGranted: Boolean
 )
 
+data class WebSubscriptionRuntime(
+    val exempt: Boolean,
+    val locked: Boolean,
+    val lockReason: String?,
+    val lifecycleStatus: String,
+    val expiresAt: String?,
+    val daysRemaining: Int?,
+    val packageName: String,
+    val billingInterval: String,
+    val amountDue: Double?,
+    val currency: String,
+    val bankName: String,
+    val accountName: String,
+    val accountNumber: String
+)
+data class WebDeviceAction(
+    val id: String,
+    val commandType: String,
+    val issuedAt: String
+)
+data class WebDeviceHeartbeatResult(
+    val status: String,
+    val summary: String,
+    val pendingActions: List<WebDeviceAction>
+)
+data class WebDeviceCommandAck(
+    val id: String,
+    val commandType: String,
+    val applied: Boolean,
+    val phase: String = "executed",
+    val errorCode: String? = null,
+    val errorMessage: String? = null
+)
+
 data class WebPosSalesModes(
     val takeaway: Boolean,
     val dineIn: Boolean,
@@ -2755,6 +2789,115 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             tableName = data.optString("table_name"),
             mode = row.optString("mode").ifBlank { policy.mode },
             ttlMinutes = if (row.isNull("ttl_minutes")) null else row.optInt("ttl_minutes")
+        )
+    }
+
+    suspend fun subscriptionRuntime(
+        session: WebPosSession,
+        reason: String = "fallback"
+    ): WebSubscriptionRuntime? {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(reason in setOf("focus", "fallback", "reconnect", "realtime", "payment"))
+        val data = call(
+            "GET",
+            "/api/pos/billing/runtime?reason=" + queryValue(reason),
+            readTimeoutMs = 8_000,
+            connectTimeoutMs = 4_000
+        )
+        val row = data.optJSONObject("runtime") ?: return null
+        return WebSubscriptionRuntime(
+            exempt = row.optBoolean("exempt", false),
+            locked = row.optBoolean("locked", false),
+            lockReason = row.optString("lock_reason").takeIf { it.isNotBlank() && it != "null" },
+            lifecycleStatus = row.optString("lifecycle_status").ifBlank { "unknown" },
+            expiresAt = row.optString("expires_at").takeIf { it.isNotBlank() && it != "null" },
+            daysRemaining = if (row.isNull("days_remaining")) null else row.optInt("days_remaining"),
+            packageName = row.optString("package_name").ifBlank { "แพ็กเกจ" },
+            billingInterval = row.optString("billing_interval").ifBlank { "monthly" },
+            amountDue = if (row.isNull("amount_due")) null else row.optDouble("amount_due"),
+            currency = row.optString("currency").ifBlank { "THB" },
+            bankName = row.optString("bank_name"),
+            accountName = row.optString("account_name"),
+            accountNumber = row.optString("account_number")
+        )
+    }
+
+    suspend fun sendDeviceHeartbeat(
+        session: WebPosSession,
+        installationId: String,
+        printerDiagnostics: JSONObject
+    ): WebDeviceHeartbeatResult {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(UUID.fromString(installationId).toString() == installationId)
+        val now = Instant.now().toString()
+        val data = call(
+            "POST",
+            "/api/pos/device-heartbeat",
+            JSONObject()
+                .put("identity", JSONObject()
+                    .put("device_code", session.deviceCode)
+                    .put("machine_id", installationId)
+                    .put("runtime_version", "android-native-pos-v2")
+                    .put("app_version", BuildConfig.VERSION_NAME))
+                .put("connectivity", JSONObject()
+                    .put("internet_online", true)
+                    .put("server_reachable", true)
+                    .put("network_type", "android")
+                    .put("last_seen_at", now))
+                .put("runtime", JSONObject()
+                    .put("cpi_windows_runtime_running", true)
+                    .put("local_bridge_online", true)
+                    .put("bridge_version", "native-print-runtime-v2")
+                    .put("print_queue_busy", printerDiagnostics.optBoolean("running", false))
+                    .put("last_error", printerDiagnostics.optString("last_error").takeIf { it.isNotBlank() }))
+                .put("peripherals", JSONObject()
+                    .put("printer", printerDiagnostics))
+                .put("metadata", JSONObject()
+                    .put("agent_surface", "android_native_pos")
+                    .put("installation_id", installationId))
+                .put("captured_at", now),
+            readTimeoutMs = 10_000,
+            connectTimeoutMs = 4_000
+        )
+        val actions = data.optJSONArray("pending_actions") ?: JSONArray()
+        return WebDeviceHeartbeatResult(
+            status = data.optString("status").ifBlank { "unknown" },
+            summary = data.optString("summary"),
+            pendingActions = (0 until actions.length()).mapNotNull { index ->
+                val row = actions.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val type = row.optString("command_type").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                WebDeviceAction(id, type, row.optString("issued_at"))
+            }
+        )
+    }
+
+    suspend fun ackDeviceCommands(
+        session: WebPosSession,
+        results: List<WebDeviceCommandAck>
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(results.isNotEmpty() && results.size <= 10)
+        val payload = JSONArray()
+        results.forEach { item ->
+            val row = JSONObject()
+                .put("id", item.id)
+                .put("command_type", item.commandType)
+                .put("applied", item.applied)
+                .put("phase", item.phase)
+            item.errorCode?.let { row.put("error_code", it.take(120)) }
+            item.errorMessage?.let { row.put("error_message", it.take(500)) }
+            payload.put(row)
+        }
+        call(
+            "POST",
+            "/api/pos/device-commands/ack",
+            JSONObject()
+                .put("results", payload)
+                .put("agent_surface", "android_native_pos")
+                .put("agent_version", BuildConfig.VERSION_NAME),
+            readTimeoutMs = 10_000,
+            connectTimeoutMs = 4_000
         )
     }
 
