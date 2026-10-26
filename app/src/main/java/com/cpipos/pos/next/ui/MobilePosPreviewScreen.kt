@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -460,8 +462,11 @@ internal fun LoginLandingScreen(
                                 )
                             ) {
                                 Text(
-                                    if (isThai) "ทดลอง UI ที่พัฒนาแล้ว (ไม่บันทึกยอดจริง)"
-                                    else "Test the UI (no real sales)",
+                                    when (selectedLanguage) {
+                                        LoginLanguage.Thai -> "ทดลอง UI ที่พัฒนาแล้ว (ไม่บันทึกยอดจริง)"
+                                        LoginLanguage.English -> "Test the UI (no real sales)"
+                                        LoginLanguage.Lao -> "ທົດລອງ UI (ບໍ່ບັນທຶກຍອດຂາຍຈິງ)"
+                                    },
                                     color = Color(0xFF33639A),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.SemiBold
