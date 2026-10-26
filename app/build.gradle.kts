@@ -23,6 +23,22 @@ if (file("google-services.json").isFile) {
 }
 fun quoted(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
+val releaseKeystorePath = System.getenv("ANDROID_RELEASE_KEYSTORE_PATH").orEmpty()
+val releaseStorePassword = System.getenv("ANDROID_RELEASE_STORE_PASSWORD").orEmpty()
+val releaseKeyAlias = System.getenv("ANDROID_RELEASE_KEY_ALIAS").orEmpty()
+val releaseKeyPassword = System.getenv("ANDROID_RELEASE_KEY_PASSWORD").orEmpty()
+val releaseSigningEnabled = listOf(
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { it.isNotBlank() }
+
+val resolvedVersionCode = providers.gradleProperty("CPIPOS_RELEASE_VERSION_CODE")
+    .orNull?.toIntOrNull() ?: 2000000
+val resolvedVersionName = providers.gradleProperty("CPIPOS_RELEASE_VERSION_NAME")
+    .orNull?.takeIf { it.isNotBlank() } ?: "2.0.0-dev"
+
 android {
     namespace = "com.cpipos.pos.next"
     compileSdk = 37
@@ -31,8 +47,8 @@ android {
         applicationId = "com.cpipos.pos.next"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2000000
-        versionName = "2.0.0-dev"
+        versionCode = resolvedVersionCode
+        versionName = resolvedVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -55,12 +71,29 @@ android {
         )
     }
 
+    signingConfigs {
+        if (releaseSigningEnabled) {
+            create("productionRelease") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-local"
         }
         release {
+            if (releaseSigningEnabled) {
+                signingConfig = signingConfigs.getByName("productionRelease")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
