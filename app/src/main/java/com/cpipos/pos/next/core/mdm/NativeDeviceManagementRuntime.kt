@@ -48,6 +48,7 @@ object NativeDeviceManagementRuntime {
             val current = worker
             if (current?.sameSession(session) == true && current.running()) return
             current?.stop()
+            _deviceLocked.value = false
             worker = Worker(context.applicationContext, client, session).also { it.start() }
         }
     }
@@ -100,6 +101,7 @@ object NativeDeviceManagementRuntime {
                         .getOrElse { JSONObject().put("running", false).put("last_error", "diagnostics_unavailable") }
                     val result = client.sendDeviceHeartbeat(session, installId, printer)
                     _lastHealth.value = result.status
+                    _deviceLocked.value = false
                     failures.set(0)
                     if (result.pendingActions.isNotEmpty()) {
                         handle(result.pendingActions)
@@ -108,6 +110,9 @@ object NativeDeviceManagementRuntime {
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: WebPosApiException) {
+                    if (failure.code == "device_or_session_blocked") {
+                        _deviceLocked.value = true
+                    }
                     if (failure.status == 401 || failure.status == 403 || failure.status == 409) {
                         Log.w("CpIPOSMDM", "MDM heartbeat rejected: " + failure.code)
                     } else {
@@ -153,17 +158,18 @@ object NativeDeviceManagementRuntime {
                     "test_network" ->
                         WebDeviceCommandAck(action.id, action.commandType, true)
                     "test_printer" -> {
+                        val testResult = runCatching {
+                            client.testAssignedNativePrinter(session)
+                        }
                         NativePrintRuntime.wake()
-                        val running = runCatching {
-                            JSONObject(NativePrintRuntime.diagnostics()).optBoolean("running", false)
-                        }.getOrDefault(false)
                         WebDeviceCommandAck(
                             action.id,
                             action.commandType,
-                            applied = running,
-                            phase = if (running) "accepted" else "executed",
-                            errorCode = if (running) null else "native_print_runtime_inactive",
-                            errorMessage = if (running) null else "Native print runtime is not active for this POS session."
+                            applied = testResult.isSuccess,
+                            phase = "executed",
+                            errorCode = testResult.exceptionOrNull()
+                                ?.let { (it as? WebPosApiException)?.code ?: "native_test_print_failed" },
+                            errorMessage = testResult.exceptionOrNull()?.message
                         )
                     }
                     "check_update" ->
