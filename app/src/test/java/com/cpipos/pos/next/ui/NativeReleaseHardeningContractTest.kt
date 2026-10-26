@@ -125,6 +125,12 @@ class NativeReleaseHardeningContractTest {
     }
 
     @Test
+    fun releaseUsesCompatibleAndroidxFragmentForActivityResultApi() {
+        val gradle = source("../../../../../build.gradle.kts")
+        assertTrue(gradle.contains("androidx.fragment:fragment-ktx:1.9.1"))
+    }
+
+    @Test
     fun backgroundControlPlaneAvoidsRedundantSessionPreflight() {
         val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
         listOf("subscriptionRuntime", "sendDeviceHeartbeat", "ackDeviceCommands").forEach { method ->
