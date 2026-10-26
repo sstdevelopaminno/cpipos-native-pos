@@ -29,6 +29,10 @@ import java.net.Socket
 import java.net.URL
 import java.nio.charset.Charset
 import java.util.UUID
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 data class NativePrinterProfile(
     val id: String,
@@ -384,10 +388,25 @@ class NativePrinterTransport(context: Context) {
             "bluetooth_printer_not_paired", true,
             "ยังไม่ได้จับคู่เครื่องพิมพ์ Bluetooth กับ Android"
         )
+        val socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
+        val connector = Executors.newSingleThreadExecutor()
         try {
-            val socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
+            val future = connector.submit<Unit> { socket.connect() }
+            try {
+                future.get(BLUETOOTH_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            } catch (timeout: TimeoutException) {
+                future.cancel(true)
+                runCatching { socket.close() }
+                throw NativePrintException(
+                    "bluetooth_connect_timeout",
+                    true,
+                    "เชื่อมต่อเครื่องพิมพ์ Bluetooth เกินเวลาที่กำหนด",
+                    timeout
+                )
+            } catch (execution: ExecutionException) {
+                throw execution.cause ?: execution
+            }
             socket.use {
-                it.connect()
                 it.outputStream.use { output ->
                     output.write(payload)
                     output.flush()
@@ -396,17 +415,23 @@ class NativePrinterTransport(context: Context) {
             return NativePrintResult(
                 payload.size, "bluetooth", "android-bt:" + device.address
             )
+        } catch (error: NativePrintException) {
+            throw error
         } catch (error: Throwable) {
             throw NativePrintException(
                 "bluetooth_print_failed", true,
                 error.message ?: "Bluetooth print failed", error
             )
+        } finally {
+            connector.shutdownNow()
+            runCatching { socket.close() }
         }
     }
 
     companion object {
         private const val USB_PERMISSION_ACTION =
             "com.cpipos.pos.next.USB_PRINTER_PERMISSION"
+        private const val BLUETOOTH_CONNECT_TIMEOUT_SECONDS = 7L
         private val SPP_UUID: UUID =
             UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     }
