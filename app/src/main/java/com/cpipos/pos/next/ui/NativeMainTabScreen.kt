@@ -44,7 +44,8 @@ internal fun NativeMainTabScreen(
     client: WebPosClient,
     session: WebPosSession,
     products: List<WebPosProduct>,
-    onTab: (String) -> Unit
+    onTab: (String) -> Unit,
+    onSessionChanged: (WebPosSession) -> Unit = {}
 ) {
     if (tab == "settings") {
         NativeSettingsHubScreen(client = client, session = session, onTab = onTab)
@@ -55,7 +56,13 @@ internal fun NativeMainTabScreen(
         return
     }
     if (tab == "history") {
-        NativeMoreScreen(client = client, session = session, products = products, onTab = onTab)
+        NativeMoreScreen(
+            client = client,
+            session = session,
+            products = products,
+            onTab = onTab,
+            onSessionChanged = onSessionChanged
+        )
         return
     }
     if (tab == "stock") {
