@@ -328,7 +328,7 @@ internal fun NativePrinterSettingsScreen(
         Box(Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
-                    .padding(start = 15.dp, end = 15.dp, top = 8.dp, bottom = 112.dp),
+                    .padding(start = 15.dp, end = 15.dp, top = 8.dp, bottom = 150.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
