@@ -255,7 +255,55 @@ data class WebPosSession(
     val branchName: String, val storeName: String, val cashierName: String,
     val employeeId: String, val deviceCode: String,
     val shiftId: String?, val canOpenShift: Boolean, val canSell: Boolean,
-    val canManageTables: Boolean = false
+    val canManageTables: Boolean = false,
+    val canCloseShift: Boolean = false
+)
+
+data class WebShiftBranchOption(
+    val id: String,
+    val code: String?,
+    val name: String?
+)
+data class WebShiftMetrics(
+    val orderCount: Int,
+    val cancelledOrderCount: Int,
+    val salesTotal: Satang,
+    val cashTotal: Satang,
+    val transferTotal: Satang
+)
+data class WebShiftHistoryRow(
+    val id: String,
+    val branchId: String,
+    val branchCode: String?,
+    val branchName: String?,
+    val openedByName: String,
+    val closedByName: String?,
+    val openedAtMs: Long,
+    val closedAtMs: Long?,
+    val status: String,
+    val openingCash: Satang,
+    val expectedCash: Satang?,
+    val actualCash: Satang?,
+    val metrics: WebShiftMetrics
+)
+data class WebShiftHistoryFilters(
+    val selfOnly: Boolean,
+    val canViewBranchWide: Boolean,
+    val selectedBranchId: String,
+    val branchOptions: List<WebShiftBranchOption>
+)
+data class WebShiftHistorySummary(
+    val shiftCount: Int,
+    val orderCount: Int,
+    val cancelledOrderCount: Int,
+    val salesTotal: Satang,
+    val cashTotal: Satang,
+    val transferTotal: Satang
+)
+data class WebShiftHistorySnapshot(
+    val filters: WebShiftHistoryFilters,
+    val summary: WebShiftHistorySummary,
+    val shifts: List<WebShiftHistoryRow>
 )
 data class WebCatalogBranch(
     val id: String,
@@ -827,7 +875,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 shift.optString("id").takeIf { it.isNotBlank() } else null,
             canOpenShift = "shift:open" in values,
             canSell = "sale:create" in values && "sales:enter" in values,
-            canManageTables = "tables:manage" in values
+            canManageTables = "tables:manage" in values,
+            canCloseShift = "shift:close" in values
         )
     }
 
@@ -868,6 +917,130 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         )
         val current = getSession()
         if (current.shiftId == null) throw WebPosApiException("shift_open_not_confirmed", 409)
+        return current
+    }
+
+    /**
+     * Reads the canonical CpIPOS shift table. The server owns role scoping:
+     * staff are forced to their own shifts/current branch, while Owner/Manager
+     * can use the returned branch options when reports:view is granted.
+     */
+    suspend fun shiftHistory(
+        session: WebPosSession,
+        days: Int = 30,
+        branchId: String = "all",
+        startDate: LocalDate? = null,
+        endDate: LocalDate? = null
+    ): WebShiftHistorySnapshot {
+        require(days in 1..90)
+        require(startDate == null || endDate == null || !endDate.isBefore(startDate))
+        val current = getSession()
+        if (current.id != session.id ||
+            current.tenantId != session.tenantId ||
+            current.branchId != session.branchId ||
+            current.deviceCode != session.deviceCode ||
+            current.employeeId != session.employeeId
+        ) {
+            throw WebPosApiException("cashier_session_scope_changed", 409)
+        }
+        val path = buildString {
+            append("/api/pos/shifts/history?days=").append(days)
+            append("&view=all&branch_id=").append(queryValue(branchId.ifBlank { "all" }))
+            if (startDate != null) append("&start_date=").append(queryValue(startDate.toString()))
+            if (endDate != null) append("&end_date=").append(queryValue(endDate.toString()))
+        }
+        val data = call("GET", path)
+        val filtersJson = data.optJSONObject("filters") ?: JSONObject()
+        val summaryJson = data.optJSONObject("summary") ?: JSONObject()
+        val shiftRows = data.optJSONArray("shifts") ?: JSONArray()
+        val branchRows = filtersJson.optJSONArray("branch_options") ?: JSONArray()
+
+        fun money(source: JSONObject, key: String): Satang =
+            Satang.fromBaht(source.opt(key)?.toString()?.takeIf { it != "null" } ?: "0")
+        fun nullableMoney(source: JSONObject, key: String): Satang? =
+            if (!source.has(key) || source.isNull(key)) null else
+                runCatching { Satang.fromBaht(source.get(key).toString()) }.getOrNull()
+        fun millis(value: String): Long =
+            runCatching { Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
+
+        return WebShiftHistorySnapshot(
+            filters = WebShiftHistoryFilters(
+                selfOnly = filtersJson.optBoolean("self_only", true),
+                canViewBranchWide = filtersJson.optBoolean("can_view_branch_wide", false),
+                selectedBranchId = filtersJson.optString("selected_branch_id").ifBlank { current.branchId },
+                branchOptions = (0 until branchRows.length()).mapNotNull { index ->
+                    val row = branchRows.optJSONObject(index) ?: return@mapNotNull null
+                    val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    WebShiftBranchOption(
+                        id = id,
+                        code = row.optString("code").takeIf { it.isNotBlank() && it != "null" },
+                        name = row.optString("name").takeIf { it.isNotBlank() && it != "null" }
+                    )
+                }
+            ),
+            summary = WebShiftHistorySummary(
+                shiftCount = summaryJson.optInt("shift_count", 0),
+                orderCount = summaryJson.optInt("order_count", 0),
+                cancelledOrderCount = summaryJson.optInt("cancelled_order_count", 0),
+                salesTotal = money(summaryJson, "sales_total"),
+                cashTotal = money(summaryJson, "cash_total"),
+                transferTotal = money(summaryJson, "transfer_total")
+            ),
+            shifts = (0 until shiftRows.length()).mapNotNull { index ->
+                val row = shiftRows.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val metrics = row.optJSONObject("metrics") ?: JSONObject()
+                WebShiftHistoryRow(
+                    id = id,
+                    branchId = row.optString("branch_id"),
+                    branchCode = row.optString("branch_code").takeIf { it.isNotBlank() && it != "null" },
+                    branchName = row.optString("branch_name").takeIf { it.isNotBlank() && it != "null" },
+                    openedByName = row.optString("opened_by_name").ifBlank { "-" },
+                    closedByName = row.optString("closed_by_name").takeIf { it.isNotBlank() && it != "null" },
+                    openedAtMs = millis(row.optString("opened_at")),
+                    closedAtMs = row.optString("closed_at")
+                        .takeIf { it.isNotBlank() && it != "null" }?.let(::millis),
+                    status = row.optString("status"),
+                    openingCash = money(row, "opening_cash"),
+                    expectedCash = nullableMoney(row, "expected_cash"),
+                    actualCash = nullableMoney(row, "actual_cash"),
+                    metrics = WebShiftMetrics(
+                        orderCount = metrics.optInt("order_count", 0),
+                        cancelledOrderCount = metrics.optInt("cancelled_order_count", 0),
+                        salesTotal = money(metrics, "sales_total"),
+                        cashTotal = money(metrics, "cash_total"),
+                        transferTotal = money(metrics, "transfer_total")
+                    )
+                )
+            }
+        )
+    }
+
+    /**
+     * Close only the active shift bound to this authenticated POS session.
+     * CpIPOS server re-checks shift:close, own-shift rules, open bills and all
+     * reconciliation constraints before clearing pos_sessions.shift_id.
+     */
+    suspend fun closeShift(session: WebPosSession, closingCash: Satang): WebPosSession {
+        require(session.shiftId != null)
+        require(closingCash >= Satang.ZERO)
+        require(closingCash.value <= 999999999L)
+        call(
+            "POST", "/api/pos/shifts/close",
+            JSONObject().put("closing_cash", BigDecimal(closingCash.bahtText()))
+        )
+        val current = getSession()
+        if (current.id != session.id ||
+            current.tenantId != session.tenantId ||
+            current.branchId != session.branchId ||
+            current.deviceCode != session.deviceCode ||
+            current.employeeId != session.employeeId
+        ) {
+            throw WebPosApiException("cashier_session_scope_changed", 409)
+        }
+        if (current.shiftId != null) {
+            throw WebPosApiException("shift_close_not_confirmed", 409)
+        }
         return current
     }
 
