@@ -89,7 +89,7 @@ internal fun NativePaymentSettingsScreen(
         Box(Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
-                    .padding(start = 15.dp, end = 15.dp, top = 8.dp, bottom = 112.dp),
+                    .padding(start = 15.dp, end = 15.dp, top = 8.dp, bottom = 156.dp),
                 verticalArrangement = Arrangement.spacedBy(11.dp)
             ) {
                 item {
