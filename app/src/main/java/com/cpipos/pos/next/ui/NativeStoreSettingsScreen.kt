@@ -148,7 +148,7 @@ internal fun NativeStoreSettingsScreen(
             Column(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 112.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 156.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

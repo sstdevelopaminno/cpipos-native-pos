@@ -2958,14 +2958,19 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                     .put("network_type", "android")
                     .put("last_seen_at", now))
                 .put("runtime", JSONObject()
-                    .put("cpi_windows_runtime_running", true)
-                    .put("local_bridge_online", true)
+                    // Legacy field names remain in the shared MDM schema, but a
+                    // Native Android POS is not the Windows runtime/local bridge.
+                    .put("cpi_windows_runtime_running", false)
+                    .put("local_bridge_online", false)
                     .put("bridge_version", "native-print-runtime-v2")
                     .put("print_queue_busy", printerDiagnostics.optBoolean("running", false))
                     .put("last_error", printerDiagnostics.optString("last_error").takeIf { it.isNotBlank() }))
                 .put("peripherals", JSONObject()
                     .put("printer", printerDiagnostics))
                 .put("metadata", JSONObject()
+                    .put("telemetry_profile", "android")
+                    .put("source", "pos_native_android")
+                    .put("native_print_runtime_running", printerDiagnostics.optBoolean("running", false))
                     .put("agent_surface", "android_native_pos")
                     .put("installation_id", installationId))
                 .put("captured_at", now),

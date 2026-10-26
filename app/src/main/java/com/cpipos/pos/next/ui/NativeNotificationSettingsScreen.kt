@@ -152,7 +152,7 @@ internal fun NativeNotificationSettingsScreen(
         Box(Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
-                    .padding(start = 17.dp, end = 17.dp, top = 15.dp, bottom = 112.dp),
+                    .padding(start = 17.dp, end = 17.dp, top = 15.dp, bottom = 156.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
