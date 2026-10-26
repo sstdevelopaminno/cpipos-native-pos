@@ -43,7 +43,7 @@ internal fun NativeSubscriptionBillingScreen(
     val scope = rememberCoroutineScope()
     val language by NativeUiLanguage.state(context)
     fun tr(th: String, en: String, lo: String): String =
-        tr(language, th, en, lo)
+        nativeBillingText(language, th, en, lo)
     var snapshot by remember(session.id) { mutableStateOf<WebSubscriptionOverview?>(null) }
     var loading by remember(session.id) { mutableStateOf(true) }
     var busy by remember(session.id) { mutableStateOf(false) }
@@ -450,18 +450,15 @@ private fun BillingEmpty(message: String) {
     }
 }
 
-@Composable
-private fun nativeBillingText(language: String, th: String, en: String, lo: String): String = when (language) {
-        "en" -> en
-        "lo" -> lo
-        else -> th
-    }
-
-/*
-        "en" -> en
-        "lo" -> lo
-        else -> th
-    }
+private fun nativeBillingText(
+    language: String,
+    th: String,
+    en: String,
+    lo: String
+): String = when (language) {
+    "en" -> en
+    "lo" -> lo
+    else -> th
 }
 
 private fun moneyText(value: Double, currency: String): String =
