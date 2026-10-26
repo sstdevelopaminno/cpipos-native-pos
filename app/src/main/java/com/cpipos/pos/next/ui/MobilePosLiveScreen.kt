@@ -680,6 +680,30 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     client = client,
                     session = verified,
                     products = catalog,
+                    onSessionChanged = { updated ->
+                        val previousShiftId = session?.shiftId
+                        session = updated
+                        browsingWithoutShift = updated.shiftId == null
+                        if (previousShiftId == null && updated.shiftId != null && updated.canSell) {
+                            // Opening a shift from More must not force navigation away from
+                            // the shift table, but preload the canonical catalog so Sale is
+                            // ready when the cashier later chooses it.
+                            scope.launch {
+                                runCatching { client.products(updated) }
+                                    .onSuccess { latest ->
+                                        if (session?.id == updated.id && session?.shiftId == updated.shiftId) {
+                                            catalog = latest
+                                            runCatching { client.productsWithMedia(latest) }
+                                                .onSuccess { withMedia ->
+                                                    if (session?.id == updated.id &&
+                                                        session?.shiftId == updated.shiftId
+                                                    ) catalog = withMedia
+                                                }
+                                        }
+                                    }
+                            }
+                        }
+                    },
                     onTab = { destination ->
                         if (destination == "sale" && verified.shiftId == null && !busy) {
                             // Browse-without-shift mode can return to the sale-mode chooser,
