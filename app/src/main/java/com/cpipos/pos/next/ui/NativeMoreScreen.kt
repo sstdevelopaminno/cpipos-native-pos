@@ -148,33 +148,40 @@ internal fun NativeMoreScreen(
             MoreTaxInvoiceScreen(client, session, onBack = { page = "hub" }, onTab = onTab)
             return
         }
+        "billing" -> {
+            NativeSubscriptionBillingScreen(client, session, onBack = { page = "hub" }, onTab = onTab)
+            return
+        }
     }
 
     val menus = listOf(
-        MoreMenu("shift", R.drawable.ic_nav_history, "เปิด / ปิดกะ", "เปิดกะ ปิดกะ และดูประวัติกะตามสิทธิ์ของผู้ใช้งาน", null, "main.shift"),
-        MoreMenu("summary", R.drawable.ic_nav_report, "สรุปยอดขาย", "ยอดขายสุทธิ กราฟแนวโน้ม ช่องทางชำระเงิน และส่วนลด", "advanced_sales_reports", "more.sales_summary", "/preview/pos/sales-summary"),
-        MoreMenu("receipts", R.drawable.ic_receipt_bill, "ใบเสร็จย้อนหลัง", "ค้นหา เปิดดูใบเสร็จจริง และพิมพ์ย้อนหลังตามสิทธิ์", "receipt_reprint_history", "more.receipts", "/preview/pos/receipts"),
-        MoreMenu("tables", R.drawable.ic_nav_tables, "จัดการโต๊ะ", "โต๊ะ โซน สถานะ และบิลที่เปิดอยู่", "table_management", "more.tables"),
-        MoreMenu("sales", R.drawable.ic_nav_cart, "รายการขายสินค้า", "รายการขายรายวัน / เดือน / ปี และช่วงวันที่", "advanced_sales_reports", "more.product_sales", "/preview/pos/product-sales"),
-        MoreMenu("best", R.drawable.ic_nav_stock, "สินค้าขายดี", "อันดับสินค้าขายดีจากข้อมูลสรุปยอดขาย CpIPOS", "advanced_sales_reports", "more.sales_summary", "/preview/pos/sales-summary"),
-        MoreMenu("members", R.drawable.ic_store_front, "สมาชิก", "ข้อมูลสมาชิก คะแนน และแต้มสะสม", "core_pos_sales", "more.members"),
-        MoreMenu("tax", R.drawable.ic_pos_terminal, "ออกใบกำกับภาษี", "บิลที่ชำระแล้วและสถานะใบกำกับภาษี", "core_pos_sales", "more.tax_invoices")
+        MoreMenu("shift", R.drawable.ic_nav_history, nativeUiText("more.shift","เปิด / ปิดกะ"), "เปิดกะ ปิดกะ และดูประวัติกะตามสิทธิ์ของผู้ใช้งาน", null, "main.shift"),
+        MoreMenu("summary", R.drawable.ic_nav_report, nativeUiText("more.summary","สรุปยอดขาย"), "ยอดขายสุทธิ กราฟแนวโน้ม ช่องทางชำระเงิน และส่วนลด", "advanced_sales_reports", "more.sales_summary", "/preview/pos/sales-summary"),
+        MoreMenu("receipts", R.drawable.ic_receipt_bill, nativeUiText("more.receipts","ใบเสร็จย้อนหลัง"), "ค้นหา เปิดดูใบเสร็จจริง และพิมพ์ย้อนหลังตามสิทธิ์", "receipt_reprint_history", "more.receipts", "/preview/pos/receipts"),
+        MoreMenu("tables", R.drawable.ic_nav_tables, nativeUiText("more.tables","จัดการโต๊ะ"), "โต๊ะ โซน สถานะ และบิลที่เปิดอยู่", "table_management", "more.tables"),
+        MoreMenu("sales", R.drawable.ic_nav_cart, nativeUiText("more.sales","รายการขายสินค้า"), "รายการขายรายวัน / เดือน / ปี และช่วงวันที่", "advanced_sales_reports", "more.product_sales", "/preview/pos/product-sales"),
+        MoreMenu("best", R.drawable.ic_nav_stock, nativeUiText("more.best","สินค้าขายดี"), "อันดับสินค้าขายดีจากข้อมูลสรุปยอดขาย CpIPOS", "advanced_sales_reports", "more.sales_summary", "/preview/pos/sales-summary"),
+        MoreMenu("members", R.drawable.ic_store_front, nativeUiText("more.members","สมาชิก"), "ข้อมูลสมาชิก คะแนน และแต้มสะสม", "core_pos_sales", "more.members"),
+        MoreMenu("tax", R.drawable.ic_pos_terminal, nativeUiText("more.tax","ออกใบกำกับภาษี"), "บิลที่ชำระแล้วและสถานะใบกำกับภาษี", "core_pos_sales", "more.tax_invoices"),
+        MoreMenu("billing", R.drawable.ic_package_payment, nativeUiText("more.billing","ชำระแพ็กเกจ"), "ดูแพ็กเกจ ต่ออายุ แจ้งชำระด้วยสลิป และติดตามสถานะจาก CpIPOS / IT", null, "more.subscription_billing")
     )
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Box(Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
                     .padding(horizontal = 14.dp)
-                    .padding(top = 12.dp, bottom = 112.dp),
+                    .padding(top = 12.dp, bottom = 156.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 item {
-                    Text("เพิ่มเติม", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = moreInk)
+                    Text(nativeUiText("more.title","เพิ่มเติม"), fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = moreInk)
                     Text(session.branchName + " · " + session.deviceCode, fontSize = 11.sp, color = moreMuted)
                     Spacer(Modifier.height(9.dp))
                 }
                 items(menus, key = { it.key }) { menu ->
-                    val allowed = entitlements?.allows(
+                    // Billing must stay reachable even when a package/menu entitlement
+                    // is locked, otherwise a customer could be blocked from renewing service.
+                    val allowed = if (menu.key == "billing") true else entitlements?.allows(
                         featureCode = menu.featureCode,
                         menuKey = menu.menuKey,
                         parentMenuKey = if (menu.menuKey.startsWith("more.")) "main.more" else null,
@@ -2761,7 +2768,7 @@ private fun MoreScaffold(
             LazyColumn(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
                     .padding(horizontal = 13.dp)
-                    .padding(top = 8.dp, bottom = 108.dp),
+                    .padding(top = 8.dp, bottom = 150.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
                 content = {
                     item {

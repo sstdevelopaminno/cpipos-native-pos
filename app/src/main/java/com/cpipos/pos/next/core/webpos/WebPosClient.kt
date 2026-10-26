@@ -365,7 +365,95 @@ data class WebPosSession(
     val employeeId: String, val deviceCode: String,
     val shiftId: String?, val canOpenShift: Boolean, val canSell: Boolean,
     val canManageTables: Boolean = false,
-    val canCloseShift: Boolean = false
+    val canCloseShift: Boolean = false,
+    val role: String = "staff"
+)
+
+data class WebSubscriptionPackage(
+    val id: String,
+    val code: String,
+    val name: String,
+    val monthlyPrice: Double?,
+    val yearlyPrice: Double?,
+    val contactSales: Boolean,
+    val maxBranches: Int?,
+    val maxDevices: Int?,
+    val maxUsers: Int?
+)
+data class WebSubscriptionRequest(
+    val id: String,
+    val status: String,
+    val packageId: String?,
+    val packageName: String,
+    val billingInterval: String,
+    val expectedAmount: Double?,
+    val amount: Double?,
+    val kind: String,
+    val hasEvidence: Boolean,
+    val submittedAt: String
+)
+data class WebSubscriptionReceipt(
+    val id: String,
+    val number: String,
+    val issuedAt: String,
+    val amount: Double,
+    val currency: String,
+    val packageName: String,
+    val billingInterval: String
+)
+data class WebSubscriptionDue(
+    val status: String,
+    val payableNow: Boolean,
+    val selfServicePaymentAllowed: Boolean,
+    val supportRequired: Boolean,
+    val dueAt: String?,
+    val amountDue: Double,
+    val amountPaid: Double,
+    val outstanding: Double,
+    val currency: String,
+    val billingInterval: String,
+    val packageName: String?,
+    val openRequestStatus: String?,
+    val openRequestId: String?,
+    val accessLocked: Boolean
+)
+data class WebSubscriptionIssuer(
+    val name: String,
+    val bankName: String,
+    val accountName: String,
+    val accountNumber: String,
+    val promptPayId: String
+)
+data class WebSubscriptionOverview(
+    val storeCode: String,
+    val storeName: String,
+    val packageId: String?,
+    val packageCode: String?,
+    val packageName: String,
+    val contractStatus: String,
+    val billingInterval: String,
+    val expiresAt: String?,
+    val daysRemaining: Int?,
+    val amountPerCycle: Double?,
+    val currency: String,
+    val internalDemo: Boolean,
+    val packages: List<WebSubscriptionPackage>,
+    val requests: List<WebSubscriptionRequest>,
+    val due: WebSubscriptionDue?,
+    val issuer: WebSubscriptionIssuer,
+    val receipts: List<WebSubscriptionReceipt>,
+    val itConnected: Boolean
+)
+data class WebSubscriptionSlip(
+    val fileName: String,
+    val mimeType: String,
+    val bytes: ByteArray
+)
+data class WebSubscriptionSubmitResult(
+    val id: String,
+    val status: String,
+    val alreadySubmitted: Boolean,
+    val provisionalAccessGranted: Boolean
 )
 
 data class WebPosSalesModes(
@@ -962,6 +1050,90 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         }
     }
 
+    private suspend fun callMultipart(
+        path: String,
+        fields: Map<String, String>,
+        slip: WebSubscriptionSlip? = null,
+        readTimeoutMs: Int = 45_000,
+        connectTimeoutMs: Int = 8_000
+    ): JSONObject = withContext(Dispatchers.IO) {
+        require(path.startsWith("/") && !path.startsWith("//"))
+        if (slip != null) {
+            require(slip.bytes.isNotEmpty() && slip.bytes.size <= 4 * 1024 * 1024)
+            require(slip.mimeType in setOf("image/jpeg", "image/png", "image/webp"))
+        }
+        val url = URL(base + path)
+        val conn = url.openConnection() as HttpURLConnection
+        val boundary = "CpIPOSNative" + UUID.randomUUID().toString().replace("-", "")
+        val startedAt = SystemClock.elapsedRealtime()
+        var responseStatus = -1
+        try {
+            conn.instanceFollowRedirects = false
+            conn.connectTimeout = connectTimeoutMs.coerceIn(1000, 30000)
+            conn.readTimeout = readTimeoutMs.coerceIn(1000, 60000)
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setChunkedStreamingMode(8192)
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("User-Agent", "CpIPOS-Native-Android/2")
+            conn.setRequestProperty("X-CpIPOS-Client", "native-android")
+            conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary)
+            cookieManager.get(url.toURI(), emptyMap()).forEach { (header, values) ->
+                if (header.equals("Cookie", ignoreCase = true)) {
+                    conn.setRequestProperty("Cookie", values.joinToString("; "))
+                }
+            }
+            conn.outputStream.buffered().use { output ->
+                fun write(value: String) = output.write(value.toByteArray(Charsets.UTF_8))
+                fields.forEach { (name, value) ->
+                    require(name.matches(Regex("[A-Za-z0-9_]{1,64}")))
+                    write("--" + boundary + "\r\n")
+                    write("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n")
+                    write(value)
+                    write("\r\n")
+                }
+                if (slip != null) {
+                    val safeName = slip.fileName.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
+                    write("--" + boundary + "\r\n")
+                    write("Content-Disposition: form-data; name=\"slip\"; filename=\"" + safeName + "\"\r\n")
+                    write("Content-Type: " + slip.mimeType + "\r\n\r\n")
+                    output.write(slip.bytes)
+                    write("\r\n")
+                }
+                write("--" + boundary + "--\r\n")
+                output.flush()
+            }
+            val status = conn.responseCode
+            responseStatus = status
+            val cookies = conn.headerFields.filterKeys { it?.equals("Set-Cookie", true) == true }
+            if (cookies.isNotEmpty()) {
+                cookieManager.put(url.toURI(), cookies)
+                runCatching { secureSessionStore?.save(cookies.values.flatten()) }
+            }
+            val stream = if (status in 200..299) conn.inputStream else conn.errorStream
+            val response = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+            val document = runCatching { JSONObject(response) }.getOrElse {
+                throw WebPosApiException("non_json_response", status)
+            }
+            if (status !in 200..299 || !document.isNull("error")) {
+                val code = document.optJSONObject("error")?.optString("code")
+                    ?.takeIf { it.isNotBlank() } ?: "http_$status"
+                throw WebPosApiException(code, status)
+            }
+            document.optJSONObject("data") ?: throw WebPosApiException("missing_data", status)
+        } finally {
+            val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+            if (elapsedMs >= 2_500L) {
+                Log.w(
+                    "CpIPOSHttp",
+                    "Slow POS API POST " + path.substringBefore("?") +
+                        " " + elapsedMs + "ms status=" + responseStatus
+                )
+            }
+            conn.disconnect()
+        }
+    }
+
     /**
      * Canonical browser/POS pre-entry flow. Employee code is verified BEFORE
      * fetching scoped cashier devices; only device selection issues a POS session.
@@ -1136,7 +1308,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             canOpenShift = "shift:open" in values,
             canSell = "sale:create" in values && "sales:enter" in values,
             canManageTables = "tables:manage" in values,
-            canCloseShift = "shift:close" in values
+            canCloseShift = "shift:close" in values,
+            role = d.optString("role").ifBlank { "staff" }
         )
     }
 
@@ -2582,6 +2755,146 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             tableName = data.optString("table_name"),
             mode = row.optString("mode").ifBlank { policy.mode },
             ttlMinutes = if (row.isNull("ttl_minutes")) null else row.optInt("ttl_minutes")
+        )
+    }
+
+    suspend fun subscriptionOverview(session: WebPosSession): WebSubscriptionOverview {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        val data = call(
+            "GET",
+            "/api/pos/billing/overview",
+            readTimeoutMs = 8_000,
+            connectTimeoutMs = 4_000
+        )
+        val store = data.optJSONObject("store") ?: JSONObject()
+        val contract = data.optJSONObject("contract") ?: JSONObject()
+        val packageRows = data.optJSONArray("packages") ?: JSONArray()
+        val requestRows = data.optJSONArray("requests") ?: JSONArray()
+        val issuer = data.optJSONObject("issuer") ?: JSONObject()
+        val dueRow = data.optJSONObject("billing_due")
+        val documentRows = data.optJSONArray("documents") ?: JSONArray()
+        val control = data.optJSONObject("control_plane")
+        fun nullableDouble(row: JSONObject, key: String): Double? =
+            if (row.isNull(key)) null else row.optDouble(key).takeIf { it.isFinite() }
+        fun nullableInt(row: JSONObject, key: String): Int? =
+            if (row.isNull(key)) null else row.optInt(key).takeIf { it > 0 }
+        return WebSubscriptionOverview(
+            storeCode = store.optString("code"),
+            storeName = store.optString("name"),
+            packageId = contract.optString("package_id").takeIf { it.isNotBlank() && it != "null" },
+            packageCode = contract.optString("package_code").takeIf { it.isNotBlank() && it != "null" },
+            packageName = contract.optString("package_name"),
+            contractStatus = contract.optString("status"),
+            billingInterval = contract.optString("billing_interval").ifBlank { "monthly" },
+            expiresAt = contract.optString("expires_at").takeIf { it.isNotBlank() && it != "null" },
+            daysRemaining = if (contract.isNull("days_remaining")) null else contract.optInt("days_remaining"),
+            amountPerCycle = nullableDouble(contract, "amount_per_cycle"),
+            currency = contract.optString("currency").ifBlank { "THB" },
+            internalDemo = contract.optBoolean("is_internal_demo", false),
+            packages = (0 until packageRows.length()).mapNotNull { index ->
+                val row = packageRows.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                WebSubscriptionPackage(
+                    id = id,
+                    code = row.optString("code"),
+                    name = row.optString("name"),
+                    monthlyPrice = nullableDouble(row, "monthly_price"),
+                    yearlyPrice = nullableDouble(row, "yearly_price"),
+                    contactSales = row.optBoolean("contact_sales", false),
+                    maxBranches = nullableInt(row, "max_branches"),
+                    maxDevices = nullableInt(row, "max_devices"),
+                    maxUsers = nullableInt(row, "max_users")
+                )
+            },
+            requests = (0 until requestRows.length()).mapNotNull { index ->
+                val row = requestRows.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                WebSubscriptionRequest(
+                    id = id,
+                    status = row.optString("status"),
+                    packageId = row.optString("package_id").takeIf { it.isNotBlank() && it != "null" },
+                    packageName = row.optString("package_name"),
+                    billingInterval = row.optString("billing_interval").ifBlank { "monthly" },
+                    expectedAmount = nullableDouble(row, "expected_amount"),
+                    amount = nullableDouble(row, "amount"),
+                    kind = row.optString("kind").ifBlank { "renewal_intent" },
+                    hasEvidence = row.optBoolean("has_evidence", false),
+                    submittedAt = row.optString("submitted_at")
+                )
+            },
+            due = dueRow?.let { row ->
+                WebSubscriptionDue(
+                    status = row.optString("status"),
+                    payableNow = row.optBoolean("payable_now", false),
+                    selfServicePaymentAllowed = row.optBoolean("self_service_payment_allowed", false),
+                    supportRequired = row.optBoolean("support_required", false),
+                    dueAt = row.optString("due_at").takeIf { it.isNotBlank() && it != "null" },
+                    amountDue = row.optDouble("amount_due", 0.0),
+                    amountPaid = row.optDouble("amount_paid", 0.0),
+                    outstanding = row.optDouble("outstanding", 0.0),
+                    currency = row.optString("currency").ifBlank { "THB" },
+                    billingInterval = row.optString("billing_interval").ifBlank { "monthly" },
+                    packageName = row.optString("package_name").takeIf { it.isNotBlank() && it != "null" },
+                    openRequestStatus = row.optString("open_request_status").takeIf { it.isNotBlank() && it != "null" },
+                    openRequestId = row.optString("open_request_id").takeIf { it.isNotBlank() && it != "null" },
+                    accessLocked = row.optBoolean("access_locked", false)
+                )
+            },
+            issuer = WebSubscriptionIssuer(
+                name = issuer.optString("name"),
+                bankName = issuer.optString("bank_name"),
+                accountName = issuer.optString("account_name"),
+                accountNumber = issuer.optString("account_number"),
+                promptPayId = issuer.optString("promptpay_id")
+            ),
+            receipts = (0 until documentRows.length()).mapNotNull { index ->
+                val row = documentRows.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                WebSubscriptionReceipt(
+                    id = id,
+                    number = row.optString("number"),
+                    issuedAt = row.optString("issued_at"),
+                    amount = row.optDouble("amount", 0.0),
+                    currency = row.optString("currency").ifBlank { "THB" },
+                    packageName = row.optString("package_name"),
+                    billingInterval = row.optString("billing_interval").ifBlank { "monthly" }
+                )
+            },
+            itConnected = control?.optBoolean("connected", false) ?: false
+        )
+    }
+
+    suspend fun submitSubscriptionRequest(
+        session: WebPosSession,
+        requestKey: String,
+        kind: String,
+        packageId: String,
+        billingInterval: String,
+        note: String = "",
+        slip: WebSubscriptionSlip? = null
+    ): WebSubscriptionSubmitResult {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(session.role == "owner")
+        require(UUID.fromString(requestKey).toString() == requestKey)
+        require(kind in setOf("renewal_intent", "payment_notice", "custom_quote_request"))
+        require(billingInterval in setOf("monthly", "yearly"))
+        require(packageId.isNotBlank())
+        val data = callMultipart(
+            path = "/api/pos/billing/requests",
+            fields = linkedMapOf(
+                "request_key" to requestKey,
+                "kind" to kind,
+                "package_id" to packageId,
+                "billing_interval" to billingInterval,
+                "note" to note.take(500)
+            ),
+            slip = slip
+        )
+        return WebSubscriptionSubmitResult(
+            id = data.optString("id"),
+            status = data.optString("status"),
+            alreadySubmitted = data.optBoolean("already_submitted", false),
+            provisionalAccessGranted = data.optBoolean("provisional_access_granted", false)
         )
     }
 

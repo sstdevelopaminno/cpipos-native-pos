@@ -40,7 +40,7 @@ private fun SettingsManagementShell(
             Column(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 112.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 156.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -609,15 +609,28 @@ internal fun NativeLanguageSettingsScreen(
     session: WebPosSession, onBack: () -> Unit, onTab: (String) -> Unit
 ){
     val context=LocalContext.current
-    val prefs=remember{context.getSharedPreferences("cpipos_native_ui",Context.MODE_PRIVATE)}
-    var language by remember{mutableStateOf(prefs.getString("language","th")?:"th")}
-    SettingsManagementShell("เปลี่ยนภาษา","ตัวเลือกเดียวกับ CpIPOS · ไทย / English / ລາວ",onBack,onTab){
+    val language by NativeUiLanguage.state(context)
+    SettingsManagementShell(
+        nativeUiText("language.title","เปลี่ยนภาษา"),
+        nativeUiText("language.subtitle","เลือกภาษาสำหรับเมนู Native POS · ไทย / English / ລາວ"),
+        onBack,onTab
+    ){
         listOf("th" to "ไทย","en" to "English","lo" to "ລາວ").forEach{(code,label)->
-            Surface(color=Color.White,shape=androidx.compose.foundation.shape.RoundedCornerShape(16.dp),modifier=Modifier.fillMaxWidth().clickable{language=code;prefs.edit().putString("language",code).apply()}){
-                Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){RadioButton(language==code,{language=code;prefs.edit().putString("language",code).apply()});Text(label,fontWeight=FontWeight.Bold)}
+            Surface(
+                color=Color.White,
+                shape=androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                modifier=Modifier.fillMaxWidth().clickable{NativeUiLanguage.set(context,code)}
+            ){
+                Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){
+                    RadioButton(language==code,{NativeUiLanguage.set(context,code)})
+                    Text(label,fontWeight=FontWeight.Bold)
+                }
             }
         }
-        Text("บันทึกไว้ในเครื่อง POS นี้และใช้เป็นค่าภาษาของ Native UI ที่รองรับการแปล",fontSize=10.sp,color=managementMuted)
+        Text(
+            nativeUiText("language.saved","เมื่อเลือกภาษา เมนูหลัก ตั้งค่า และเพิ่มเติมจะเปลี่ยนทันทีและจำค่าไว้ในเครื่อง"),
+            fontSize=10.sp,color=managementMuted
+        )
     }
 }
 

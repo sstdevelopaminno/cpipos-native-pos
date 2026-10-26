@@ -1126,14 +1126,14 @@ internal fun HomeBottomMenu(
         ) {
             BottomMenuItem(
                 iconRes = R.drawable.ic_nav_cart,
-                label = stringResource(R.string.pos_nav_sale),
+                label = nativeUiText("nav.sale", stringResource(R.string.pos_nav_sale)),
                 selected = selectedTab == "sale",
                 onClick = { onMenuClick("sale") },
                 modifier = Modifier.weight(1f)
             )
             BottomMenuItem(
                 iconRes = R.drawable.ic_nav_report,
-                label = stringResource(R.string.pos_nav_report),
+                label = nativeUiText("nav.report", stringResource(R.string.pos_nav_report)),
                 selected = selectedTab == "report",
                 onClick = { onMenuClick("report") },
                 modifier = Modifier.weight(1f)
@@ -1141,14 +1141,14 @@ internal fun HomeBottomMenu(
             Spacer(modifier = Modifier.weight(1f))
             BottomMenuItem(
                 iconRes = R.drawable.ic_nav_more,
-                label = "เพิ่มเติม",
+                label = nativeUiText("nav.more", "เพิ่มเติม"),
                 selected = selectedTab == "history",
                 onClick = { onMenuClick("history") },
                 modifier = Modifier.weight(1f)
             )
             BottomMenuItem(
                 iconRes = R.drawable.ic_nav_setting,
-                label = stringResource(R.string.pos_nav_setting),
+                label = nativeUiText("nav.settings", stringResource(R.string.pos_nav_setting)),
                 selected = selectedTab == "settings",
                 onClick = { onMenuClick("settings") },
                 modifier = Modifier.weight(1f)
@@ -1179,14 +1179,14 @@ internal fun HomeBottomMenu(
             ) {
                 Image(
                     painter = painterResource(R.drawable.ic_nav_stock),
-                    contentDescription = stringResource(R.string.pos_nav_stock),
+                    contentDescription = nativeUiText("nav.stock", stringResource(R.string.pos_nav_stock)),
                     modifier = Modifier.size(32.dp)
                 )
             }
         }
 
         Text(
-            text = stringResource(R.string.pos_nav_stock),
+            text = nativeUiText("nav.stock", stringResource(R.string.pos_nav_stock)),
             fontSize = 11.sp,
             lineHeight = 13.sp,
             color = Color(0xFF1B355E),
