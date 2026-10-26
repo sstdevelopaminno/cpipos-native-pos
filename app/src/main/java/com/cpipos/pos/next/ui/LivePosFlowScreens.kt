@@ -433,6 +433,7 @@ internal fun LiveShiftScreen(
     busy: Boolean,
     error: String?,
     onOpen: (Satang) -> Unit,
+    onBrowseWithoutShift: () -> Unit,
     onBack: () -> Unit
 ) {
     var enteringFloat by remember(session.id) { mutableStateOf(false) }
@@ -520,6 +521,28 @@ internal fun LiveShiftScreen(
         }
         LiveError(error)
         Spacer(modifier = Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = { if (!busy) onBrowseWithoutShift() },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = Color(0xFF176DED)
+            )
+        ) {
+            Text(
+                "เข้าแอปโดยไม่เปิดกะ",
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Text(
+            "เข้าเมนูหลักได้ แต่โหมดขายกลับบ้านและนั่งโต๊ะจะใช้งานไม่ได้จนกว่าจะเปิดกะ",
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            color = Color(0xFF71839B),
+            fontSize = 10.sp,
+            lineHeight = 15.sp
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         LiveBack("กลับหน้าเข้าสู่ระบบ", onClick = { if (!busy) onBack() })
     }
 }
