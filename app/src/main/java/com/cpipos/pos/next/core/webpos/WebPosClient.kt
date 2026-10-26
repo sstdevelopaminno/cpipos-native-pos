@@ -456,6 +456,37 @@ data class WebSubscriptionSubmitResult(
     val provisionalAccessGranted: Boolean
 )
 
+data class WebSubscriptionRuntime(
+    val tenantId: String,
+    val exempt: Boolean,
+    val locked: Boolean,
+    val lockReason: String?,
+    val lifecycleStatus: String,
+    val expiresAt: String?,
+    val daysRemaining: Int?,
+    val packageName: String,
+    val billingInterval: String,
+    val amountDue: Double?,
+    val currency: String,
+    val bankName: String,
+    val accountName: String,
+    val accountNumber: String
+) {
+    fun lockedAt(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (exempt) return false
+        if (locked) return true
+        val expiryMs = expiresAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+        return expiryMs != null && expiryMs <= nowMs
+    }
+}
+
+data class WebNativeMdmHeartbeat(
+    val pairedDeviceCode: String?,
+    val commands: JSONArray,
+    val updateOffer: JSONObject?,
+    val itMdm: JSONObject?
+)
+
 data class WebPosSalesModes(
     val takeaway: Boolean,
     val dineIn: Boolean,
@@ -1205,15 +1236,29 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     suspend fun selectEntryDevice(
-        branchId: String, employeeId: String, selected: WebCashierDevice
+        branchId: String,
+        employeeId: String,
+        selected: WebCashierDevice,
+        androidInstallId: String? = null
     ): WebPosSession {
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
         require(runCatching { UUID.fromString(employeeId) }.isSuccess)
         require(selected.status == "ready" || selected.status == "in_use") {
             "Device is not selectable"
         }
-        val data = call("POST", "/api/auth/devices/select",
-            JSONObject().put("device_code", selected.code))
+        val installId = androidInstallId?.trim()?.takeIf { it.isNotBlank() }
+        if (installId != null) require(runCatching { UUID.fromString(installId) }.isSuccess)
+        val payload = JSONObject().put("device_code", selected.code)
+        val headers = if (installId == null) emptyMap() else mapOf(
+            "X-CpIPOS-Android-POS" to "true",
+            "X-CpIPOS-Install-Id" to installId,
+            "X-CpIPOS-App-Version" to BuildConfig.VERSION_NAME
+        )
+        if (installId != null) {
+            payload.put("android_install_id", installId)
+            payload.put("android_app_version", BuildConfig.VERSION_NAME)
+        }
+        val data = call("POST", "/api/auth/devices/select", payload, headers = headers)
         val sessionId = data.getString("session_id")
         val session = getSession()
         if (session.id != sessionId || session.branchId != branchId ||
@@ -2755,6 +2800,88 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             tableName = data.optString("table_name"),
             mode = row.optString("mode").ifBlank { policy.mode },
             ttlMinutes = if (row.isNull("ttl_minutes")) null else row.optInt("ttl_minutes")
+        )
+    }
+
+    suspend fun subscriptionRuntime(
+        session: WebPosSession,
+        forceFresh: Boolean = false
+    ): WebSubscriptionRuntime {
+        val reason = if (forceFresh) "native" else "fallback"
+        val data = call(
+            method = "GET",
+            path = "/api/pos/billing/runtime?reason=" + reason,
+            readTimeoutMs = 6_000,
+            connectTimeoutMs = 3_500
+        )
+        val row = data.optJSONObject("runtime")
+            ?: return WebSubscriptionRuntime(
+                tenantId = session.tenantId,
+                exempt = true,
+                locked = false,
+                lockReason = null,
+                lifecycleStatus = "unknown",
+                expiresAt = null,
+                daysRemaining = null,
+                packageName = "",
+                billingInterval = "monthly",
+                amountDue = null,
+                currency = "THB",
+                bankName = "",
+                accountName = "",
+                accountNumber = ""
+            )
+        val tenantId = row.optString("tenant_id")
+        if (tenantId.isNotBlank() && tenantId != session.tenantId) {
+            throw WebPosApiException("subscription_runtime_scope_mismatch", 409)
+        }
+        return WebSubscriptionRuntime(
+            tenantId = tenantId.ifBlank { session.tenantId },
+            exempt = row.optBoolean("exempt", false),
+            locked = row.optBoolean("locked", false),
+            lockReason = row.optString("lock_reason").takeIf { it.isNotBlank() && it != "null" },
+            lifecycleStatus = row.optString("lifecycle_status").ifBlank { "unknown" },
+            expiresAt = row.optString("expires_at").takeIf { it.isNotBlank() && it != "null" },
+            daysRemaining = if (row.isNull("days_remaining")) null else row.optInt("days_remaining"),
+            packageName = row.optString("package_name"),
+            billingInterval = row.optString("billing_interval").ifBlank { "monthly" },
+            amountDue = if (row.isNull("amount_due")) null
+                else row.optDouble("amount_due").takeIf { it.isFinite() },
+            currency = row.optString("currency").ifBlank { "THB" },
+            bankName = row.optString("bank_name"),
+            accountName = row.optString("account_name"),
+            accountNumber = row.optString("account_number")
+        )
+    }
+
+    suspend fun nativeMdmHeartbeat(
+        session: WebPosSession,
+        installationId: String,
+        payload: JSONObject
+    ): WebNativeMdmHeartbeat {
+        require(runCatching { UUID.fromString(installationId) }.isSuccess)
+        val data = call(
+            method = "POST",
+            path = "/api/android-pos/mdm/heartbeat",
+            json = payload,
+            readTimeoutMs = 6_000,
+            connectTimeoutMs = 3_500,
+            headers = mapOf(
+                "X-CpIPOS-Android-POS" to "true",
+                "X-CpIPOS-Install-Id" to installationId,
+                "X-CpIPOS-App-Version" to BuildConfig.VERSION_NAME
+            )
+        )
+        val paired = data.optString("paired_device_code")
+            .takeIf { it.isNotBlank() && it != "null" }
+        if (paired != null && paired != session.deviceCode) {
+            throw WebPosApiException("android_mdm_device_scope_mismatch", 409)
+        }
+        return WebNativeMdmHeartbeat(
+            pairedDeviceCode = paired,
+            commands = data.optJSONArray("commands") ?: JSONArray(),
+            updateOffer = data.optJSONObject("update_offer"),
+            itMdm = data.optJSONObject("it_mdm")
         )
     }
 
