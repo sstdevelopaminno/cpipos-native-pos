@@ -365,13 +365,29 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     LaunchedEffect(session?.id) {
         val active = session
         if (active != null) {
-            NativeQrBackgroundService.start(ctx)
-            NativePrintRuntime.start(ctx, client, active)
             NativeDeviceManagementRuntime.start(ctx, client, active)
+            if (!mdmLocked) {
+                NativeQrBackgroundService.start(ctx)
+                NativePrintRuntime.start(ctx, client, active)
+            }
         } else {
             NativeDeviceManagementRuntime.stop()
             NativePrintRuntime.stop()
             NativeQrBackgroundService.stop(ctx)
+        }
+    }
+
+    // A disabled MDM device must not keep polling the print queue or QR worker.
+    // Once server access is restored, the same authenticated session resumes
+    // these workers without recreating the cart or sale workspace.
+    LaunchedEffect(mdmLocked, session?.id) {
+        val active = session ?: return@LaunchedEffect
+        if (mdmLocked) {
+            NativePrintRuntime.stop()
+            NativeQrBackgroundService.stop(ctx)
+        } else {
+            NativeQrBackgroundService.start(ctx)
+            NativePrintRuntime.start(ctx, client, active)
         }
     }
 
