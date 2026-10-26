@@ -88,6 +88,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         mutableStateOf<com.cpipos.pos.next.core.webpos.WebCashierDevice?>(null)
     }
     var session by remember { mutableStateOf<WebPosSession?>(null) }
+    var entitlements by remember { mutableStateOf<WebPosEntitlements?>(null) }
+    var packageLockTarget by remember { mutableStateOf<String?>(null) }
     var catalog by remember { mutableStateOf<List<WebPosProduct>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -106,8 +108,34 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var tabRevision by remember { mutableStateOf(0) }
     val fcmNavigationRevision = NativeFcmRegistration.navigationRevision.intValue
 
+    fun tabPackageAllowed(tab: String): Boolean {
+        val access = entitlements ?: return true
+        return when (tab) {
+            "sale" -> access.allows("core_pos_sales", "main.sales")
+            "report" -> access.allows("advanced_sales_reports", "main.sales_list")
+            "stock" -> access.allows("stock_management", "more.stock")
+            // Native keeps Open/Close Shift inside More, so the More container
+            // itself stays reachable and each child is gated independently.
+            "history" -> true
+            "settings" -> access.allows("core_pos_sales", "main.settings")
+            else -> true
+        }
+    }
+
+    fun tabPackageLabel(tab: String): String = when (tab) {
+        "sale" -> "ขาย"
+        "report" -> "รายงาน / รายการขาย"
+        "stock" -> "สินค้า / สต๊อก"
+        "settings" -> "ตั้งค่า"
+        else -> "เมนูนี้"
+    }
+
     fun navigateTab(tab: String) {
         if (takeaway.saving.value || dineWorkspace.drafts.values.any { it.busy }) return
+        if (!tabPackageAllowed(tab)) {
+            packageLockTarget = tabPackageLabel(tab)
+            return
+        }
         if (tab == "sale") {
             step = "mode"  // selecting Sale always shows the mode chooser root
         } else {
@@ -126,6 +154,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         availableDevices = null
         selectedDevice = null
         session = null
+        entitlements = null
+        packageLockTarget = null
         catalog = emptyList()
         error = null
         recoveredReceipt = null
@@ -192,6 +222,35 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             } finally {
                 busy = false
             }
+    }
+
+    // IT Admin controls packages and menu policies through the shared CpiPOS-001
+    // control plane. Native reads only the authenticated CpIPOS feature endpoint;
+    // it never receives privileged IT/Supabase credentials.
+    LaunchedEffect(client, session?.id, session?.branchId) {
+        val active = session
+        if (active == null) {
+            entitlements = null
+            return@LaunchedEffect
+        }
+        var firstLoad = true
+        while (session?.id == active.id && session?.branchId == active.branchId) {
+            try {
+                val latest = client.posEntitlements(active, forceFresh = firstLoad)
+                if (session?.id == active.id && session?.branchId == active.branchId) {
+                    entitlements = latest
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                // UI snapshot failure must not invent access. Existing server-side
+                // feature gates remain authoritative for every protected API.
+                Log.w("CpIPOSEntitlements", "Feature snapshot unavailable: " +
+                    failure.javaClass.simpleName)
+            }
+            firstLoad = false
+            kotlinx.coroutines.delay(60_000L)
+        }
     }
 
     // Keep QR operations reachable when the cashier leaves/swipes away the UI.
@@ -617,6 +676,14 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     showShiftRequiredDialog = true
                 } else if (!current.canSell) {
                     showSalePermissionDialog = true
+                } else if (mode == MockSaleMode.Takeaway &&
+                    entitlements?.takeawayAllowed() == false
+                ) {
+                    packageLockTarget = "โหมดขายกลับบ้าน"
+                } else if (mode != MockSaleMode.Takeaway &&
+                    entitlements?.dineInAllowed() == false
+                ) {
+                    packageLockTarget = "โหมดขายนั่งโต๊ะ"
                 } else if (mode == MockSaleMode.Takeaway) {
                     scope.launch {
                         val pending = runCatching { journal.unresolved(current) }.getOrNull()
@@ -680,6 +747,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     client = client,
                     session = verified,
                     products = catalog,
+                    entitlements = entitlements,
                     onSessionChanged = { updated ->
                         val previousShiftId = session?.shiftId
                         session = updated
@@ -749,6 +817,11 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             )
         }
     }
+
+    NativePackageLockDialog(
+        targetLabel = packageLockTarget,
+        onDismiss = { packageLockTarget = null }
+    )
 
     if (showSalePermissionDialog) {
         AlertDialog(
