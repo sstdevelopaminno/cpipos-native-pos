@@ -270,6 +270,7 @@ internal fun LiveDeviceChoiceScreen(
     devices: List<com.cpipos.pos.next.core.webpos.WebCashierDevice>,
     canOverrideInUse: Boolean,
     selected: com.cpipos.pos.next.core.webpos.WebCashierDevice?,
+    entryAllowed: Boolean = true,
     busy: Boolean,
     error: String?,
     onSelect: (com.cpipos.pos.next.core.webpos.WebCashierDevice) -> Unit,
@@ -322,7 +323,7 @@ internal fun LiveDeviceChoiceScreen(
                                 LiveDeviceOption(
                                     device = device,
                                     selected = device.id == selected?.id,
-                                    enabled = !busy &&
+                                    enabled = entryAllowed && !busy &&
                                         (device.status == "ready" ||
                                             (device.status == "in_use" && canOverrideInUse)),
                                     onClick = { onSelect(device) },
@@ -337,7 +338,7 @@ internal fun LiveDeviceChoiceScreen(
                         LiveDeviceOption(
                             device = device,
                             selected = device.id == selected?.id,
-                            enabled = !busy &&
+                            enabled = entryAllowed && !busy &&
                                 (device.status == "ready" ||
                                     (device.status == "in_use" && canOverrideInUse)),
                             onClick = { onSelect(device) },
@@ -351,7 +352,7 @@ internal fun LiveDeviceChoiceScreen(
         Spacer(modifier = Modifier.height(9.dp))
         LiveAction(
             if (busy) "กำลังเปิดเครื่อง..." else "เปิดเคาน์เตอร์",
-            enabled = !busy && selected != null,
+            enabled = entryAllowed && !busy && selected != null,
             onClick = onOpen
         )
         Spacer(modifier = Modifier.height(9.dp))

@@ -35,12 +35,21 @@ data class WebCashierDevice(
     val status: String,
     val currentUserName: String?
 )
+data class WebEntryAccessDenial(
+    val code: String,
+    val title: String,
+    val message: String,
+    val expiresAt: String?,
+    val kind: String
+)
 data class WebCashierDevices(
     val branchId: String,
     val branchName: String,
     val employeeName: String,
     val canOverrideInUse: Boolean,
-    val devices: List<WebCashierDevice>
+    val devices: List<WebCashierDevice>,
+    val entryAllowed: Boolean = true,
+    val entryDenial: WebEntryAccessDenial? = null
 )
 data class WebTableZone(val id: String, val name: String, val color: String)
 data class WebDiningTable(
@@ -454,6 +463,53 @@ data class WebSubscriptionSubmitResult(
     val status: String,
     val alreadySubmitted: Boolean,
     val provisionalAccessGranted: Boolean
+)
+
+data class WebPreEntryCheckout(
+    val token: String?,
+    val packageId: String,
+    val packageName: String,
+    val amount: Double,
+    val currency: String,
+    val billingInterval: String,
+    val issuer: WebSubscriptionIssuer,
+    val pendingReviewStatus: String?,
+    val pendingReviewHasEvidence: Boolean,
+    val canAttachEvidence: Boolean
+)
+
+data class WebSubscriptionRuntime(
+    val exempt: Boolean,
+    val locked: Boolean,
+    val lockReason: String?,
+    val lifecycleStatus: String,
+    val expiresAt: String?,
+    val daysRemaining: Int?,
+    val packageName: String,
+    val billingInterval: String,
+    val amountDue: Double?,
+    val currency: String,
+    val bankName: String,
+    val accountName: String,
+    val accountNumber: String
+)
+data class WebDeviceAction(
+    val id: String,
+    val commandType: String,
+    val issuedAt: String
+)
+data class WebDeviceHeartbeatResult(
+    val status: String,
+    val summary: String,
+    val pendingActions: List<WebDeviceAction>
+)
+data class WebDeviceCommandAck(
+    val id: String,
+    val commandType: String,
+    val applied: Boolean,
+    val phase: String = "executed",
+    val errorCode: String? = null,
+    val errorMessage: String? = null
 )
 
 data class WebPosSalesModes(
@@ -1184,6 +1240,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         val branch = data.getJSONObject("branch")
         val employee = data.getJSONObject("employee")
         val rows = data.optJSONArray("devices") ?: JSONArray()
+        val entryAccess = data.optJSONObject("entry_access")
+        val denial = entryAccess?.optJSONObject("error")
         return WebCashierDevices(
             branchId = branch.getString("id"),
             branchName = branch.optString("name"),
@@ -1199,6 +1257,17 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                     status = row.optString("status"),
                     currentUserName = row.optJSONObject("currentUser")
                         ?.optString("name")?.takeIf { it.isNotBlank() }
+                )
+            },
+            entryAllowed = entryAccess?.optBoolean("allowed", true) ?: true,
+            entryDenial = denial?.let {
+                WebEntryAccessDenial(
+                    code = it.optString("code"),
+                    title = it.optString("title"),
+                    message = it.optString("message"),
+                    expiresAt = it.optString("expires_at")
+                        .takeIf { value -> value.isNotBlank() && value != "null" },
+                    kind = it.optString("kind")
                 )
             }
         )
@@ -2204,6 +2273,28 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             JSONObject().put("printer_id", printerId))
     }
 
+    suspend fun testAssignedNativePrinter(session: WebPosSession): JSONObject {
+        val registry = printerRegistry(session)
+        val rows = registry.optJSONArray("devices") ?: JSONArray()
+        var matchedProfileId: String? = null
+        for (index in 0 until rows.length()) {
+            val row = rows.optJSONObject(index) ?: continue
+            val profileId = row.optString("printer_profile_id").trim()
+            if (profileId.isBlank()) continue
+            val status = row.optString("status").lowercase()
+            if (status in setOf("disabled", "inactive", "disconnected")) continue
+            val runtimeCode = row.optString("runtime_device_code").trim()
+            if (runtimeCode.equals(session.deviceCode, ignoreCase = true)) {
+                matchedProfileId = profileId
+                break
+            }
+        }
+        val profileId = matchedProfileId
+            ?: throw WebPosApiException("printer_not_assigned_to_device", 409)
+        val result = testPrinter(session, profileId)
+        return result
+    }
+
     suspend fun bootstrapNativePrintAgent(
         session: WebPosSession, installationId: String
     ): JSONObject {
@@ -2755,6 +2846,171 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             tableName = data.optString("table_name"),
             mode = row.optString("mode").ifBlank { policy.mode },
             ttlMinutes = if (row.isNull("ttl_minutes")) null else row.optInt("ttl_minutes")
+        )
+    }
+
+    suspend fun preEntrySubscriptionCheckout(): WebPreEntryCheckout {
+        val data = call(
+            "GET",
+            "/api/auth/subscription-checkout",
+            readTimeoutMs = 8_000,
+            connectTimeoutMs = 4_000
+        )
+        val pkg = data.optJSONObject("package") ?: throw WebPosApiException("checkout_package_missing", 502)
+        val issuer = data.optJSONObject("issuer") ?: JSONObject()
+        val pending = data.optJSONObject("pending_review")
+        return WebPreEntryCheckout(
+            token = data.optString("token").takeIf { it.isNotBlank() && it != "null" },
+            packageId = pkg.optString("id"),
+            packageName = pkg.optString("name").ifBlank { "แพ็กเกจ" },
+            amount = pkg.optDouble("amount", 0.0),
+            currency = pkg.optString("currency").ifBlank { "THB" },
+            billingInterval = pkg.optString("billing_interval").ifBlank { "monthly" },
+            issuer = WebSubscriptionIssuer(
+                name = issuer.optString("name"),
+                bankName = issuer.optString("bank_name"),
+                accountName = issuer.optString("account_name"),
+                accountNumber = issuer.optString("account_number"),
+                promptPayId = issuer.optString("promptpay_id")
+            ),
+            pendingReviewStatus = pending?.optString("status")
+                ?.takeIf { it.isNotBlank() && it != "null" },
+            pendingReviewHasEvidence = pending?.optBoolean("has_evidence", false) ?: false,
+            canAttachEvidence = pending?.optBoolean("can_attach_evidence", true) ?: true
+        )
+    }
+
+    suspend fun submitPreEntrySubscriptionCheckout(
+        checkoutToken: String,
+        slip: WebSubscriptionSlip
+    ): WebSubscriptionSubmitResult {
+        require(checkoutToken.isNotBlank())
+        val data = callMultipart(
+            path = "/api/auth/subscription-checkout",
+            fields = linkedMapOf(
+                "checkout_token" to checkoutToken,
+                "note" to "ชำระแพ็กเกจจาก CpIPOS Native Android"
+            ),
+            slip = slip
+        )
+        return WebSubscriptionSubmitResult(
+            id = data.optString("id"),
+            status = data.optString("status"),
+            alreadySubmitted = false,
+            provisionalAccessGranted = data.optBoolean("provisional_access_granted", false)
+        )
+    }
+
+    suspend fun subscriptionRuntime(
+        session: WebPosSession,
+        reason: String = "fallback"
+    ): WebSubscriptionRuntime? {
+        require(session.tenantId.isNotBlank())
+        require(reason in setOf("focus", "fallback", "reconnect", "realtime", "payment"))
+        val data = call(
+            "GET",
+            "/api/pos/billing/runtime?reason=" + queryValue(reason),
+            readTimeoutMs = 8_000,
+            connectTimeoutMs = 4_000
+        )
+        val row = data.optJSONObject("runtime") ?: return null
+        val tenantId = row.optString("tenant_id")
+        if (tenantId.isNotBlank() && tenantId != session.tenantId) {
+            throw WebPosApiException("subscription_runtime_scope_mismatch", 409)
+        }
+        return WebSubscriptionRuntime(
+            exempt = row.optBoolean("exempt", false),
+            locked = row.optBoolean("locked", false),
+            lockReason = row.optString("lock_reason").takeIf { it.isNotBlank() && it != "null" },
+            lifecycleStatus = row.optString("lifecycle_status").ifBlank { "unknown" },
+            expiresAt = row.optString("expires_at").takeIf { it.isNotBlank() && it != "null" },
+            daysRemaining = if (row.isNull("days_remaining")) null else row.optInt("days_remaining"),
+            packageName = row.optString("package_name").ifBlank { "แพ็กเกจ" },
+            billingInterval = row.optString("billing_interval").ifBlank { "monthly" },
+            amountDue = if (row.isNull("amount_due")) null else row.optDouble("amount_due"),
+            currency = row.optString("currency").ifBlank { "THB" },
+            bankName = row.optString("bank_name"),
+            accountName = row.optString("account_name"),
+            accountNumber = row.optString("account_number")
+        )
+    }
+
+    suspend fun sendDeviceHeartbeat(
+        session: WebPosSession,
+        installationId: String,
+        printerDiagnostics: JSONObject
+    ): WebDeviceHeartbeatResult {
+        require(session.tenantId.isNotBlank() && session.branchId.isNotBlank() && session.deviceCode.isNotBlank())
+        require(UUID.fromString(installationId).toString() == installationId)
+        val now = Instant.now().toString()
+        val data = call(
+            "POST",
+            "/api/pos/device-heartbeat",
+            JSONObject()
+                .put("identity", JSONObject()
+                    .put("device_code", session.deviceCode)
+                    .put("machine_id", installationId)
+                    .put("runtime_version", "android-native-pos-v2")
+                    .put("app_version", BuildConfig.VERSION_NAME))
+                .put("connectivity", JSONObject()
+                    .put("internet_online", true)
+                    .put("server_reachable", true)
+                    .put("network_type", "android")
+                    .put("last_seen_at", now))
+                .put("runtime", JSONObject()
+                    .put("cpi_windows_runtime_running", true)
+                    .put("local_bridge_online", true)
+                    .put("bridge_version", "native-print-runtime-v2")
+                    .put("print_queue_busy", printerDiagnostics.optBoolean("running", false))
+                    .put("last_error", printerDiagnostics.optString("last_error").takeIf { it.isNotBlank() }))
+                .put("peripherals", JSONObject()
+                    .put("printer", printerDiagnostics))
+                .put("metadata", JSONObject()
+                    .put("agent_surface", "android_native_pos")
+                    .put("installation_id", installationId))
+                .put("captured_at", now),
+            readTimeoutMs = 10_000,
+            connectTimeoutMs = 4_000
+        )
+        val actions = data.optJSONArray("pending_actions") ?: JSONArray()
+        return WebDeviceHeartbeatResult(
+            status = data.optString("status").ifBlank { "unknown" },
+            summary = data.optString("summary"),
+            pendingActions = (0 until actions.length()).mapNotNull { index ->
+                val row = actions.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val type = row.optString("command_type").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                WebDeviceAction(id, type, row.optString("issued_at"))
+            }
+        )
+    }
+
+    suspend fun ackDeviceCommands(
+        session: WebPosSession,
+        results: List<WebDeviceCommandAck>
+    ) {
+        require(session.tenantId.isNotBlank() && session.branchId.isNotBlank() && session.deviceCode.isNotBlank())
+        require(results.isNotEmpty() && results.size <= 10)
+        val payload = JSONArray()
+        results.forEach { item ->
+            val row = JSONObject()
+                .put("id", item.id)
+                .put("command_type", item.commandType)
+                .put("applied", item.applied)
+                .put("phase", item.phase)
+            item.errorCode?.let { row.put("error_code", it.take(120)) }
+            item.errorMessage?.let { row.put("error_message", it.take(500)) }
+            payload.put(row)
+        }
+        call(
+            "POST",
+            "/api/pos/device-commands/ack",
+            JSONObject()
+                .put("results", payload)
+                .put("agent_surface", "android_native_pos")
+                .put("agent_version", BuildConfig.VERSION_NAME),
+            readTimeoutMs = 10_000,
+            connectTimeoutMs = 4_000
         )
     }
 

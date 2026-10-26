@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,12 +54,14 @@ import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.core.webpos.WebPosProduct
 import com.cpipos.pos.next.core.webpos.WebPosSession
 import com.cpipos.pos.next.core.webpos.WebPosEntitlements
+import com.cpipos.pos.next.core.webpos.WebSubscriptionRuntime
 import com.cpipos.pos.next.core.webpos.WebStore
 import com.cpipos.pos.next.core.webpos.WebPosApiException
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import com.cpipos.pos.next.core.push.NativeFcmRegistration
 import com.cpipos.pos.next.core.push.NativeQrBackgroundService
 import com.cpipos.pos.next.core.print.NativePrintRuntime
+import com.cpipos.pos.next.core.mdm.NativeDeviceManagementRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -94,6 +97,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var entitlements by remember { mutableStateOf<WebPosEntitlements?>(null) }
     var entitlementCheckBusy by remember { mutableStateOf(false) }
     var packageLockTarget by remember { mutableStateOf<String?>(null) }
+    var subscriptionRuntime by remember { mutableStateOf<WebSubscriptionRuntime?>(null) }
     var unresolvedSaleCount by remember(session?.id) { mutableStateOf<Int?>(null) }
     var logoutPendingCount by remember(session?.id) { mutableStateOf<Int?>(null) }
     var catalog by remember { mutableStateOf<List<WebPosProduct>>(emptyList()) }
@@ -111,8 +115,11 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     val dineWorkspace = remember(session?.id) { DiningWorkspace() }
     var selectedDiningTable by remember(session?.id) { mutableStateOf<com.cpipos.pos.next.core.webpos.WebDiningTable?>(null) }
     var mainTab by remember { mutableStateOf("history") }
+    var moreInitialPage by remember { mutableStateOf("hub") }
     var tabRevision by remember { mutableStateOf(0) }
     val fcmNavigationRevision = NativeFcmRegistration.navigationRevision.intValue
+    val mdmLocked by NativeDeviceManagementRuntime.deviceLocked.collectAsState()
+    val mdmRefreshRevision by NativeDeviceManagementRuntime.refreshRevision.collectAsState()
 
     fun tabPackageAllowed(tab: String, access: WebPosEntitlements? = entitlements): Boolean {
         val snapshot = access ?: return true
@@ -140,10 +147,18 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         if (tab == "sale") {
             step = "mode"
         } else {
+            if (tab == "history") moreInitialPage = "hub"
             mainTab = tab
             tabRevision += 1
             step = "tab"
         }
+    }
+
+    fun openPackageBilling() {
+        mainTab = "history"
+        moreInitialPage = "billing"
+        tabRevision += 1
+        step = "tab"
     }
 
     fun navigateTab(tab: String) {
@@ -187,6 +202,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
 
     fun goToStore() {
         NativePrintRuntime.stop()
+        NativeDeviceManagementRuntime.stop()
         NativeQrBackgroundService.stop(ctx)
         NativeFcmRegistration.clearScope(ctx)
         employeeCode = ""
@@ -195,6 +211,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         selectedDevice = null
         session = null
         entitlements = null
+        subscriptionRuntime = null
         entitlementCheckBusy = false
         packageLockTarget = null
         catalog = emptyList()
@@ -294,6 +311,40 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
+    // Subscription lifecycle is a separate global lock from feature/menu
+    // entitlements. Locked snapshots are never cached server-side, so payment
+    // approval from CpIPOS/IT can unlock this device quickly without restart.
+    LaunchedEffect(client, session?.id, session?.branchId) {
+        val active = session
+        if (active == null) {
+            subscriptionRuntime = null
+            return@LaunchedEffect
+        }
+        var first = true
+        while (session?.id == active.id && session?.branchId == active.branchId) {
+            try {
+                val reason = when {
+                    first -> "reconnect"
+                    subscriptionRuntime?.locked == true -> "payment"
+                    else -> "fallback"
+                }
+                val latest = client.subscriptionRuntime(active, reason)
+                if (session?.id == active.id && session?.branchId == active.branchId) {
+                    subscriptionRuntime = latest
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                // Fail closed if we already know the tenant is locked. A
+                // transient network failure must never invent an unlock.
+                Log.w("CpIPOSSubscription", "Lifecycle refresh failed: " +
+                    failure.javaClass.simpleName)
+            }
+            first = false
+            kotlinx.coroutines.delay(if (subscriptionRuntime?.locked == true) 5_000L else 30_000L)
+        }
+    }
+
     // Local SQLite safety state is read off the UI thread. Render paths and
     // gesture handlers consume only this cached state so Android 8.1 devices do
     // not block a frame while SQLite opens/locks the journal database.
@@ -314,12 +365,46 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     LaunchedEffect(session?.id) {
         val active = session
         if (active != null) {
-            NativeQrBackgroundService.start(ctx)
-            NativePrintRuntime.start(ctx, client, active)
+            NativeDeviceManagementRuntime.start(ctx, client, active)
+            if (!mdmLocked) {
+                NativeQrBackgroundService.start(ctx)
+                NativePrintRuntime.start(ctx, client, active)
+            }
         } else {
+            NativeDeviceManagementRuntime.stop()
             NativePrintRuntime.stop()
             NativeQrBackgroundService.stop(ctx)
         }
+    }
+
+    // A disabled MDM device must not keep polling the print queue or QR worker.
+    // Once server access is restored, the same authenticated session resumes
+    // these workers without recreating the cart or sale workspace.
+    LaunchedEffect(mdmLocked, session?.id) {
+        val active = session ?: return@LaunchedEffect
+        if (mdmLocked) {
+            NativePrintRuntime.stop()
+            NativeQrBackgroundService.stop(ctx)
+        } else {
+            NativeQrBackgroundService.start(ctx)
+            NativePrintRuntime.start(ctx, client, active)
+        }
+    }
+
+    // MDM refresh_config/reload_ui never destroys an active cart. Refresh only
+    // server policy snapshots and remount read-only tabs when appropriate.
+    LaunchedEffect(mdmRefreshRevision, session?.id) {
+        val active = session ?: return@LaunchedEffect
+        if (mdmRefreshRevision <= 0) return@LaunchedEffect
+        runCatching { client.posEntitlements(active, forceFresh = true) }
+            .onSuccess { latest ->
+                if (session?.id == active.id) entitlements = latest
+            }
+        runCatching { client.subscriptionRuntime(active, "realtime") }
+            .onSuccess { latest ->
+                if (session?.id == active.id) subscriptionRuntime = latest
+            }
+        if (step == "tab") tabRevision += 1
     }
 
     // Firebase token registration is strictly POS-session scoped. Firebase may
@@ -556,6 +641,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                             employee = verified
                             availableDevices = devices
                             selectedDevice = null
+                            error = devices.entryDenial?.message
                             step = "device"
                         } catch (e: WebPosApiException) {
                             error = when (e.code) {
@@ -584,6 +670,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             devices = availableDevices?.devices.orEmpty(),
             canOverrideInUse = availableDevices?.canOverrideInUse == true,
             selected = selectedDevice,
+            entryAllowed = availableDevices?.entryAllowed != false,
             busy = busy,
             error = error,
             onSelect = { selectedDevice = it; error = null },
@@ -591,7 +678,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 val chosen = selectedDevice
                 val who = employee
                 val where = branch
-                if (!busy && chosen != null && who != null && where != null) {
+                if (!busy && chosen != null && who != null && where != null &&
+                    availableDevices?.entryAllowed != false
+                ) {
                     scope.launch {
                         busy = true
                         error = null
@@ -628,6 +717,16 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 availableDevices = null
                 selectedDevice = null
                 step = "branch"
+            }
+        )
+        "preentry_billing" -> NativePreEntrySubscriptionScreen(
+            client = client,
+            onBack = { step = "device" },
+            onUnlocked = { devices ->
+                availableDevices = devices
+                selectedDevice = null
+                error = null
+                step = "device"
             }
         )
         "shift" -> session?.let { verified ->
@@ -845,6 +944,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     session = verified,
                     products = catalog,
                     entitlements = entitlements,
+                    moreInitialPage = moreInitialPage,
                     onSessionChanged = { updated ->
                         val previousShiftId = session?.shiftId
                         session = updated
@@ -919,6 +1019,28 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         targetLabel = packageLockTarget,
         onDismiss = { packageLockTarget = null }
     )
+
+    if (step == "device") {
+        NativePreEntrySubscriptionLockDialog(
+            denial = availableDevices?.entryDenial,
+            onPayment = { step = "preentry_billing" },
+            onBack = {
+                employee = null
+                availableDevices = null
+                selectedDevice = null
+                step = "branch"
+            }
+        )
+    }
+
+    val billingVisible = step == "tab" && mainTab == "history" && moreInitialPage == "billing"
+    NativeSubscriptionLockDialog(
+        runtime = subscriptionRuntime.takeUnless { billingVisible || mdmLocked },
+        onBilling = { openPackageBilling() }
+    )
+    if (mdmLocked) {
+        NativeMdmDeviceLockDialog()
+    }
 
     if (showSalePermissionDialog) {
         AlertDialog(
