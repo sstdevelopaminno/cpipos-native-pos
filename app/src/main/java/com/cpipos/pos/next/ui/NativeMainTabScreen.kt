@@ -45,10 +45,16 @@ internal fun NativeMainTabScreen(
     session: WebPosSession,
     products: List<WebPosProduct>,
     onTab: (String) -> Unit,
-    onSessionChanged: (WebPosSession) -> Unit = {}
+    onSessionChanged: (WebPosSession) -> Unit = {},
+    entitlements: WebPosEntitlements? = null
 ) {
     if (tab == "settings") {
-        NativeSettingsHubScreen(client = client, session = session, onTab = onTab)
+        NativeSettingsHubScreen(
+            client = client,
+            session = session,
+            onTab = onTab,
+            entitlements = entitlements
+        )
         return
     }
     if (tab == "report") {
@@ -61,7 +67,8 @@ internal fun NativeMainTabScreen(
             session = session,
             products = products,
             onTab = onTab,
-            onSessionChanged = onSessionChanged
+            onSessionChanged = onSessionChanged,
+            entitlements = entitlements
         )
         return
     }
