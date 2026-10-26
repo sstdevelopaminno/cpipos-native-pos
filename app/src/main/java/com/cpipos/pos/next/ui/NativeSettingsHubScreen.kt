@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.core.webpos.WebPosSession
+import com.cpipos.pos.next.core.webpos.WebPosEntitlements
 
 private val settingsHubInk = Color(0xFF172B4E)
 private val settingsHubBlue = Color(0xFF176DED)
@@ -23,9 +24,11 @@ private val settingsHubMuted = Color(0xFF71849B)
 internal fun NativeSettingsHubScreen(
     client: WebPosClient,
     session: WebPosSession,
-    onTab: (String) -> Unit
+    onTab: (String) -> Unit,
+    entitlements: WebPosEntitlements? = null
 ) {
     var page by remember(session.id) { mutableStateOf("hub") }
+    var packageLockTarget by remember(session.id) { mutableStateOf<String?>(null) }
 
     fun routeBottom(tab: String) {
         if (tab == "settings") page = "hub" else onTab(tab)
@@ -89,29 +92,59 @@ internal fun NativeSettingsHubScreen(
                     color = settingsHubMuted
                 )
 
+                fun allowed(feature: String, menu: String): Boolean =
+                    entitlements?.allows(
+                        featureCode = feature,
+                        menuKey = menu,
+                        parentMenuKey = "main.settings"
+                    ) ?: true
+
+                val storeAllowed = allowed("core_pos_sales", "settings.store")
                 SettingsHubCard(
                     icon = "🏪",
                     title = "ตั้งชื่อร้านค้า / บริษัท",
                     subtitle = "ชื่อร้าน โลโก้ ที่อยู่ และเบอร์ติดต่อ · ใช้ร่วมกับ CpIPOS และใบเสร็จ",
-                    onClick = { page = "store" }
+                    locked = !storeAllowed,
+                    onClick = {
+                        if (storeAllowed) page = "store"
+                        else packageLockTarget = "ตั้งชื่อร้านค้า / บริษัท"
+                    }
                 )
+
+                val notificationsAllowed = allowed("qr_table_ordering", "settings.notifications")
                 SettingsHubCard(
                     icon = "🔔",
                     title = "ตั้งค่าการแจ้งเตือน",
                     subtitle = "POP UP, เสียง, ระดับเสียง และสถานะ Android Notification",
-                    onClick = { page = "notifications" }
+                    locked = !notificationsAllowed,
+                    onClick = {
+                        if (notificationsAllowed) page = "notifications"
+                        else packageLockTarget = "ตั้งค่าการแจ้งเตือน"
+                    }
                 )
+
+                val paymentsAllowed = allowed("core_pos_sales", "settings.payments")
                 SettingsHubCard(
                     icon = "💳",
                     title = "ตั้งค่าชำระเงิน",
                     subtitle = "บัญชีรับโอน PromptPay และ QR · ใช้ร่วมกับ CpIPOS และหน้าชำระเงิน",
-                    onClick = { page = "payments" }
+                    locked = !paymentsAllowed,
+                    onClick = {
+                        if (paymentsAllowed) page = "payments"
+                        else packageLockTarget = "ตั้งค่าชำระเงิน"
+                    }
                 )
+
+                val printerAllowed = allowed("core_pos_sales", "settings.printers")
                 SettingsHubCard(
                     icon = "🖨️",
                     title = "ตั้งค่า เครื่องปริ้นใบเสร็จ",
                     subtitle = "ค้นหาและเชื่อมต่อ LAN / USB / Bluetooth พร้อมกำหนดเส้นทางพิมพ์",
-                    onClick = { page = "printer" }
+                    locked = !printerAllowed,
+                    onClick = {
+                        if (printerAllowed) page = "printer"
+                        else packageLockTarget = "ตั้งค่าเครื่องปริ้นใบเสร็จ"
+                    }
                 )
             }
 
@@ -122,6 +155,11 @@ internal fun NativeSettingsHubScreen(
             )
         }
     }
+
+    NativePackageLockDialog(
+        targetLabel = packageLockTarget,
+        onDismiss = { packageLockTarget = null }
+    )
 }
 
 @Composable
@@ -129,6 +167,7 @@ private fun SettingsHubCard(
     icon: String,
     title: String,
     subtitle: String,
+    locked: Boolean = false,
     onClick: () -> Unit
 ) {
     Surface(
@@ -162,7 +201,22 @@ private fun SettingsHubCard(
                     lineHeight = 15.sp
                 )
             }
-            Text("›", color = settingsHubBlue, fontSize = 28.sp)
+            if (locked) {
+                Surface(
+                    color = Color(0xFFFFF3DD),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text(
+                        "แพ็กเกจ",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        color = Color(0xFF9B6518),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
+            }
+            Text("›", color = if (locked) settingsHubMuted else settingsHubBlue, fontSize = 28.sp)
         }
     }
 }
