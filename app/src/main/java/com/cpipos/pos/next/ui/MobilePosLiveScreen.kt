@@ -90,6 +90,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     }
     var session by remember { mutableStateOf<WebPosSession?>(null) }
     var entitlements by remember { mutableStateOf<WebPosEntitlements?>(null) }
+    var entitlementCheckBusy by remember { mutableStateOf(false) }
     var packageLockTarget by remember { mutableStateOf<String?>(null) }
     var catalog by remember { mutableStateOf<List<WebPosProduct>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
@@ -109,16 +110,16 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var tabRevision by remember { mutableStateOf(0) }
     val fcmNavigationRevision = NativeFcmRegistration.navigationRevision.intValue
 
-    fun tabPackageAllowed(tab: String): Boolean {
-        val access = entitlements ?: return true
+    fun tabPackageAllowed(tab: String, access: WebPosEntitlements? = entitlements): Boolean {
+        val snapshot = access ?: return true
         return when (tab) {
-            "sale" -> access.allows("core_pos_sales", "main.sales")
-            "report" -> access.allows("advanced_sales_reports", "main.sales_list")
-            "stock" -> access.allows("stock_management", "more.stock")
+            "sale" -> snapshot.allows("core_pos_sales", "main.sales")
+            "report" -> snapshot.allows("advanced_sales_reports", "main.sales_list")
+            "stock" -> snapshot.allows("stock_management", "more.stock")
             // Native keeps Open/Close Shift inside More, so the More container
             // itself stays reachable and each child is gated independently.
             "history" -> true
-            "settings" -> access.allows("core_pos_sales", "main.settings")
+            "settings" -> snapshot.allows("core_pos_sales", "main.settings")
             else -> true
         }
     }
@@ -131,18 +132,52 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         else -> "เมนูนี้"
     }
 
-    fun navigateTab(tab: String) {
-        if (takeaway.saving.value || dineWorkspace.drafts.values.any { it.busy }) return
-        if (!tabPackageAllowed(tab)) {
-            packageLockTarget = tabPackageLabel(tab)
-            return
-        }
+    fun openTab(tab: String) {
         if (tab == "sale") {
-            step = "mode"  // selecting Sale always shows the mode chooser root
+            step = "mode"
         } else {
             mainTab = tab
-            tabRevision += 1  // repeated taps reload the same tab root
+            tabRevision += 1
             step = "tab"
+        }
+    }
+
+    fun navigateTab(tab: String) {
+        if (takeaway.saving.value || dineWorkspace.drafts.values.any { it.busy }) return
+        if (tabPackageAllowed(tab)) {
+            openTab(tab)
+            return
+        }
+
+        val current = session
+        if (current == null || entitlementCheckBusy) {
+            if (current == null) packageLockTarget = tabPackageLabel(tab)
+            return
+        }
+
+        // A cached denial is rechecked once against the no-store server path.
+        // This lets a just-changed IT entitlement take effect immediately
+        // without aggressive polling or blocking the Compose UI thread.
+        scope.launch {
+            entitlementCheckBusy = true
+            try {
+                val latest = client.posEntitlements(current, forceFresh = true)
+                if (session?.id != current.id || session?.branchId != current.branchId) return@launch
+                entitlements = latest
+                if (tabPackageAllowed(tab, latest)) {
+                    openTab(tab)
+                } else {
+                    packageLockTarget = tabPackageLabel(tab)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w("CpIPOSEntitlements", "Fresh navigation entitlement check failed: " +
+                    failure.javaClass.simpleName)
+                packageLockTarget = tabPackageLabel(tab)
+            } finally {
+                entitlementCheckBusy = false
+            }
         }
     }
 
@@ -156,6 +191,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         selectedDevice = null
         session = null
         entitlements = null
+        entitlementCheckBusy = false
         packageLockTarget = null
         catalog = emptyList()
         error = null
@@ -677,31 +713,67 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     showShiftRequiredDialog = true
                 } else if (!current.canSell) {
                     showSalePermissionDialog = true
-                } else if (mode == MockSaleMode.Takeaway &&
-                    entitlements?.takeawayAllowed() == false
-                ) {
-                    packageLockTarget = "โหมดขายกลับบ้าน"
-                } else if (mode != MockSaleMode.Takeaway &&
-                    entitlements?.dineInAllowed() == false
-                ) {
-                    packageLockTarget = "โหมดขายนั่งโต๊ะ"
-                } else if (mode == MockSaleMode.Takeaway) {
-                    scope.launch {
-                        val pending = runCatching { journal.unresolved(current) }.getOrNull()
-                        when {
-                            pending == null -> {
-                                unresolved = "อ่านสถานะบิลค้างไม่ได้ กรุณาตรวจสอบก่อนขาย"
-                                step = "review"
+                } else {
+                    fun modeAllowed(access: WebPosEntitlements?): Boolean =
+                        access == null ||
+                            if (mode == MockSaleMode.Takeaway) access.takeawayAllowed()
+                            else access.dineInAllowed()
+
+                    fun enterMode() {
+                        if (mode == MockSaleMode.Takeaway) {
+                            scope.launch {
+                                val pending = runCatching { journal.unresolved(current) }.getOrNull()
+                                when {
+                                    pending == null -> {
+                                        unresolved = "อ่านสถานะบิลค้างไม่ได้ กรุณาตรวจสอบก่อนขาย"
+                                        step = "review"
+                                    }
+                                    pending.isNotEmpty() -> {
+                                        unresolved = "พบบิลค้าง ${pending.size} รายการ โปรด Reconcile ก่อนขายต่อ"
+                                        step = "review"
+                                    }
+                                    else -> step = "sale"
+                                }
                             }
-                            pending.isNotEmpty() -> {
-                                unresolved = "พบบิลค้าง ${pending.size} รายการ โปรด Reconcile ก่อนขายต่อ"
-                                step = "review"
-                            }
-                            else -> step = "sale"
+                        } else {
+                            step = "dine"
                         }
                     }
-                } else {
-                    step = "dine"
+
+                    if (modeAllowed(entitlements)) {
+                        enterMode()
+                    } else if (!entitlementCheckBusy) {
+                        scope.launch {
+                            entitlementCheckBusy = true
+                            try {
+                                val latest = client.posEntitlements(current, forceFresh = true)
+                                if (session?.id != current.id ||
+                                    session?.branchId != current.branchId
+                                ) return@launch
+                                entitlements = latest
+                                if (modeAllowed(latest)) {
+                                    enterMode()
+                                } else {
+                                    packageLockTarget =
+                                        if (mode == MockSaleMode.Takeaway) "โหมดขายกลับบ้าน"
+                                        else "โหมดขายนั่งโต๊ะ"
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                Log.w(
+                                    "CpIPOSEntitlements",
+                                    "Fresh sales-mode entitlement check failed: " +
+                                        failure.javaClass.simpleName
+                                )
+                                packageLockTarget =
+                                    if (mode == MockSaleMode.Takeaway) "โหมดขายกลับบ้าน"
+                                    else "โหมดขายนั่งโต๊ะ"
+                            } finally {
+                                entitlementCheckBusy = false
+                            }
+                        }
+                    }
                 }
             },
             allowDineIn = true,
