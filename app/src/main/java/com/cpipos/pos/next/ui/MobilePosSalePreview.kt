@@ -205,9 +205,13 @@ internal fun MobilePosSalePreview(
     var heldDrafts by remember(liveSession?.id) {
         mutableStateOf<List<NativeHeldBillStore.Draft>>(emptyList())
     }
+    var heldIoBusy by remember(liveSession?.id) { mutableStateOf(false) }
     LaunchedEffect(liveSession?.id) {
         if (liveSession != null) {
-            runCatching { holdStore.all(liveSession) }
+            val loaded = withContext(Dispatchers.IO) {
+                runCatching { holdStore.all(liveSession) }
+            }
+            loaded
                 .onSuccess { heldDrafts = it }
                 .onFailure { notice = "อ่านบิลพักในเครื่องไม่ได้ กรุณาตรวจสอบข้อมูลก่อนพักเพิ่ม" }
         }
@@ -280,23 +284,36 @@ internal fun MobilePosSalePreview(
     // Never change its original sale UUID or delete its held snapshot on restore.
     fun setCartItems(next: Map<String, Int>) {
         val active = activeHeldId
-        if (active != null && liveSession != null) {
-            val saved = runCatching {
-                if (next.isEmpty()) {
-                    holdStore.remove(liveSession, active)
-                } else {
-                    holdStore.update(
-                        liveSession, active, next,
-                        discount.kind, discount.input
-                    )
+        val session = liveSession
+        if (active != null && session != null) {
+            if (heldIoBusy) return
+            heldIoBusy = true
+            scope.launch {
+                val saved = withContext(Dispatchers.IO) {
+                    runCatching {
+                        if (next.isEmpty()) {
+                            holdStore.remove(session, active)
+                        } else {
+                            holdStore.update(
+                                session, active, next,
+                                discount.kind, discount.input
+                            )
+                        }
+                        holdStore.all(session)
+                    }
                 }
+                if (saved.isFailure) {
+                    notice = "บันทึกการแก้ไขบิลพักไม่สำเร็จ ตะกร้ายังไม่เปลี่ยน"
+                } else {
+                    if (next.isEmpty()) activeHeldId = null
+                    heldDrafts = saved.getOrDefault(heldDrafts)
+                    cart.clear()
+                    cart.putAll(next)
+                    notice = ""
+                }
+                heldIoBusy = false
             }
-            if (saved.isFailure) {
-                notice = "บันทึกการแก้ไขบิลพักไม่สำเร็จ ตะกร้ายังไม่เปลี่ยน"
-                return
-            }
-            if (next.isEmpty()) activeHeldId = null
-            heldDrafts = holdStore.all(liveSession)
+            return
         }
         cart.clear()
         cart.putAll(next)
@@ -427,13 +444,16 @@ internal fun MobilePosSalePreview(
                             // Clear ONLY after the server confirms payment (or demo SQLite commits).
                             if (liveSession != null && activeHeldId != null) {
                                 val heldId = requireNotNull(activeHeldId)
-                                val removed = runCatching { holdStore.remove(liveSession, heldId) }
-                                if (removed.isFailure) {
+                                val cleanup = withContext(Dispatchers.IO) {
+                                    val removed = runCatching { holdStore.remove(liveSession, heldId) }
+                                    val drafts = runCatching { holdStore.all(liveSession) }.getOrNull()
+                                    removed to drafts
+                                }
+                                if (cleanup.first.isFailure) {
                                     notice = "บันทึกยอดขายแล้ว แต่ลบบิลพักไม่ได้ " +
                                         "ห้ามเรียกบิลเดิมขายซ้ำ"
                                 }
-                                heldDrafts = runCatching { holdStore.all(liveSession) }
-                                    .getOrDefault(heldDrafts)
+                                cleanup.second?.let { heldDrafts = it }
                                 activeHeldId = null
                             }
                             cart.clear()
@@ -542,13 +562,16 @@ internal fun MobilePosSalePreview(
                             kotlinx.coroutines.delay(950L)
                             if (liveSession != null && activeHeldId != null) {
                                 val heldId = requireNotNull(activeHeldId)
-                                val removed = runCatching { holdStore.remove(liveSession, heldId) }
-                                if (removed.isFailure) {
+                                val cleanup = withContext(Dispatchers.IO) {
+                                    val removed = runCatching { holdStore.remove(liveSession, heldId) }
+                                    val drafts = runCatching { holdStore.all(liveSession) }.getOrNull()
+                                    removed to drafts
+                                }
+                                if (cleanup.first.isFailure) {
                                     notice = "บันทึกยอดขายแล้ว แต่ลบบิลพักไม่ได้ " +
                                         "ห้ามเรียกบิลเดิมขายซ้ำ"
                                 }
-                                heldDrafts = runCatching { holdStore.all(liveSession) }
-                                    .getOrDefault(heldDrafts)
+                                cleanup.second?.let { heldDrafts = it }
                                 activeHeldId = null
                             }
                             cart.clear()
