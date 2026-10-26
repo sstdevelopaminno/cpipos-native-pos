@@ -8,6 +8,16 @@ import org.junit.Test
 class NativeReleaseHardeningContractTest {
     private fun source(path: String): String = File(path).readText()
 
+    private fun functionBlock(source: String, name: String): String {
+        val start = source.indexOf("fun $name")
+        require(start >= 0) { "Missing $name" }
+        val next = source.indexOf("\n    suspend fun ", start + name.length + 4)
+            .takeIf { it >= 0 }
+            ?: source.indexOf("\n    fun ", start + name.length + 4).takeIf { it >= 0 }
+            ?: source.length
+        return source.substring(start, next)
+    }
+
     @Test
     fun subscriptionLifecycleUsesCanonicalCpiposRuntimeAndKeepsBillingReachable() {
         val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
@@ -83,10 +93,8 @@ class NativeReleaseHardeningContractTest {
     fun backgroundControlPlaneAvoidsRedundantSessionPreflight() {
         val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
         listOf("subscriptionRuntime", "sendDeviceHeartbeat", "ackDeviceCommands").forEach { method ->
-            val start = client.indexOf("fun $method")
-            assertTrue("Missing $method", start >= 0)
-            val window = client.substring(start, kotlin.math.min(client.length, start + 1800))
-            assertFalse("$method should rely on authoritative endpoint session guard", window.contains("requireSameLiveSession"))
+            val block = functionBlock(client, method)
+            assertFalse("$method should rely on authoritative endpoint session guard", block.contains("requireSameLiveSession"))
         }
     }
 }
