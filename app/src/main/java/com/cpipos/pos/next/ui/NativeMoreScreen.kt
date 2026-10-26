@@ -29,6 +29,8 @@ import com.cpipos.pos.next.R
 import com.cpipos.pos.next.core.print.NativePrintRuntime
 import com.cpipos.pos.next.core.pos.Satang
 import com.cpipos.pos.next.core.webpos.*
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -40,6 +42,8 @@ import kotlinx.coroutines.launch
 private val moreBlue = Color(0xFF176DED)
 private val moreInk = Color(0xFF172B4E)
 private val moreMuted = Color(0xFF71849B)
+private val moreMoneyFormat = DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.US))
+private fun Satang.moreMoneyText(): String = moreMoneyFormat.format(value.toBigDecimal().movePointLeft(2))
 
 private data class MoreMenu(
     val key: String,
@@ -144,7 +148,7 @@ internal fun NativeMoreScreen(
     val menus = listOf(
         MoreMenu("shift", R.drawable.ic_nav_history, "เปิด / ปิดกะ", "เปิดกะ ปิดกะ และดูประวัติกะตามสิทธิ์ของผู้ใช้งาน"),
         MoreMenu("summary", R.drawable.ic_nav_report, "สรุปยอดขาย", "ยอดขายสุทธิ กราฟแนวโน้ม ช่องทางชำระเงิน และส่วนลด"),
-        MoreMenu("receipts", R.drawable.ic_cpipos_receipt_logo, "ใบเสร็จย้อนหลัง", "ค้นหา เปิดดูใบเสร็จจริง และพิมพ์ย้อนหลังตามสิทธิ์"),
+        MoreMenu("receipts", R.drawable.ic_receipt_bill, "ใบเสร็จย้อนหลัง", "ค้นหา เปิดดูใบเสร็จจริง และพิมพ์ย้อนหลังตามสิทธิ์"),
         MoreMenu("tables", R.drawable.ic_nav_tables, "จัดการโต๊ะ", "โต๊ะ โซน สถานะ และบิลที่เปิดอยู่"),
         MoreMenu("sales", R.drawable.ic_nav_cart, "รายการขายสินค้า", "รายการขายรายวัน / เดือน / ปี และช่วงวันที่"),
         MoreMenu("best", R.drawable.ic_nav_stock, "สินค้าขายดี", "อันดับสินค้าขายดีจากข้อมูลสรุปยอดขาย CpIPOS"),
@@ -233,6 +237,8 @@ private fun MoreShiftManagementScreen(
     var error by remember(session.id) { mutableStateOf<String?>(null) }
     var message by remember(session.id) { mutableStateOf<String?>(null) }
     var branchMenuOpen by remember { mutableStateOf(false) }
+    var filterDialog by remember { mutableStateOf(false) }
+    var summaryDialog by remember { mutableStateOf(false) }
     var openDialog by remember { mutableStateOf(false) }
     var closeDialog by remember { mutableStateOf(false) }
     var openingCash by remember { mutableStateOf("0") }
@@ -383,83 +389,45 @@ private fun MoreShiftManagementScreen(
             ) {
                 Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("ประวัติกะ", color = moreInk, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        listOf(7, 30, 60).forEach { option ->
-                            val selected = days == option
-                            Surface(
-                                modifier = Modifier.weight(1f).clickable {
-                                    days = option
-                                    message = null
-                                },
-                                color = if (selected) moreBlue else Color(0xFFF5F8FC),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text(
-                                    "$option วัน",
-                                    modifier = Modifier.padding(vertical = 9.dp),
-                                    color = if (selected) Color.White else moreInk,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                )
-                            }
+                    Text(
+                        "ตัวกรองและยอดสรุปถูกย้ายไปเป็นหน้าต่าง Popup เพื่อให้หน้าหลักดูง่ายขึ้น",
+                        color = moreMuted,
+                        fontSize = 10.sp
+                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { filterDialog = true },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(13.dp)
+                        ) {
+                            Text("ตัวกรอง", color = moreBlue, fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = { summaryDialog = true },
+                            enabled = snapshot != null && !loading,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(13.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = moreBlue)
+                        ) {
+                            Text("สรุปกะ", fontWeight = FontWeight.Bold)
                         }
                     }
-
                     val filters = snapshot?.filters
-                    if (filters?.canViewBranchWide == true) {
-                        Box {
-                            OutlinedButton(
-                                onClick = { branchMenuOpen = true },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                val branchLabel = if (selectedBranchId == "all") {
-                                    "ทุกสาขา"
-                                } else {
-                                    filters.branchOptions.firstOrNull { it.id == selectedBranchId }
-                                        ?.let { it.name ?: it.code ?: it.id }
-                                        ?: "สาขาที่เลือก"
-                                }
-                                Text("สาขา: $branchLabel", color = moreBlue)
-                            }
-                            DropdownMenu(
-                                expanded = branchMenuOpen,
-                                onDismissRequest = { branchMenuOpen = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("ทุกสาขา") },
-                                    onClick = {
-                                        selectedBranchId = "all"
-                                        branchMenuOpen = false
-                                    }
-                                )
-                                filters.branchOptions.forEach { branch ->
-                                    DropdownMenuItem(
-                                        text = { Text(branch.name ?: branch.code ?: branch.id) },
-                                        onClick = {
-                                            selectedBranchId = branch.id
-                                            branchMenuOpen = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
+                    val branchLabel = if (selectedBranchId == "all") {
+                        "ทุกสาขา"
+                    } else {
+                        filters?.branchOptions?.firstOrNull { it.id == selectedBranchId }
+                            ?.let { it.name ?: it.code ?: it.id }
+                            ?: liveSession.branchName
                     }
-
-                    val scopeText = when {
-                        filters == null -> "กำลังตรวจสอบสิทธิ์จาก CpIPOS"
-                        filters.selfOnly -> "พนักงานขาย: แสดงเฉพาะกะของตนเอง"
-                        filters.canViewBranchWide -> "Owner / Manager: ดูกะทุกสาขาและเลือกกรองสาขาได้"
-                        else -> "แสดงข้อมูลตามสิทธิ์ของบัญชีนี้"
-                    }
-                    Text(scopeText, color = moreMuted, fontSize = 10.sp)
-
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = { refresh += 1 }, enabled = !loading && !actionBusy) {
-                            Text("↻ รีเฟรช")
-                        }
-                    }
+                    Text(
+                        "$days วัน · $branchLabel",
+                        color = moreMuted,
+                        fontSize = 10.sp
+                    )
                 }
             }
         }
@@ -469,26 +437,6 @@ private fun MoreShiftManagementScreen(
         } else {
             val data = snapshot
             if (data != null) {
-                item {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SummaryMetricCard("จำนวนกะ", data.summary.shiftCount.toString(), Modifier.weight(1f), true)
-                        SummaryMetricCard("จำนวนบิล", data.summary.orderCount.toString(), Modifier.weight(1f))
-                    }
-                }
-                item {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SummaryMetricCard("ยอดขาย", "฿" + data.summary.salesTotal.bahtText(), Modifier.weight(1f), true)
-                        SummaryMetricCard("เงินสด", "฿" + data.summary.cashTotal.bahtText(), Modifier.weight(1f))
-                    }
-                }
-                item {
-                    SummaryMetricCard(
-                        "โอน / QR",
-                        "฿" + data.summary.transferTotal.bahtText(),
-                        Modifier.fillMaxWidth()
-                    )
-                }
-
                 if (data.shifts.isEmpty()) {
                     item { EmptyBlock("ไม่พบประวัติกะในช่วงที่เลือก") }
                 } else {
@@ -533,9 +481,9 @@ private fun MoreShiftManagementScreen(
                                                     (row.closedAtMs?.let(::moreDateTime) ?: "-") to 1.2f,
                                                     (if (row.status == "open") "เปิด" else "ปิด") to 0.7f,
                                                     row.metrics.orderCount.toString() to 0.55f,
-                                                    ("฿" + row.metrics.salesTotal.bahtText()) to 1.0f,
-                                                    ("฿" + row.metrics.cashTotal.bahtText()) to 1.0f,
-                                                    ("฿" + row.metrics.transferTotal.bahtText()) to 1.0f
+                                                    ("฿" + row.metrics.salesTotal.moreMoneyText()) to 1.0f,
+                                                    ("฿" + row.metrics.cashTotal.moreMoneyText()) to 1.0f,
+                                                    ("฿" + row.metrics.transferTotal.moreMoneyText()) to 1.0f
                                                 )
                                             )
                                         }
@@ -553,6 +501,165 @@ private fun MoreShiftManagementScreen(
                 }
             }
         }
+    }
+
+    if (filterDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                branchMenuOpen = false
+                filterDialog = false
+            },
+            title = { Text("ตัวกรองประวัติกะ", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("ช่วงเวลา", color = moreInk, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf(7, 30, 60).forEach { option ->
+                            val selected = days == option
+                            Surface(
+                                modifier = Modifier.weight(1f).clickable {
+                                    days = option
+                                    message = null
+                                },
+                                color = if (selected) moreBlue else Color(0xFFF5F8FC),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    "$option วัน",
+                                    modifier = Modifier.padding(vertical = 10.dp),
+                                    color = if (selected) Color.White else moreInk,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+
+                    val filters = snapshot?.filters
+                    if (filters?.canViewBranchWide == true) {
+                        Text("สาขา", color = moreInk, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Box(Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { branchMenuOpen = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                val branchLabel = if (selectedBranchId == "all") {
+                                    "ทุกสาขา"
+                                } else {
+                                    filters.branchOptions.firstOrNull { it.id == selectedBranchId }
+                                        ?.let { it.name ?: it.code ?: it.id }
+                                        ?: "สาขาที่เลือก"
+                                }
+                                Text("สาขา: $branchLabel", color = moreBlue)
+                            }
+                            DropdownMenu(
+                                expanded = branchMenuOpen,
+                                onDismissRequest = { branchMenuOpen = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("ทุกสาขา") },
+                                    onClick = {
+                                        selectedBranchId = "all"
+                                        branchMenuOpen = false
+                                    }
+                                )
+                                filters.branchOptions.forEach { branch ->
+                                    DropdownMenuItem(
+                                        text = { Text(branch.name ?: branch.code ?: branch.id) },
+                                        onClick = {
+                                            selectedBranchId = branch.id
+                                            branchMenuOpen = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    val scopeText = when {
+                        filters == null -> "กำลังตรวจสอบสิทธิ์จาก CpIPOS"
+                        filters.selfOnly -> "พนักงานขาย: แสดงเฉพาะกะของตนเอง"
+                        filters.canViewBranchWide -> "Owner / Manager: ดูกะทุกสาขาและเลือกกรองสาขาได้"
+                        else -> "แสดงข้อมูลตามสิทธิ์ของบัญชีนี้"
+                    }
+                    Surface(
+                        color = Color(0xFFF5F8FC),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(scopeText, Modifier.padding(11.dp), color = moreMuted, fontSize = 10.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { refresh += 1 },
+                        enabled = !loading && !actionBusy,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("↻ รีเฟรชข้อมูล")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        branchMenuOpen = false
+                        filterDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = moreBlue)
+                ) { Text("ใช้งานตัวกรอง") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    branchMenuOpen = false
+                    filterDialog = false
+                }) { Text("ปิด") }
+            }
+        )
+    }
+
+    if (summaryDialog) {
+        AlertDialog(
+            onDismissRequest = { summaryDialog = false },
+            title = { Text("สรุปกะ", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                val data = snapshot
+                if (data == null) {
+                    Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = moreBlue)
+                    }
+                } else {
+                    Column(
+                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SummaryMetricCard("จำนวนกะ", data.summary.shiftCount.toString(), Modifier.weight(1f), true)
+                            SummaryMetricCard("จำนวนบิล", data.summary.orderCount.toString(), Modifier.weight(1f))
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SummaryMetricCard("ยอดขาย", "฿" + data.summary.salesTotal.moreMoneyText(), Modifier.weight(1f), true)
+                            SummaryMetricCard("เงินสด", "฿" + data.summary.cashTotal.moreMoneyText(), Modifier.weight(1f))
+                        }
+                        SummaryMetricCard(
+                            "โอน / QR",
+                            "฿" + data.summary.transferTotal.moreMoneyText(),
+                            Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { summaryDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = moreBlue)
+                ) { Text("ปิด") }
+            }
+        )
     }
 
     if (openDialog) {
@@ -904,7 +1011,7 @@ private fun SalesTrendLineChart(points: List<WebSalesTrendPoint>) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(points[index].label, color = moreMuted, fontSize = 9.sp)
                             Text(
-                                "฿" + points[index].netSales.bahtText(),
+                                "฿" + points[index].netSales.moreMoneyText(),
                                 color = moreInk,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold
@@ -943,7 +1050,7 @@ private fun SalesPaymentBarChart(snapshot: WebSalesSummarySnapshot) {
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(row.first, color = moreInk, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Text("฿" + row.second.bahtText(), color = moreInk, fontSize = 10.sp)
+                    Text("฿" + row.second.moreMoneyText(), color = moreInk, fontSize = 10.sp)
                 }
                 Surface(
                     modifier = Modifier.fillMaxWidth().height(12.dp),
@@ -1033,7 +1140,7 @@ private fun MoreSalesSummaryScreen(
                         Column(Modifier.padding(18.dp)) {
                             Text("ยอดขายสุทธิ", color = Color(0xFFDCEBFF), fontSize = 12.sp)
                             Text(
-                                "฿" + snapshot.netSales.bahtText(),
+                                "฿" + snapshot.netSales.moreMoneyText(),
                                 color = Color.White,
                                 fontSize = 30.sp,
                                 fontWeight = FontWeight.ExtraBold
@@ -1053,25 +1160,25 @@ private fun MoreSalesSummaryScreen(
                 item { SalesPaymentBarChart(snapshot) }
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        SummaryMetricCard("ยอดขายรวม", "฿" + snapshot.grossSales.bahtText(), Modifier.weight(1f))
-                        SummaryMetricCard("เฉลี่ยต่อบิล", "฿" + snapshot.averageReceipt.bahtText(), Modifier.weight(1f), true)
+                        SummaryMetricCard("ยอดขายรวม", "฿" + snapshot.grossSales.moreMoneyText(), Modifier.weight(1f))
+                        SummaryMetricCard("เฉลี่ยต่อบิล", "฿" + snapshot.averageReceipt.moreMoneyText(), Modifier.weight(1f), true)
                     }
                 }
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        SummaryMetricCard("เงินสด", "฿" + snapshot.cashTotal.bahtText(), Modifier.weight(1f))
-                        SummaryMetricCard("โอน / QR", "฿" + snapshot.transferTotal.bahtText(), Modifier.weight(1f), true)
+                        SummaryMetricCard("เงินสด", "฿" + snapshot.cashTotal.moreMoneyText(), Modifier.weight(1f))
+                        SummaryMetricCard("โอน / QR", "฿" + snapshot.transferTotal.moreMoneyText(), Modifier.weight(1f), true)
                     }
                 }
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        SummaryMetricCard("ส่วนลด", "฿" + snapshot.discountTotal.bahtText(), Modifier.weight(1f))
-                        SummaryMetricCard("ภาษี", "฿" + snapshot.taxTotal.bahtText(), Modifier.weight(1f))
+                        SummaryMetricCard("ส่วนลด", "฿" + snapshot.discountTotal.moreMoneyText(), Modifier.weight(1f))
+                        SummaryMetricCard("ภาษี", "฿" + snapshot.taxTotal.moreMoneyText(), Modifier.weight(1f))
                     }
                 }
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        SummaryMetricCard("ยกเลิก", "฿" + snapshot.cancelledTotal.bahtText(), Modifier.weight(1f))
+                        SummaryMetricCard("ยกเลิก", "฿" + snapshot.cancelledTotal.moreMoneyText(), Modifier.weight(1f))
                         SummaryMetricCard("สกุลเงิน", snapshot.currencyCode, Modifier.weight(1f), true)
                     }
                 }
@@ -1123,7 +1230,7 @@ private fun BestSellerCard(
                 Text(row.category, color = moreMuted, fontSize = 10.sp)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "ขาย " + formatQty(row.quantitySold) + " · ยอดสุทธิ ฿" + row.netAmount.bahtText(),
+                    "ขาย " + formatQty(row.quantitySold) + " · ยอดสุทธิ ฿" + row.netAmount.moreMoneyText(),
                     color = if (rank == 1) moreBlue else moreInk,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
@@ -1250,7 +1357,7 @@ private fun MoreBestSellingScreen(
                                         )
                                     }
                                     Text(
-                                        "฿" + row.netAmount.bahtText(),
+                                        "฿" + row.netAmount.moreMoneyText(),
                                         color = moreBlue,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold
@@ -1310,13 +1417,13 @@ private fun ReceiptDetailDialog(
                         Column(Modifier.weight(1f)) {
                             Text(line.name, color = moreInk, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             Text(
-                                line.quantity.toString() + " × ฿" + line.unitPrice.bahtText(),
+                                line.quantity.toString() + " × ฿" + line.unitPrice.moreMoneyText(),
                                 color = moreMuted,
                                 fontSize = 9.sp
                             )
                         }
                         Text(
-                            "฿" + line.amount.bahtText(),
+                            "฿" + line.amount.moreMoneyText(),
                             color = moreInk,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -1328,18 +1435,18 @@ private fun ReceiptDetailDialog(
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("ยอดสินค้า", color = moreMuted, fontSize = 10.sp)
-                            Text("฿" + subtotal.bahtText(), color = moreInk, fontSize = 10.sp)
+                            Text("฿" + subtotal.moreMoneyText(), color = moreInk, fontSize = 10.sp)
                         }
                         if (receipt.discount.value > 0) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("ส่วนลด", color = moreMuted, fontSize = 10.sp)
-                                Text("-฿" + receipt.discount.bahtText(), color = moreInk, fontSize = 10.sp)
+                                Text("-฿" + receipt.discount.moreMoneyText(), color = moreInk, fontSize = 10.sp)
                             }
                         }
                         HorizontalDivider(color = Color(0xFFE4EAF2))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("ยอดสุทธิ", color = moreInk, fontWeight = FontWeight.ExtraBold)
-                            Text("฿" + receipt.total.bahtText(), color = moreBlue, fontWeight = FontWeight.ExtraBold)
+                            Text("฿" + receipt.total.moreMoneyText(), color = moreBlue, fontWeight = FontWeight.ExtraBold)
                         }
                     }
                 }
@@ -1477,7 +1584,7 @@ private fun MoreReceiptsScreen(
                                 maxLines = 2
                             )
                             Text(
-                                "฿" + row.receipt.total.bahtText(),
+                                "฿" + row.receipt.total.moreMoneyText(),
                                 color = moreBlue,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.ExtraBold
@@ -2242,7 +2349,7 @@ private fun TaxReceiptPickerDialog(
                                     Column(Modifier.fillMaxWidth().padding(10.dp)) {
                                         Row(Modifier.fillMaxWidth()) {
                                             Text(receipt.orderNo, Modifier.weight(1f), color = moreInk, fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                                            Text("฿" + receipt.total.bahtText(), color = moreBlue, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                                            Text("฿" + receipt.total.moreMoneyText(), color = moreBlue, fontWeight = FontWeight.Bold, fontSize = 10.sp)
                                         }
                                         Spacer(Modifier.height(3.dp))
                                         Text(
@@ -2304,7 +2411,7 @@ private fun TaxInvoicePrintDialog(
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("ยอดบิล", color = moreMuted, fontSize = 11.sp)
-                    Text("฿" + receipt.total.bahtText(), color = moreBlue, fontWeight = FontWeight.ExtraBold)
+                    Text("฿" + receipt.total.moreMoneyText(), color = moreBlue, fontWeight = FontWeight.ExtraBold)
                 }
                 OutlinedTextField(
                     value = pin,
