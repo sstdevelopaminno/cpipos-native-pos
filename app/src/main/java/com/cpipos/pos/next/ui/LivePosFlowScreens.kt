@@ -269,6 +269,8 @@ internal fun LiveDeviceChoiceScreen(
     employeeName: String,
     devices: List<com.cpipos.pos.next.core.webpos.WebCashierDevice>,
     canOverrideInUse: Boolean,
+    entryAllowed: Boolean = true,
+    entryMessage: String? = null,
     selected: com.cpipos.pos.next.core.webpos.WebCashierDevice?,
     busy: Boolean,
     error: String?,
@@ -322,7 +324,7 @@ internal fun LiveDeviceChoiceScreen(
                                 LiveDeviceOption(
                                     device = device,
                                     selected = device.id == selected?.id,
-                                    enabled = !busy &&
+                                    enabled = entryAllowed && !busy &&
                                         (device.status == "ready" ||
                                             (device.status == "in_use" && canOverrideInUse)),
                                     onClick = { onSelect(device) },
@@ -337,7 +339,7 @@ internal fun LiveDeviceChoiceScreen(
                         LiveDeviceOption(
                             device = device,
                             selected = device.id == selected?.id,
-                            enabled = !busy &&
+                            enabled = entryAllowed && !busy &&
                                 (device.status == "ready" ||
                                     (device.status == "in_use" && canOverrideInUse)),
                             onClick = { onSelect(device) },
@@ -347,11 +349,27 @@ internal fun LiveDeviceChoiceScreen(
                 }
             }
         }
+        if (!entryAllowed) {
+            Surface(
+                color = Color(0xFFFFF1E8),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    entryMessage ?: "แพ็กเกจหมดอายุหรือถูกล็อก กรุณาชำระแพ็กเกจก่อนเข้า POS",
+                    modifier = Modifier.padding(12.dp),
+                    color = Color(0xFF9B4A18),
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
         LiveError(error)
         Spacer(modifier = Modifier.height(9.dp))
         LiveAction(
             if (busy) "กำลังเปิดเครื่อง..." else "เปิดเคาน์เตอร์",
-            enabled = !busy && selected != null,
+            enabled = entryAllowed && !busy && selected != null,
             onClick = onOpen
         )
         Spacer(modifier = Modifier.height(9.dp))
