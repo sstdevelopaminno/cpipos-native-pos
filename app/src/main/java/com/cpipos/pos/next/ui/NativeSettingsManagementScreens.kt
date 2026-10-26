@@ -636,15 +636,175 @@ internal fun NativeHelpCenterScreen(
     client: WebPosClient, session: WebPosSession, onBack: () -> Unit, onTab: (String) -> Unit
 ){
     val context=LocalContext.current
-    fun open(url:String){runCatching{context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))}}
-    SettingsManagementShell("ศูนย์ช่วยเหลือ","เชื่อมกับ CpIPOS Support Center และช่องทางบริษัท",onBack,onTab){
+    val scope=rememberCoroutineScope()
+    var heads by remember(session.id){mutableStateOf<List<WebSupportConversationHead>>(emptyList())}
+    var selectedId by remember(session.id){mutableStateOf<String?>(null)}
+    var chat by remember(session.id){mutableStateOf<WebSupportConversationSnapshot?>(null)}
+    var loading by remember{mutableStateOf(true)}
+    var busy by remember{mutableStateOf(false)}
+    var error by remember{mutableStateOf<String?>(null)}
+    var notice by remember{mutableStateOf<String?>(null)}
+    var subject by remember{mutableStateOf("")}
+    var contactName by remember(session.id){mutableStateOf(session.cashierName)}
+    var draft by remember{mutableStateOf("")}
+
+    fun openExternal(url:String){runCatching{context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))}}
+    fun loadConversation(id:String){
+        scope.launch{
+            try{
+                chat=client.supportConversation(session,id)
+                error=null
+            }catch(e:Exception){
+                error="โหลดข้อความ Support ไม่สำเร็จ: "+((e as? WebPosApiException)?.code?:e.message.orEmpty())
+            }
+        }
+    }
+    fun reloadHeads(){
+        scope.launch{
+            loading=true
+            try{
+                heads=client.supportConversations(session)
+                val open=heads.firstOrNull{it.status!="closed"}
+                selectedId=open?.id
+                if(open!=null) loadConversation(open.id) else chat=null
+                error=null
+            }catch(e:Exception){
+                error="โหลดศูนย์ช่วยเหลือไม่สำเร็จ: "+((e as? WebPosApiException)?.code?:e.message.orEmpty())
+            }finally{loading=false}
+        }
+    }
+    LaunchedEffect(session.id){reloadHeads()}
+
+    SettingsManagementShell("ศูนย์ช่วยเหลือ","CpIPOS Support Chat · LINE · โทรศัพท์",onBack,onTab){
+        SettingsNotice(notice)
+        SettingsNotice(error,true)
+        if(loading){
+            Box(Modifier.fillMaxWidth().padding(30.dp),contentAlignment=Alignment.Center){
+                CircularProgressIndicator(color=managementBlue)
+            }
+        }
+
+        val openHead=heads.firstOrNull{it.status!="closed"}
+        if(!loading&&openHead==null){
+            Surface(color=Color.White,shape=androidx.compose.foundation.shape.RoundedCornerShape(18.dp)){
+                Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
+                    Text("เปิดเรื่องใหม่กับ IT Support",fontSize=17.sp,fontWeight=FontWeight.ExtraBold,color=managementInk)
+                    OutlinedTextField(subject,{subject=it.take(180)},label={Text("หัวข้อปัญหา")},modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(contactName,{contactName=it.take(120)},label={Text("ชื่อผู้ติดต่อ")},modifier=Modifier.fillMaxWidth())
+                    Button(
+                        enabled=!busy&&subject.trim().length>=2&&contactName.trim().length>=2,
+                        modifier=Modifier.fillMaxWidth(),
+                        colors=ButtonDefaults.buttonColors(containerColor=managementBlue),
+                        onClick={
+                            busy=true
+                            scope.launch{
+                                try{
+                                    val id=client.createSupportConversation(session,subject,contactName)
+                                    selectedId=id
+                                    subject=""
+                                    notice="เปิดเรื่อง Support แล้ว"
+                                    heads=client.supportConversations(session)
+                                    chat=client.supportConversation(session,id)
+                                }catch(e:Exception){
+                                    error="เปิดเรื่อง Support ไม่สำเร็จ: "+((e as? WebPosApiException)?.code?:e.message.orEmpty())
+                                }finally{busy=false}
+                            }
+                        }
+                    ){Text("เริ่มแชทกับ IT Support")}
+                }
+            }
+        }
+
+        if(openHead!=null){
+            Surface(color=Color.White,shape=androidx.compose.foundation.shape.RoundedCornerShape(18.dp)){
+                Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
+                        Column(Modifier.weight(1f)){
+                            Text(openHead.subject,fontWeight=FontWeight.ExtraBold,color=managementInk)
+                            Text(
+                                "สถานะ: "+openHead.status+
+                                    (openHead.assignedUserName?.let{" · "+it}?:""),
+                                fontSize=10.sp,
+                                color=managementMuted
+                            )
+                        }
+                        TextButton(onClick={selectedId=openHead.id;loadConversation(openHead.id)},enabled=!busy){Text("รีเฟรช")}
+                    }
+                    if(!openHead.latestMessagePreview.isNullOrBlank()){
+                        Text("ล่าสุด: "+openHead.latestMessagePreview,fontSize=10.sp,color=managementMuted)
+                    }
+                }
+            }
+
+            chat?.messages?.forEach{message->
+                val mine=message.senderType=="store"
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=if(mine)Arrangement.End else Arrangement.Start){
+                    Surface(
+                        color=if(mine)Color(0xFFE8F1FF) else Color.White,
+                        shape=androidx.compose.foundation.shape.RoundedCornerShape(15.dp),
+                        modifier=Modifier.fillMaxWidth(0.86f)
+                    ){
+                        Column(Modifier.padding(11.dp),verticalArrangement=Arrangement.spacedBy(3.dp)){
+                            Text(message.senderName.ifBlank{if(mine)"ร้านค้า" else "IT Support"},fontSize=9.sp,fontWeight=FontWeight.Bold,color=if(mine)managementBlue else managementInk)
+                            Text(message.body,fontSize=12.sp,color=managementInk)
+                            if(message.createdAt.isNotBlank()) Text(message.createdAt,fontSize=8.sp,color=managementMuted)
+                        }
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                draft,
+                {draft=it.take(4000)},
+                label={Text("พิมพ์ข้อความถึง IT Support")},
+                modifier=Modifier.fillMaxWidth(),
+                minLines=2,
+                maxLines=5
+            )
+            Button(
+                enabled=!busy&&draft.isNotBlank(),
+                modifier=Modifier.fillMaxWidth(),
+                colors=ButtonDefaults.buttonColors(containerColor=managementBlue),
+                onClick={
+                    val id=openHead.id
+                    val text=draft.trim()
+                    busy=true
+                    scope.launch{
+                        try{
+                            client.sendSupportMessage(session,id,text)
+                            draft=""
+                            chat=client.supportConversation(session,id)
+                            heads=client.supportConversations(session)
+                            error=null
+                        }catch(e:Exception){
+                            error="ส่งข้อความไม่สำเร็จ: "+((e as? WebPosApiException)?.code?:e.message.orEmpty())
+                        }finally{busy=false}
+                    }
+                }
+            ){Text("ส่งข้อความ")}
+
+            OutlinedButton(
+                enabled=!busy,
+                modifier=Modifier.fillMaxWidth(),
+                onClick={
+                    busy=true
+                    scope.launch{
+                        try{
+                            client.closeSupportConversation(session,openHead.id)
+                            chat=null;selectedId=null;notice="ปิดเรื่อง Support แล้ว";reloadHeads()
+                        }catch(e:Exception){
+                            error="ปิดเรื่องไม่สำเร็จ: "+((e as? WebPosApiException)?.code?:e.message.orEmpty())
+                        }finally{busy=false}
+                    }
+                }
+            ){Text("จบการสนทนา")}
+        }
+
         Surface(color=Color.White,shape=androidx.compose.foundation.shape.RoundedCornerShape(18.dp)){
-            Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-                Text("ติดต่อสอบถาม / แจ้งปัญหา",fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=managementInk)
-                Text("เปิดศูนย์ช่วยเหลือ CpIPOS เพื่อแจ้งปัญหาและพูดคุยกับ IT Support",fontSize=11.sp,color=managementMuted)
-                Button(onClick={open(client.trustedWebUrl("/preview/pos/payments/support"))},modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=managementBlue)){Text("เปิด CpIPOS Support Center")}
-                OutlinedButton(onClick={open("https://lin.ee/f1LXpAF")},modifier=Modifier.fillMaxWidth()){Text("ติดต่อ LINE Support")}
-                OutlinedButton(onClick={open("tel:0985460355")},modifier=Modifier.fillMaxWidth()){Text("โทร 098-546-0355")}
+            Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
+                Text("ช่องทางสำรอง",fontWeight=FontWeight.ExtraBold,color=managementInk)
+                OutlinedButton(onClick={openExternal("https://lin.ee/f1LXpAF")},modifier=Modifier.fillMaxWidth()){Text("ติดต่อ LINE Support")}
+                OutlinedButton(onClick={openExternal("tel:0985460355")},modifier=Modifier.fillMaxWidth()){Text("โทร 098-546-0355")}
             }
         }
     }
