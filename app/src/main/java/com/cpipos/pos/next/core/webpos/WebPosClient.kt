@@ -2508,18 +2508,21 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
 
     suspend fun saveOrderKitchenPolicy(
         session: WebPosSession,
-        policy: WebOrderKitchenPolicy
+        policy: WebOrderKitchenPolicy,
+        canQrOrdering: Boolean = true,
+        canKitchenPrinting: Boolean = true
     ): WebOrderKitchenPolicy {
         requireSameLiveSession(session, requireShift = false, requireSell = false)
-        val data = call(
-            "PATCH",
-            "/api/pos/settings/order-kitchen",
-            JSONObject()
-                .put("branch_id", session.branchId)
-                .put("popup_enabled", policy.popupEnabled)
-                .put("kitchen_auto_send_enabled", policy.kitchenAutoSendEnabled)
-                .put("kitchen_auto_print_enabled", policy.kitchenAutoPrintEnabled)
-        )
+        require(canQrOrdering || canKitchenPrinting)
+        val payload = JSONObject().put("branch_id", session.branchId)
+        if (canQrOrdering) {
+            payload.put("popup_enabled", policy.popupEnabled)
+            payload.put("kitchen_auto_send_enabled", policy.kitchenAutoSendEnabled)
+        }
+        if (canKitchenPrinting) {
+            payload.put("kitchen_auto_print_enabled", policy.kitchenAutoPrintEnabled)
+        }
+        val data = call("PATCH", "/api/pos/settings/order-kitchen", payload)
         return parseOrderKitchenPolicy(data.getJSONObject("policy"))
     }
 
