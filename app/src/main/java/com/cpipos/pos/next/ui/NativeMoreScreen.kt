@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cpipos.pos.next.core.print.NativePrintRuntime
+import com.cpipos.pos.next.core.pos.Satang
 import com.cpipos.pos.next.core.webpos.*
 import java.time.Instant
 import java.time.LocalDate
@@ -80,11 +82,22 @@ internal fun NativeMoreScreen(
     client: WebPosClient,
     session: WebPosSession,
     products: List<WebPosProduct>,
-    onTab: (String) -> Unit
+    onTab: (String) -> Unit,
+    onSessionChanged: (WebPosSession) -> Unit = {}
 ) {
     var page by remember(session.id) { mutableStateOf("hub") }
 
     when (page) {
+        "shift" -> {
+            MoreShiftManagementScreen(
+                client = client,
+                session = session,
+                onBack = { page = "hub" },
+                onTab = onTab,
+                onSessionChanged = onSessionChanged
+            )
+            return
+        }
         "sales" -> {
             NativeSalesListScreen(
                 client = client,
@@ -122,6 +135,7 @@ internal fun NativeMoreScreen(
     }
 
     val menus = listOf(
+        MoreMenu("shift", "🕒", "เปิด / ปิดกะ", "เปิดกะ ปิดกะ และดูประวัติกะตามสิทธิ์ของผู้ใช้งาน"),
         MoreMenu("summary", "📊", "สรุปยอดขาย", "ยอดขายสุทธิ จำนวนบิล เงินสด โอน / QR และส่วนลด"),
         MoreMenu("receipts", "🧾", "ใบเสร็จย้อนหลัง", "ค้นหาและตรวจสอบใบเสร็จที่ชำระสำเร็จ"),
         MoreMenu("tables", "▦", "จัดการโต๊ะ", "โต๊ะ โซน สถานะ และบิลที่เปิดอยู่"),
@@ -184,6 +198,458 @@ internal fun NativeMoreScreen(
                 onMenuClick = onTab
             )
         }
+    }
+}
+
+@Composable
+private fun MoreShiftManagementScreen(
+    client: WebPosClient,
+    session: WebPosSession,
+    onBack: () -> Unit,
+    onTab: (String) -> Unit,
+    onSessionChanged: (WebPosSession) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var liveSession by remember(session.id) { mutableStateOf(session) }
+    var days by remember(session.id) { mutableIntStateOf(30) }
+    var selectedBranchId by remember(session.id) { mutableStateOf("all") }
+    var snapshot by remember(session.id) { mutableStateOf<WebShiftHistorySnapshot?>(null) }
+    var loading by remember(session.id) { mutableStateOf(true) }
+    var refresh by remember(session.id) { mutableIntStateOf(0) }
+    var error by remember(session.id) { mutableStateOf<String?>(null) }
+    var message by remember(session.id) { mutableStateOf<String?>(null) }
+    var branchMenuOpen by remember { mutableStateOf(false) }
+    var openDialog by remember { mutableStateOf(false) }
+    var closeDialog by remember { mutableStateOf(false) }
+    var openingCash by remember { mutableStateOf("0") }
+    var closingCash by remember { mutableStateOf("") }
+    var actionBusy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(session.shiftId, session.canOpenShift, session.canCloseShift) {
+        liveSession = session
+    }
+
+    LaunchedEffect(client, liveSession.id, days, selectedBranchId, refresh) {
+        loading = true
+        try {
+            snapshot = client.shiftHistory(
+                session = liveSession,
+                days = days,
+                branchId = selectedBranchId
+            )
+            error = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            val api = failure as? WebPosApiException
+            error = when (api?.code) {
+                "permission_denied", "forbidden_permission" ->
+                    "บัญชีนี้ไม่มีสิทธิ์ดูประวัติกะ"
+                else -> "โหลดข้อมูลกะไม่ได้: " + (api?.code ?: "network_error")
+            }
+        } finally {
+            loading = false
+        }
+    }
+
+    fun actionError(failure: Exception): String {
+        val api = failure as? WebPosApiException
+        return when (api?.code) {
+            "shift_has_open_bills" ->
+                "ยังมีบิลค้างอยู่ กรุณาชำระหรือยกเลิกบิลให้เรียบร้อยก่อนปิดกะ"
+            "shift_close_forbidden" ->
+                "พนักงานขายสามารถปิดได้เฉพาะกะของตนเอง"
+            "shift_already_closed" ->
+                "กะนี้ถูกปิดไปแล้ว ระบบกำลังรีเฟรชข้อมูล"
+            "shift_open_failed" ->
+                "เปิดกะไม่สำเร็จ กรุณาตรวจสอบสถานะกะอีกครั้ง"
+            "shift_close_not_confirmed" ->
+                "ยังยืนยันการปิดกะไม่ได้ กรุณารีเฟรชแล้วตรวจสอบอีกครั้ง"
+            else -> "ดำเนินการไม่สำเร็จ: " + (api?.code ?: "network_error")
+        }
+    }
+
+    MoreScaffold("เปิด / ปิดกะ", liveSession, onBack, onTab) {
+        item {
+            Surface(
+                color = Color.White,
+                shape = RoundedCornerShape(18.dp),
+                shadowElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                if (liveSession.shiftId == null) "ยังไม่เปิดกะ" else "กะปัจจุบันกำลังเปิดอยู่",
+                                color = moreInk,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                liveSession.branchName + " · " + liveSession.deviceCode,
+                                color = moreMuted,
+                                fontSize = 10.sp
+                            )
+                        }
+                        Surface(
+                            color = if (liveSession.shiftId == null) Color(0xFFFFF3DD) else Color(0xFFE8F7EF),
+                            shape = RoundedCornerShape(20.dp)
+                        ) {
+                            Text(
+                                if (liveSession.shiftId == null) "ปิด" else "เปิด",
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                                color = if (liveSession.shiftId == null) Color(0xFF9B6518) else Color(0xFF198754),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { openDialog = true; message = null; error = null },
+                            enabled = liveSession.shiftId == null && liveSession.canOpenShift && !actionBusy,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(13.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = moreBlue)
+                        ) {
+                            Text("เปิดกะ", fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = { closeDialog = true; message = null; error = null },
+                            enabled = liveSession.shiftId != null && liveSession.canCloseShift && !actionBusy,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(13.dp)
+                        ) {
+                            Text("ปิดกะ", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (!liveSession.canOpenShift || !liveSession.canCloseShift) {
+                        Text(
+                            "ปุ่มเปิด/ปิดกะจะแสดงตามสิทธิ์ shift:open และ shift:close ที่กำหนดจาก CpIPOS",
+                            color = moreMuted,
+                            fontSize = 9.sp,
+                            lineHeight = 14.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        if (message != null) {
+            item {
+                Surface(
+                    color = Color(0xFFE9F8EF),
+                    shape = RoundedCornerShape(13.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        message.orEmpty(),
+                        Modifier.padding(12.dp),
+                        color = Color(0xFF197447),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+        if (error != null) {
+            item { ErrorBlock(error.orEmpty()) }
+        }
+
+        item {
+            Surface(
+                color = Color.White,
+                shape = RoundedCornerShape(17.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("ประวัติกะ", color = moreInk, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf(7, 30, 60).forEach { option ->
+                            val selected = days == option
+                            Surface(
+                                modifier = Modifier.weight(1f).clickable {
+                                    days = option
+                                    message = null
+                                },
+                                color = if (selected) moreBlue else Color(0xFFF5F8FC),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    "$option วัน",
+                                    modifier = Modifier.padding(vertical = 9.dp),
+                                    color = if (selected) Color.White else moreInk,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+
+                    val filters = snapshot?.filters
+                    if (filters?.canViewBranchWide == true) {
+                        Box {
+                            OutlinedButton(
+                                onClick = { branchMenuOpen = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                val branchLabel = if (selectedBranchId == "all") {
+                                    "ทุกสาขา"
+                                } else {
+                                    filters.branchOptions.firstOrNull { it.id == selectedBranchId }
+                                        ?.let { it.name ?: it.code ?: it.id }
+                                        ?: "สาขาที่เลือก"
+                                }
+                                Text("สาขา: $branchLabel", color = moreBlue)
+                            }
+                            DropdownMenu(
+                                expanded = branchMenuOpen,
+                                onDismissRequest = { branchMenuOpen = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("ทุกสาขา") },
+                                    onClick = {
+                                        selectedBranchId = "all"
+                                        branchMenuOpen = false
+                                    }
+                                )
+                                filters.branchOptions.forEach { branch ->
+                                    DropdownMenuItem(
+                                        text = { Text(branch.name ?: branch.code ?: branch.id) },
+                                        onClick = {
+                                            selectedBranchId = branch.id
+                                            branchMenuOpen = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    val scopeText = when {
+                        filters == null -> "กำลังตรวจสอบสิทธิ์จาก CpIPOS"
+                        filters.selfOnly -> "พนักงานขาย: แสดงเฉพาะกะของตนเอง"
+                        filters.canViewBranchWide -> "Owner / Manager: ดูกะทุกสาขาและเลือกกรองสาขาได้"
+                        else -> "แสดงข้อมูลตามสิทธิ์ของบัญชีนี้"
+                    }
+                    Text(scopeText, color = moreMuted, fontSize = 10.sp)
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { refresh += 1 }, enabled = !loading && !actionBusy) {
+                            Text("↻ รีเฟรช")
+                        }
+                    }
+                }
+            }
+        }
+
+        if (loading) {
+            item { LoadingBlock() }
+        } else {
+            val data = snapshot
+            if (data != null) {
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SummaryMetricCard("จำนวนกะ", data.summary.shiftCount.toString(), Modifier.weight(1f), true)
+                        SummaryMetricCard("จำนวนบิล", data.summary.orderCount.toString(), Modifier.weight(1f))
+                    }
+                }
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SummaryMetricCard("ยอดขาย", "฿" + data.summary.salesTotal.bahtText(), Modifier.weight(1f), true)
+                        SummaryMetricCard("เงินสด", "฿" + data.summary.cashTotal.bahtText(), Modifier.weight(1f))
+                    }
+                }
+                item {
+                    SummaryMetricCard(
+                        "โอน / QR",
+                        "฿" + data.summary.transferTotal.bahtText(),
+                        Modifier.fillMaxWidth()
+                    )
+                }
+
+                if (data.shifts.isEmpty()) {
+                    item { EmptyBlock("ไม่พบประวัติกะในช่วงที่เลือก") }
+                } else {
+                    item {
+                        Surface(
+                            color = Color.White,
+                            shape = RoundedCornerShape(17.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(10.dp)) {
+                                Text(
+                                    "ตารางเปิด / ปิดกะ",
+                                    color = moreInk,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                Box(
+                                    Modifier.fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                ) {
+                                    Column(Modifier.width(980.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        TableHeader(
+                                            listOf(
+                                                "สาขา" to 1.15f,
+                                                "ผู้เปิด" to 1.15f,
+                                                "เปิด" to 1.2f,
+                                                "ปิด" to 1.2f,
+                                                "สถานะ" to 0.7f,
+                                                "บิล" to 0.55f,
+                                                "ยอดขาย" to 1.0f,
+                                                "เงินสด" to 1.0f,
+                                                "โอน/QR" to 1.0f
+                                            )
+                                        )
+                                        data.shifts.forEach { row ->
+                                            TableRow(
+                                                listOf(
+                                                    (row.branchName ?: row.branchCode ?: "-") to 1.15f,
+                                                    row.openedByName to 1.15f,
+                                                    (if (row.openedAtMs > 0) moreDateTime(row.openedAtMs) else "-") to 1.2f,
+                                                    (row.closedAtMs?.let(::moreDateTime) ?: "-") to 1.2f,
+                                                    (if (row.status == "open") "เปิด" else "ปิด") to 0.7f,
+                                                    row.metrics.orderCount.toString() to 0.55f,
+                                                    ("฿" + row.metrics.salesTotal.bahtText()) to 1.0f,
+                                                    ("฿" + row.metrics.cashTotal.bahtText()) to 1.0f,
+                                                    ("฿" + row.metrics.transferTotal.bahtText()) to 1.0f
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                                Text(
+                                    "เลื่อนตารางซ้าย–ขวาเพื่อดูข้อมูลทุกคอลัมน์",
+                                    color = moreMuted,
+                                    fontSize = 9.sp,
+                                    modifier = Modifier.padding(top = 7.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (openDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!actionBusy) openDialog = false },
+            title = { Text("เปิดกะ", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text(
+                        "ระบุเงินทอนเริ่มต้นของกะ ระบบจะใช้กะและสาขาเดียวกับ CpIPOS",
+                        color = moreMuted,
+                        fontSize = 11.sp
+                    )
+                    OutlinedTextField(
+                        value = openingCash,
+                        onValueChange = { openingCash = it.take(12) },
+                        label = { Text("เงินทอนเริ่มต้น (บาท)") },
+                        singleLine = true,
+                        enabled = !actionBusy,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !actionBusy,
+                    onClick = {
+                        val amount = runCatching { Satang.fromBaht(openingCash.trim().ifBlank { "0" }) }.getOrNull()
+                        if (amount == null || amount < Satang.ZERO) {
+                            error = "จำนวนเงินทอนเริ่มต้นไม่ถูกต้อง"
+                            return@Button
+                        }
+                        actionBusy = true
+                        scope.launch {
+                            try {
+                                val updated = client.openShift(amount)
+                                liveSession = updated
+                                onSessionChanged(updated)
+                                openDialog = false
+                                message = "เปิดกะสำเร็จ"
+                                error = null
+                                refresh += 1
+                            } catch (failure: Exception) {
+                                error = actionError(failure)
+                            } finally {
+                                actionBusy = false
+                            }
+                        }
+                    }
+                ) { Text(if (actionBusy) "กำลังเปิด..." else "ยืนยันเปิดกะ") }
+            },
+            dismissButton = {
+                TextButton(onClick = { openDialog = false }, enabled = !actionBusy) { Text("ยกเลิก") }
+            }
+        )
+    }
+
+    if (closeDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!actionBusy) closeDialog = false },
+            title = { Text("ปิดกะ", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text(
+                        "กรอกเงินสดที่นับได้ก่อนปิดกะ ระบบ CpIPOS จะตรวจบิลค้างและสิทธิ์อีกครั้ง",
+                        color = moreMuted,
+                        fontSize = 11.sp
+                    )
+                    OutlinedTextField(
+                        value = closingCash,
+                        onValueChange = { closingCash = it.take(12) },
+                        label = { Text("เงินสดที่นับได้ (บาท)") },
+                        singleLine = true,
+                        enabled = !actionBusy,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !actionBusy && closingCash.isNotBlank(),
+                    onClick = {
+                        val amount = runCatching { Satang.fromBaht(closingCash.trim()) }.getOrNull()
+                        if (amount == null || amount < Satang.ZERO) {
+                            error = "จำนวนเงินสดปิดกะไม่ถูกต้อง"
+                            return@Button
+                        }
+                        actionBusy = true
+                        scope.launch {
+                            try {
+                                val updated = client.closeShift(liveSession, amount)
+                                liveSession = updated
+                                onSessionChanged(updated)
+                                closeDialog = false
+                                closingCash = ""
+                                message = "ปิดกะสำเร็จ"
+                                error = null
+                                refresh += 1
+                            } catch (failure: Exception) {
+                                error = actionError(failure)
+                            } finally {
+                                actionBusy = false
+                            }
+                        }
+                    }
+                ) { Text(if (actionBusy) "กำลังปิด..." else "ยืนยันปิดกะ") }
+            },
+            dismissButton = {
+                TextButton(onClick = { closeDialog = false }, enabled = !actionBusy) { Text("ยกเลิก") }
+            }
+        )
     }
 }
 
