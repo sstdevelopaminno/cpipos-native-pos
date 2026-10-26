@@ -62,6 +62,113 @@ data class WebQrActivityPage(
     val events: List<WebQrActivityEvent>, val cursor: String, val serverTime: String
 )
 
+data class WebSettingsBranch(
+    val id: String,
+    val code: String,
+    val name: String,
+    val address: String,
+    val active: Boolean
+)
+data class WebSettingsBranchesSnapshot(
+    val branches: List<WebSettingsBranch>,
+    val canManage: Boolean
+)
+data class WebSettingsDevice(
+    val id: String,
+    val branchId: String,
+    val deviceCode: String,
+    val deviceName: String,
+    val deviceType: String,
+    val status: String,
+    val locked: Boolean,
+    val counterName: String,
+    val location: String,
+    val lastSeenAt: String?
+)
+data class WebPosUserRow(
+    val userId: String,
+    val branchId: String,
+    val branchName: String,
+    val branchCode: String,
+    val role: String,
+    val permissionRole: String,
+    val positionTitle: String,
+    val employeeCode: String,
+    val fullName: String,
+    val email: String,
+    val active: Boolean,
+    val canEdit: Boolean,
+    val canDelete: Boolean,
+    val protectedOwner: Boolean,
+    val canApproveCancelBill: Boolean,
+    val scopeMode: String,
+    val deviceId: String?
+)
+data class WebPosUsersSnapshot(
+    val items: List<WebPosUserRow>,
+    val devices: List<WebSettingsDevice>,
+    val canAdd: Boolean,
+    val canDelete: Boolean
+)
+data class WebTaxLineSettings(
+    val id: String,
+    val label: String,
+    val ratePct: Double,
+    val mode: String,
+    val active: Boolean
+)
+data class WebTaxSettings(
+    val enabled: Boolean,
+    val calculationBase: String,
+    val lines: List<WebTaxLineSettings>
+)
+data class WebOrderKitchenPolicy(
+    val branchId: String,
+    val popupEnabled: Boolean,
+    val kitchenAutoSendEnabled: Boolean,
+    val kitchenAutoPrintEnabled: Boolean,
+    val effectivePopupEnabled: Boolean,
+    val effectiveKitchenAutoSendEnabled: Boolean,
+    val effectiveKitchenAutoPrintEnabled: Boolean,
+    val popupForcedByIt: Boolean,
+    val sendForcedByIt: Boolean,
+    val printForcedByIt: Boolean
+)
+data class WebTableQrPolicy(
+    val tableId: String,
+    val tableCode: String,
+    val tableName: String,
+    val mode: String,
+    val ttlMinutes: Int?
+)
+
+data class WebSupportConversationHead(
+    val id: String,
+    val subject: String,
+    val contactName: String,
+    val status: String,
+    val assignedUserName: String?,
+    val latestMessageAt: String?,
+    val latestMessagePreview: String?,
+    val latestSenderType: String?,
+    val unreadStoreCount: Int
+)
+data class WebSupportMessage(
+    val id: String,
+    val senderType: String,
+    val senderName: String,
+    val senderRole: String?,
+    val body: String,
+    val createdAt: String
+)
+data class WebSupportConversationSnapshot(
+    val id: String,
+    val subject: String,
+    val status: String,
+    val assignedUserName: String?,
+    val messages: List<WebSupportMessage>
+)
+
 data class WebPosNotificationSettings(
     val popupEnabled: Boolean = true,
     val soundEnabled: Boolean = true,
@@ -2004,6 +2111,611 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                     .put("runtime", "android_native_print_agent_v2")
                     .put("app_version", BuildConfig.VERSION_NAME)),
             headers = mapOf("X-Print-Agent-Key" to agentKey)
+        )
+    }
+
+    suspend fun settingsBranchesSnapshot(
+        session: WebPosSession
+    ): WebSettingsBranchesSnapshot {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        val data = call("GET", "/api/pos/settings/branches")
+        val rows = data.optJSONArray("branches") ?: JSONArray()
+        val metadata = data.optJSONObject("metadata")
+        return WebSettingsBranchesSnapshot(
+            branches = (0 until rows.length()).mapNotNull { index ->
+                val row = rows.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                WebSettingsBranch(
+                    id = id,
+                    code = row.optString("code"),
+                    name = row.optString("name").ifBlank { row.optString("code") },
+                    address = row.optString("address"),
+                    active = row.optBoolean("is_active", true)
+                )
+            },
+            canManage = metadata?.optBoolean("can_manage", false) ?: false
+        )
+    }
+
+    suspend fun settingsBranches(session: WebPosSession): List<WebSettingsBranch> =
+        settingsBranchesSnapshot(session).branches
+
+    suspend fun saveSettingsBranch(
+        session: WebPosSession,
+        branch: WebSettingsBranch
+    ): WebSettingsBranch {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(branch.code.trim().isNotBlank() && branch.name.trim().isNotBlank())
+        val payload = JSONObject()
+            .put("code", branch.code.trim().uppercase())
+            .put("name", branch.name.trim())
+            .put("address", branch.address.trim())
+            .put("is_active", branch.active)
+        if (branch.id.isNotBlank()) payload.put("id", branch.id)
+        val row = call(
+            if (branch.id.isBlank()) "POST" else "PATCH",
+            "/api/pos/settings/branches",
+            payload
+        ).getJSONObject("branch")
+        return WebSettingsBranch(
+            id = row.getString("id"),
+            code = row.optString("code"),
+            name = row.optString("name"),
+            address = row.optString("address"),
+            active = row.optBoolean("is_active", true)
+        )
+    }
+
+    suspend fun deactivateSettingsBranch(session: WebPosSession, branchId: String) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(UUID.fromString(branchId).toString() == branchId)
+        call("DELETE", "/api/pos/settings/branches?branch_id=" + queryValue(branchId))
+    }
+
+    suspend fun settingsDevices(session: WebPosSession): List<WebSettingsDevice> {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        val rows = call("GET", "/api/pos/settings/devices").optJSONArray("devices") ?: JSONArray()
+        return (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            WebSettingsDevice(
+                id = id,
+                branchId = row.optString("branch_id"),
+                deviceCode = row.optString("device_code"),
+                deviceName = row.optString("device_name"),
+                deviceType = row.optString("device_type").ifBlank { "pos_terminal" },
+                status = row.optString("status").ifBlank { "active" },
+                locked = row.optBoolean("is_locked", true),
+                counterName = row.optString("counter_name"),
+                location = row.optString("location"),
+                lastSeenAt = row.optString("last_seen_at").takeIf { it.isNotBlank() && it != "null" }
+            )
+        }
+    }
+
+    suspend fun saveSettingsDevice(
+        session: WebPosSession,
+        device: WebSettingsDevice
+    ): WebSettingsDevice {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(device.branchId.isNotBlank())
+        require(device.deviceCode.trim().isNotBlank() && device.deviceName.trim().isNotBlank())
+        val payload = JSONObject()
+            .put("branch_id", device.branchId)
+            .put("device_code", device.deviceCode.trim())
+            .put("device_name", device.deviceName.trim())
+            .put("device_type", device.deviceType)
+            .put("status", device.status)
+            .put("is_locked", device.locked)
+            .put("counter_name", device.counterName.trim())
+            .put("location", device.location.trim())
+        if (device.id.isNotBlank()) payload.put("id", device.id)
+        val row = call(
+            if (device.id.isBlank()) "POST" else "PATCH",
+            "/api/pos/settings/devices",
+            payload
+        ).getJSONObject("device")
+        return WebSettingsDevice(
+            id = row.getString("id"),
+            branchId = row.optString("branch_id"),
+            deviceCode = row.optString("device_code"),
+            deviceName = row.optString("device_name"),
+            deviceType = row.optString("device_type").ifBlank { "pos_terminal" },
+            status = row.optString("status").ifBlank { "active" },
+            locked = row.optBoolean("is_locked", true),
+            counterName = row.optString("counter_name"),
+            location = row.optString("location"),
+            lastSeenAt = row.optString("last_seen_at").takeIf { it.isNotBlank() && it != "null" }
+        )
+    }
+
+    suspend fun deleteSettingsDevice(session: WebPosSession, deviceId: String) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(UUID.fromString(deviceId).toString() == deviceId)
+        call("DELETE", "/api/pos/settings/devices?device_id=" + queryValue(deviceId))
+    }
+
+    suspend fun posUsers(session: WebPosSession): WebPosUsersSnapshot {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        val data = call("GET", "/api/pos/users?branch_id=" + queryValue(session.branchId))
+        val items = data.optJSONArray("items") ?: JSONArray()
+        val devices = data.optJSONArray("devices") ?: JSONArray()
+        val metadata = data.optJSONObject("metadata")
+        return WebPosUsersSnapshot(
+            items = (0 until items.length()).mapNotNull { index ->
+                val row = items.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("user_id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val scope = row.optJSONObject("device_scope")
+                WebPosUserRow(
+                    userId = id,
+                    branchId = row.optString("branch_id"),
+                    branchName = row.optString("branch_name"),
+                    branchCode = row.optString("branch_code"),
+                    role = row.optString("role").ifBlank { "staff" },
+                    permissionRole = row.optString("permission_role"),
+                    positionTitle = row.optString("position_title"),
+                    employeeCode = row.optString("employee_code"),
+                    fullName = row.optString("full_name"),
+                    email = row.optString("email"),
+                    active = row.optBoolean("is_active", false),
+                    canEdit = row.optBoolean("can_edit", false),
+                    canDelete = row.optBoolean("can_delete", false),
+                    protectedOwner = row.optBoolean("is_protected_primary_owner", false),
+                    canApproveCancelBill = row.optBoolean("can_approve_cancel_bill", false),
+                    scopeMode = scope?.optString("scope_mode") ?: "all_devices",
+                    deviceId = scope?.optString("device_id")?.takeIf { it.isNotBlank() && it != "null" }
+                )
+            },
+            devices = (0 until devices.length()).mapNotNull { index ->
+                val row = devices.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                WebSettingsDevice(
+                    id = id,
+                    branchId = row.optString("branch_id"),
+                    deviceCode = row.optString("device_code"),
+                    deviceName = row.optString("device_name"),
+                    deviceType = "pos_terminal",
+                    status = row.optString("status").ifBlank { "active" },
+                    locked = true,
+                    counterName = "",
+                    location = "",
+                    lastSeenAt = null
+                )
+            },
+            canAdd = metadata?.optBoolean("can_add", false) ?: false,
+            canDelete = metadata?.optBoolean("can_delete", false) ?: false
+        )
+    }
+
+    suspend fun createPosUser(
+        session: WebPosSession,
+        fullName: String,
+        email: String,
+        role: String,
+        employeeCode: String,
+        positionTitle: String,
+        permissionRole: String,
+        pin: String,
+        scopeMode: String,
+        deviceId: String?,
+        canApproveCancelBill: Boolean,
+        approvalPin: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(role in setOf("manager", "staff", "accountant", "kitchen"))
+        require(employeeCode.isNotBlank() && employeeCode.all(Char::isDigit))
+        require(scopeMode in setOf("all_devices", "single_device"))
+        val payload = JSONObject()
+            .put("full_name", fullName.trim())
+            .put("email", email.trim())
+            .put("role", role)
+            .put("branch_id", session.branchId)
+            .put("employee_code", employeeCode)
+            .put("position_title", positionTitle.trim())
+            .put("permission_role", permissionRole.trim().ifBlank { role })
+            .put("pin", pin.trim())
+            .put("scope_mode", scopeMode)
+            .put("device_id", deviceId ?: JSONObject.NULL)
+            .put("can_approve_cancel_bill", canApproveCancelBill)
+            .put("approval_pin", approvalPin.trim())
+        call("POST", "/api/pos/users", payload)
+    }
+
+    suspend fun setPosUserActive(
+        session: WebPosSession,
+        userId: String,
+        active: Boolean
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        call(
+            "PATCH",
+            "/api/pos/users",
+            JSONObject()
+                .put("action", "set_active")
+                .put("user_id", userId)
+                .put("branch_id", session.branchId)
+                .put("is_active", active)
+        )
+    }
+
+    suspend fun updatePosUserProfile(
+        session: WebPosSession,
+        user: WebPosUserRow,
+        fullName: String,
+        email: String,
+        role: String,
+        employeeCode: String,
+        positionTitle: String,
+        permissionRole: String,
+        approvalPin: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(role in setOf("manager", "staff", "accountant", "kitchen", "owner"))
+        require(employeeCode.all(Char::isDigit) && employeeCode.isNotBlank())
+        call(
+            "PATCH",
+            "/api/pos/users",
+            JSONObject()
+                .put("action", "update_profile")
+                .put("user_id", user.userId)
+                .put("branch_id", session.branchId)
+                .put("full_name", fullName.trim())
+                .put("email", email.trim())
+                .put("role", role)
+                .put("employee_code", employeeCode)
+                .put("position_title", positionTitle.trim())
+                .put("permission_role", permissionRole.trim().ifBlank { role })
+                .put("approval_pin", approvalPin.trim())
+        )
+    }
+
+    suspend fun setPosUserPin(
+        session: WebPosSession,
+        userId: String,
+        pin: String,
+        approvalPin: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(pin.length in 4..12 && pin.all(Char::isDigit))
+        call(
+            "PATCH",
+            "/api/pos/users",
+            JSONObject()
+                .put("action", "set_pin")
+                .put("user_id", userId)
+                .put("branch_id", session.branchId)
+                .put("pin", pin)
+                .put("approval_pin", approvalPin.trim())
+        )
+    }
+
+    suspend fun setPosUserDeviceScope(
+        session: WebPosSession,
+        userId: String,
+        scopeMode: String,
+        deviceId: String?
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(scopeMode in setOf("all_devices", "single_device"))
+        if (scopeMode == "single_device") require(!deviceId.isNullOrBlank())
+        call(
+            "PATCH",
+            "/api/pos/users",
+            JSONObject()
+                .put("action", "set_device_scope")
+                .put("user_id", userId)
+                .put("branch_id", session.branchId)
+                .put("scope_mode", scopeMode)
+                .put("device_id", deviceId ?: JSONObject.NULL)
+        )
+    }
+
+    suspend fun setPosUserCancelBillApproval(
+        session: WebPosSession,
+        userId: String,
+        enabled: Boolean,
+        staffPin: String,
+        ownerPin: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        if (enabled) require(staffPin.length in 4..12 && staffPin.all(Char::isDigit))
+        require(ownerPin.length in 4..12 && ownerPin.all(Char::isDigit))
+        call(
+            "PATCH",
+            "/api/pos/users",
+            JSONObject()
+                .put("action", "set_cancel_bill_approval")
+                .put("user_id", userId)
+                .put("branch_id", session.branchId)
+                .put("is_enabled", enabled)
+                .put("pin", staffPin)
+                .put("approval_pin", ownerPin)
+        )
+    }
+
+    suspend fun deletePosUser(
+        session: WebPosSession,
+        userId: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(UUID.fromString(userId).toString() == userId)
+        call(
+            "DELETE",
+            "/api/pos/users?user_id=" + queryValue(userId) +
+                "&branch_id=" + queryValue(session.branchId)
+        )
+    }
+
+    suspend fun taxSettings(session: WebPosSession): WebTaxSettings {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        val data = call(
+            "GET",
+            "/api/pos/settings/tax?branch_id=" + queryValue(session.branchId)
+        )
+        val row = data.optJSONObject("tax_settings") ?: JSONObject()
+        val lines = row.optJSONArray("lines") ?: JSONArray()
+        return WebTaxSettings(
+            enabled = row.optBoolean("is_enabled", false),
+            calculationBase = row.optString("calculation_base").ifBlank { "net_after_discount" },
+            lines = (0 until lines.length()).mapNotNull { index ->
+                val line = lines.optJSONObject(index) ?: return@mapNotNull null
+                WebTaxLineSettings(
+                    id = line.optString("id"),
+                    label = line.optString("label"),
+                    ratePct = line.optDouble("rate_pct", 0.0),
+                    mode = line.optString("mode").ifBlank { "add_to_bill" },
+                    active = line.optBoolean("is_active", false)
+                )
+            }
+        )
+    }
+
+    suspend fun saveTaxSettings(
+        session: WebPosSession,
+        settings: WebTaxSettings
+    ): WebTaxSettings {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        val lines = JSONArray()
+        settings.lines.forEach { line ->
+            lines.put(JSONObject()
+                .put("id", line.id)
+                .put("label", line.label)
+                .put("rate_pct", line.ratePct)
+                .put("mode", line.mode)
+                .put("is_active", line.active))
+        }
+        val data = call(
+            "PATCH",
+            "/api/pos/settings/tax",
+            JSONObject()
+                .put("branch_id", session.branchId)
+                .put("is_enabled", settings.enabled)
+                .put("calculation_base", settings.calculationBase)
+                .put("lines", lines)
+        )
+        val row = data.optJSONObject("tax_settings") ?: JSONObject()
+        val savedLines = row.optJSONArray("lines") ?: JSONArray()
+        return WebTaxSettings(
+            enabled = row.optBoolean("is_enabled", false),
+            calculationBase = row.optString("calculation_base").ifBlank { "net_after_discount" },
+            lines = (0 until savedLines.length()).mapNotNull { index ->
+                val line = savedLines.optJSONObject(index) ?: return@mapNotNull null
+                WebTaxLineSettings(
+                    id = line.optString("id"),
+                    label = line.optString("label"),
+                    ratePct = line.optDouble("rate_pct", 0.0),
+                    mode = line.optString("mode").ifBlank { "add_to_bill" },
+                    active = line.optBoolean("is_active", false)
+                )
+            }
+        )
+    }
+
+    suspend fun orderKitchenPolicy(session: WebPosSession): WebOrderKitchenPolicy {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        val data = call(
+            "GET",
+            "/api/pos/settings/order-kitchen?branch_id=" + queryValue(session.branchId)
+        )
+        return parseOrderKitchenPolicy(data.getJSONObject("policy"))
+    }
+
+    suspend fun saveOrderKitchenPolicy(
+        session: WebPosSession,
+        policy: WebOrderKitchenPolicy,
+        canQrOrdering: Boolean = true,
+        canKitchenPrinting: Boolean = true
+    ): WebOrderKitchenPolicy {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(canQrOrdering || canKitchenPrinting)
+        val payload = JSONObject().put("branch_id", session.branchId)
+        if (canQrOrdering) {
+            payload.put("popup_enabled", policy.popupEnabled)
+            payload.put("kitchen_auto_send_enabled", policy.kitchenAutoSendEnabled)
+        }
+        if (canKitchenPrinting) {
+            payload.put("kitchen_auto_print_enabled", policy.kitchenAutoPrintEnabled)
+        }
+        val data = call("PATCH", "/api/pos/settings/order-kitchen", payload)
+        return parseOrderKitchenPolicy(data.getJSONObject("policy"))
+    }
+
+    suspend fun tableQrPolicy(
+        session: WebPosSession,
+        tableId: String
+    ): WebTableQrPolicy {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        val data = call(
+            "GET",
+            "/api/backoffice/tables/" + tableId + "/qr-policy?branch_id=" +
+                queryValue(session.branchId)
+        )
+        val policy = data.optJSONObject("policy") ?: JSONObject()
+        return WebTableQrPolicy(
+            tableId = data.optString("table_id").ifBlank { tableId },
+            tableCode = data.optString("table_code"),
+            tableName = data.optString("table_name"),
+            mode = policy.optString("mode").ifBlank { "time" },
+            ttlMinutes = if (policy.isNull("ttl_minutes")) null else policy.optInt("ttl_minutes")
+        )
+    }
+
+    suspend fun saveTableQrPolicy(
+        session: WebPosSession,
+        policy: WebTableQrPolicy
+    ): WebTableQrPolicy {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(policy.mode in setOf("time", "bill"))
+        val payload = JSONObject()
+            .put("branch_id", session.branchId)
+            .put("mode", policy.mode)
+        if (policy.mode == "time") payload.put("ttl_minutes", policy.ttlMinutes ?: 1080)
+        val data = call(
+            "PATCH",
+            "/api/backoffice/tables/" + policy.tableId + "/qr-policy",
+            payload
+        )
+        val row = data.optJSONObject("policy") ?: JSONObject()
+        return WebTableQrPolicy(
+            tableId = data.optString("table_id").ifBlank { policy.tableId },
+            tableCode = data.optString("table_code"),
+            tableName = data.optString("table_name"),
+            mode = row.optString("mode").ifBlank { policy.mode },
+            ttlMinutes = if (row.isNull("ttl_minutes")) null else row.optInt("ttl_minutes")
+        )
+    }
+
+    suspend fun supportConversations(
+        session: WebPosSession
+    ): List<WebSupportConversationHead> {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        val rows = call("GET", "/api/pos/support-chat/conversations")
+            .optJSONArray("conversations") ?: JSONArray()
+        return (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            val id = row.optString("conversation_id").takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            WebSupportConversationHead(
+                id = id,
+                subject = row.optString("subject"),
+                contactName = row.optString("contact_name"),
+                status = row.optString("status"),
+                assignedUserName = row.optString("assigned_user_name")
+                    .takeIf { it.isNotBlank() && it != "null" },
+                latestMessageAt = row.optString("latest_message_at")
+                    .takeIf { it.isNotBlank() && it != "null" },
+                latestMessagePreview = row.optString("latest_message_preview")
+                    .takeIf { it.isNotBlank() && it != "null" },
+                latestSenderType = row.optString("latest_sender_type")
+                    .takeIf { it.isNotBlank() && it != "null" },
+                unreadStoreCount = row.optInt("unread_store_count", 0)
+            )
+        }
+    }
+
+    suspend fun createSupportConversation(
+        session: WebPosSession,
+        subject: String,
+        contactName: String
+    ): String {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(subject.trim().length >= 2 && contactName.trim().length >= 2)
+        val data = call(
+            "POST",
+            "/api/pos/support-chat/conversations",
+            JSONObject()
+                .put("subject", subject.trim().take(180))
+                .put("contact_name", contactName.trim().take(120))
+        )
+        val head = data.optJSONObject("head")
+        val conversation = data.optJSONObject("conversation")
+        return head?.optString("conversation_id")?.takeIf { it.isNotBlank() }
+            ?: conversation?.optString("id")?.takeIf { it.isNotBlank() }
+            ?: throw WebPosApiException("support_chat_create_unconfirmed", 502)
+    }
+
+    suspend fun supportConversation(
+        session: WebPosSession,
+        conversationId: String
+    ): WebSupportConversationSnapshot {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(conversationId.isNotBlank())
+        val data = call(
+            "GET",
+            "/api/pos/support-chat/conversations/" + queryValue(conversationId) + "/messages"
+        )
+        val conversation = data.optJSONObject("conversation") ?: JSONObject()
+        val messages = data.optJSONArray("messages") ?: JSONArray()
+        return WebSupportConversationSnapshot(
+            id = conversation.optString("id").ifBlank { conversationId },
+            subject = conversation.optString("subject"),
+            status = conversation.optString("status"),
+            assignedUserName = conversation.optString("assigned_user_name")
+                .takeIf { it.isNotBlank() && it != "null" },
+            messages = (0 until messages.length()).mapNotNull { index ->
+                val row = messages.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                WebSupportMessage(
+                    id = id,
+                    senderType = row.optString("sender_type"),
+                    senderName = row.optString("sender_name"),
+                    senderRole = row.optString("sender_role")
+                        .takeIf { it.isNotBlank() && it != "null" },
+                    body = row.optString("message_body"),
+                    createdAt = row.optString("created_at")
+                )
+            }
+        )
+    }
+
+    suspend fun sendSupportMessage(
+        session: WebPosSession,
+        conversationId: String,
+        message: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(conversationId.isNotBlank() && message.trim().isNotBlank())
+        call(
+            "POST",
+            "/api/pos/support-chat/conversations/" + queryValue(conversationId) + "/messages",
+            JSONObject().put("message", message.trim().take(4000))
+        )
+    }
+
+    suspend fun closeSupportConversation(
+        session: WebPosSession,
+        conversationId: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(conversationId.isNotBlank())
+        call(
+            "POST",
+            "/api/pos/support-chat/conversations/" + queryValue(conversationId),
+            JSONObject().put("action", "close")
+        )
+    }
+
+    fun trustedWebUrl(path: String): String {
+        require(path.startsWith("/") && !path.startsWith("//"))
+        return base + path
+    }
+
+    private fun parseOrderKitchenPolicy(row: JSONObject): WebOrderKitchenPolicy {
+        val store = row.optJSONObject("store") ?: JSONObject()
+        val effective = row.optJSONObject("effective") ?: JSONObject()
+        val forced = row.optJSONObject("forced_by_it") ?: JSONObject()
+        return WebOrderKitchenPolicy(
+            branchId = row.optString("branch_id"),
+            popupEnabled = store.optBoolean("popup_enabled", true),
+            kitchenAutoSendEnabled = store.optBoolean("kitchen_auto_send_enabled", true),
+            kitchenAutoPrintEnabled = store.optBoolean("kitchen_auto_print_enabled", true),
+            effectivePopupEnabled = effective.optBoolean("popup_enabled", true),
+            effectiveKitchenAutoSendEnabled = effective.optBoolean("kitchen_auto_send_enabled", true),
+            effectiveKitchenAutoPrintEnabled = effective.optBoolean("kitchen_auto_print_enabled", true),
+            popupForcedByIt = forced.optBoolean("popup", false),
+            sendForcedByIt = forced.optBoolean("kitchen_auto_send", false),
+            printForcedByIt = forced.optBoolean("kitchen_auto_print", false)
         )
     }
 
