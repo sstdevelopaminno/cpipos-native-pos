@@ -98,6 +98,33 @@ class NativeReleaseHardeningContractTest {
     }
 
     @Test
+    fun mdmTelemetryIdentifiesNativeAndroidWithoutPretendingToBeWindowsBridge() {
+        val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
+        val block = functionBlock(client, "sendDeviceHeartbeat")
+        assertTrue(block.contains(".put(\"telemetry_profile\", \"android\")"))
+        assertTrue(block.contains(".put(\"source\", \"pos_native_android\")"))
+        assertTrue(block.contains(".put(\"cpi_windows_runtime_running\", false)"))
+        assertTrue(block.contains(".put(\"local_bridge_online\", false)"))
+    }
+
+    @Test
+    fun bluetoothPrintingHasBoundedConnectAndSettingsClearBottomNav() {
+        val transport = source("src/main/java/com/cpipos/pos/next/core/print/NativePrinterTransport.kt")
+        val printer = source("src/main/java/com/cpipos/pos/next/ui/NativePrinterSettingsScreen.kt")
+        val payment = source("src/main/java/com/cpipos/pos/next/ui/NativePaymentSettingsScreen.kt")
+        val notifications = source("src/main/java/com/cpipos/pos/next/ui/NativeNotificationSettingsScreen.kt")
+        val store = source("src/main/java/com/cpipos/pos/next/ui/NativeStoreSettingsScreen.kt")
+
+        assertTrue(transport.contains("BLUETOOTH_CONNECT_TIMEOUT_SECONDS = 7L"))
+        assertTrue(transport.contains("future.get(BLUETOOTH_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)"))
+        assertTrue(transport.contains("\"bluetooth_connect_timeout\""))
+        listOf(printer, payment, notifications, store).forEach {
+            assertTrue(it.contains("bottom = 156.dp"))
+            assertFalse(it.contains("bottom = 112.dp"))
+        }
+    }
+
+    @Test
     fun backgroundControlPlaneAvoidsRedundantSessionPreflight() {
         val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
         listOf("subscriptionRuntime", "sendDeviceHeartbeat", "ackDeviceCommands").forEach { method ->
