@@ -39,6 +39,9 @@ private val salesMuted = Color(0xFF70839C)
 private val bangkok = ZoneId.of("Asia/Bangkok")
 private val receiptDateFormat = DateTimeFormatter.ofPattern("dd/MM/yy HH:mm", Locale.US)
 private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.US)
+private fun salesMoneyText(valueSatang: Long): String =
+    java.text.DecimalFormat("#,##0.00", java.text.DecimalFormatSymbols(Locale.US))
+        .format(valueSatang.toBigDecimal().movePointLeft(2))
 
 internal data class NativeSalesWindow(val start: LocalDate, val end: LocalDate)
 internal fun nativeSalesWindow(mode: String, anchor: LocalDate,
