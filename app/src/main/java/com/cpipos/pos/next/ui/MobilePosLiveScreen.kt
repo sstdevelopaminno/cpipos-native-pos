@@ -59,6 +59,7 @@ import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import com.cpipos.pos.next.core.push.NativeFcmRegistration
 import com.cpipos.pos.next.core.push.NativeQrBackgroundService
 import com.cpipos.pos.next.core.print.NativePrintRuntime
+import com.cpipos.pos.next.core.mdm.NativeMdmRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -94,6 +95,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var entitlements by remember { mutableStateOf<WebPosEntitlements?>(null) }
     var entitlementCheckBusy by remember { mutableStateOf(false) }
     var packageLockTarget by remember { mutableStateOf<String?>(null) }
+    var showEntryPackageLock by remember { mutableStateOf(false) }
+    var subscriptionRuntimeLocked by remember(session?.id) { mutableStateOf(false) }
+    var subscriptionRuntimeMessage by remember(session?.id) { mutableStateOf<String?>(null) }
     var unresolvedSaleCount by remember(session?.id) { mutableStateOf<Int?>(null) }
     var logoutPendingCount by remember(session?.id) { mutableStateOf<Int?>(null) }
     var catalog by remember { mutableStateOf<List<WebPosProduct>>(emptyList()) }
@@ -113,6 +117,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var mainTab by remember { mutableStateOf("history") }
     var tabRevision by remember { mutableStateOf(0) }
     val fcmNavigationRevision = NativeFcmRegistration.navigationRevision.intValue
+    val mdmCommandRevision = NativeMdmRuntime.commandRevision.intValue
 
     fun tabPackageAllowed(tab: String, access: WebPosEntitlements? = entitlements): Boolean {
         val snapshot = access ?: return true
@@ -188,6 +193,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     fun goToStore() {
         NativePrintRuntime.stop()
         NativeQrBackgroundService.stop(ctx)
+        NativeMdmRuntime.stop()
         NativeFcmRegistration.clearScope(ctx)
         employeeCode = ""
         employee = null
@@ -197,6 +203,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         entitlements = null
         entitlementCheckBusy = false
         packageLockTarget = null
+        showEntryPackageLock = false
+        subscriptionRuntimeLocked = false
+        subscriptionRuntimeMessage = null
         catalog = emptyList()
         error = null
         recoveredReceipt = null
@@ -308,17 +317,24 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
-    // Keep QR operations reachable when the cashier leaves/swipes away the UI.
-    // FCM remains preferred when configured; this foreground-service poller is
-    // a zero-cost fallback and stops automatically on POS-session revocation.
-    LaunchedEffect(session?.id) {
+    // MDM stays alive while a valid POS session exists, including a subscription
+    // lock, so IT can diagnose/enable/disable the device. Sale-related QR and
+    // print workers stop immediately while lifecycle access is locked.
+    LaunchedEffect(session?.id, subscriptionRuntimeLocked) {
         val active = session
         if (active != null) {
-            NativeQrBackgroundService.start(ctx)
-            NativePrintRuntime.start(ctx, client, active)
+            NativeMdmRuntime.start(ctx, client, active)
+            if (subscriptionRuntimeLocked) {
+                NativePrintRuntime.stop()
+                NativeQrBackgroundService.stop(ctx)
+            } else {
+                NativeQrBackgroundService.start(ctx)
+                NativePrintRuntime.start(ctx, client, active)
+            }
         } else {
             NativePrintRuntime.stop()
             NativeQrBackgroundService.stop(ctx)
+            NativeMdmRuntime.stop()
         }
     }
 
@@ -393,6 +409,88 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 session = null
                 step = "store"
             }
+        }
+    }
+
+    // Poll the canonical subscription runtime independently of menu entitlements.
+    // Locked tenants retain Billing + MDM access but all sale/runtime workers stop.
+    LaunchedEffect(client, session?.id) {
+        val active = session ?: return@LaunchedEffect
+        while (session?.id == active.id) {
+            if (!busy && !takeaway.saving.value && dineWorkspace.drafts.values.none { it.busy }) {
+                try {
+                    val runtime = client.subscriptionRuntime(active, reason = "native")
+                    if (runtime.locked) {
+                        subscriptionRuntimeMessage = buildString {
+                            append("แพ็กเกจ ")
+                            append(runtime.packageName.ifBlank { "ปัจจุบัน" })
+                            append(" ถูกล็อก")
+                            runtime.lockReason?.takeIf { it.isNotBlank() }?.let { append(" · ").append(it) }
+                        }
+                        if (!subscriptionRuntimeLocked) {
+                            subscriptionRuntimeLocked = true
+                            step = "subscription_locked"
+                        }
+                    } else if (subscriptionRuntimeLocked) {
+                        subscriptionRuntimeLocked = false
+                        subscriptionRuntimeMessage = null
+                        val restored = client.synchronizedShiftSession()
+                        if (session?.id == active.id) {
+                            session = restored
+                            refreshCatalog(restored)
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: WebPosApiException) {
+                    if (failure.status == 401) {
+                        client.clearStoredPosSession()
+                        goToStore()
+                        error = "เซสชัน POS หมดอายุ กรุณาเข้าสู่ระบบใหม่"
+                        return@LaunchedEffect
+                    }
+                    Log.w("CpIPOSSubscription", "Runtime refresh failed: " + failure.code)
+                } catch (failure: Exception) {
+                    Log.w("CpIPOSSubscription", "Runtime refresh unavailable: " + failure.javaClass.simpleName)
+                }
+            }
+            kotlinx.coroutines.delay(5_000L)
+        }
+    }
+
+    // A delivered IT MDM command can request an immediate policy/config refresh.
+    LaunchedEffect(client, session?.id, mdmCommandRevision) {
+        val active = session ?: return@LaunchedEffect
+        if (mdmCommandRevision <= 0 || busy || takeaway.saving.value ||
+            dineWorkspace.drafts.values.any { it.busy }) return@LaunchedEffect
+        try {
+            val runtime = client.subscriptionRuntime(active, reason = "native")
+            if (runtime.locked) {
+                subscriptionRuntimeLocked = true
+                subscriptionRuntimeMessage = "แพ็กเกจถูกล็อกจากระบบ IT · " +
+                    (runtime.lockReason ?: runtime.lifecycleStatus)
+                step = "subscription_locked"
+                return@LaunchedEffect
+            }
+            val remote = client.synchronizedShiftSession()
+            if (remote.id == active.id && remote.branchId == active.branchId &&
+                remote.deviceCode == active.deviceCode) {
+                session = remote
+                entitlements = runCatching { client.posEntitlements(remote, forceFresh = true) }
+                    .getOrDefault(entitlements)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: WebPosApiException) {
+            if (failure.code == "device_or_session_blocked" || failure.status == 401) {
+                client.clearStoredPosSession()
+                goToStore()
+                error = if (failure.code == "device_or_session_blocked")
+                    "เครื่องนี้ถูกปิดใช้งานหรืออยู่ระหว่างบำรุงรักษาจากระบบ IT"
+                else "เซสชัน POS หมดอายุ กรุณาเข้าสู่ระบบใหม่"
+            }
+        } catch (failure: Exception) {
+            Log.w("CpIPOSMDM", "Immediate command refresh failed: " + failure.javaClass.simpleName)
         }
     }
 
@@ -556,6 +654,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                             employee = verified
                             availableDevices = devices
                             selectedDevice = null
+                            showEntryPackageLock = !devices.entryAccess.allowed
                             step = "device"
                         } catch (e: WebPosApiException) {
                             error = when (e.code) {
@@ -583,10 +682,17 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             employeeName = employee?.name.orEmpty(),
             devices = availableDevices?.devices.orEmpty(),
             canOverrideInUse = availableDevices?.canOverrideInUse == true,
+            entryAllowed = availableDevices?.entryAccess?.allowed != false,
+            entryMessage = availableDevices?.entryAccess?.message,
             selected = selectedDevice,
             busy = busy,
             error = error,
-            onSelect = { selectedDevice = it; error = null },
+            onSelect = {
+                if (availableDevices?.entryAccess?.allowed != false) {
+                    selectedDevice = it
+                    error = null
+                }
+            },
             onOpen = {
                 val chosen = selectedDevice
                 val who = employee
@@ -630,6 +736,42 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 step = "branch"
             }
         )
+        "preentry_billing" -> NativePreEntrySubscriptionScreen(
+            client = client,
+            onBack = {
+                step = "device"
+                showEntryPackageLock = availableDevices?.entryAccess?.allowed == false
+            },
+            onRecheckAccess = {
+                if (!busy) scope.launch {
+                    busy = true
+                    error = null
+                    try {
+                        val devices = client.listEntryDevices()
+                        availableDevices = devices
+                        selectedDevice = null
+                        showEntryPackageLock = !devices.entryAccess.allowed
+                        if (devices.entryAccess.allowed) {
+                            step = "device"
+                        }
+                    } catch (failure: WebPosApiException) {
+                        error = "ตรวจสอบสิทธิ์แพ็กเกจไม่สำเร็จ: " + failure.code
+                    } catch (_: Exception) {
+                        error = "ตรวจสอบสิทธิ์แพ็กเกจไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ต"
+                    } finally {
+                        busy = false
+                    }
+                }
+            }
+        )
+        "subscription_locked" -> session?.let { verified ->
+            NativeSubscriptionBillingScreen(
+                client = client,
+                session = verified,
+                onBack = {},
+                onTab = {}
+            )
+        }
         "shift" -> session?.let { verified ->
             LiveShiftScreen(
                 session = verified,
@@ -915,6 +1057,73 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
+    if (showEntryPackageLock && step == "device") {
+        val access = availableDevices?.entryAccess
+        AlertDialog(
+            onDismissRequest = {},
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text(
+                    access?.title ?: "แพ็กเกจหมดอายุ / ถูกล็อก",
+                    fontWeight = FontWeight.ExtraBold,
+                    color = liveInk
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        access?.message ?: "ระบบขายถูกล็อก กรุณาชำระแพ็กเกจหรือติดต่อ Support",
+                        color = Color(0xFF66758D),
+                        fontSize = 13.sp,
+                        lineHeight = 20.sp
+                    )
+                    availableDevices?.paymentReview?.let {
+                        Text(
+                            "สถานะหลักฐานชำระ: " + it.status,
+                            color = Color(0xFF176DED),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showEntryPackageLock = false
+                        step = "preentry_billing"
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = liveBlue)
+                ) {
+                    Text("ชำระแพ็กเกจ", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        if (!busy) scope.launch {
+                            busy = true
+                            try {
+                                val devices = client.listEntryDevices()
+                                availableDevices = devices
+                                selectedDevice = null
+                                showEntryPackageLock = !devices.entryAccess.allowed
+                            } catch (_: Exception) {
+                                error = "ยังตรวจสอบสิทธิ์แพ็กเกจไม่ได้"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    },
+                    enabled = !busy
+                ) {
+                    Text(if (busy) "กำลังตรวจสอบ..." else "ตรวจสอบอีกครั้ง")
+                }
+            }
+        )
+    }
+
     NativePackageLockDialog(
         targetLabel = packageLockTarget,
         onDismiss = { packageLockTarget = null }
@@ -1147,7 +1356,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     // One app-wide listener survives switching tabs, sale screens and table modes.
     // The server owns QR order state; dismissing a food notification NEVER accepts an order.
     val verifiedForAlerts = session
-    if (verifiedForAlerts != null &&
+    if (verifiedForAlerts != null && !subscriptionRuntimeLocked &&
         step in setOf("shift", "review", "mode", "sale", "dine", "dine_order", "tab")) {
         NativeQrGlobalAlerts(
             client = client,
