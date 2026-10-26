@@ -1,6 +1,7 @@
 package com.cpipos.pos.next.ui
 
 import android.app.DatePickerDialog
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -14,11 +15,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cpipos.pos.next.R
 import com.cpipos.pos.next.core.print.NativePrintRuntime
 import com.cpipos.pos.next.core.pos.Satang
 import com.cpipos.pos.next.core.webpos.*
@@ -36,7 +43,7 @@ private val moreMuted = Color(0xFF71849B)
 
 private data class MoreMenu(
     val key: String,
-    val icon: String,
+    val iconRes: Int,
     val title: String,
     val subtitle: String
 )
@@ -135,14 +142,14 @@ internal fun NativeMoreScreen(
     }
 
     val menus = listOf(
-        MoreMenu("shift", "🕒", "เปิด / ปิดกะ", "เปิดกะ ปิดกะ และดูประวัติกะตามสิทธิ์ของผู้ใช้งาน"),
-        MoreMenu("summary", "📊", "สรุปยอดขาย", "ยอดขายสุทธิ จำนวนบิล เงินสด โอน / QR และส่วนลด"),
-        MoreMenu("receipts", "🧾", "ใบเสร็จย้อนหลัง", "ค้นหาและตรวจสอบใบเสร็จที่ชำระสำเร็จ"),
-        MoreMenu("tables", "▦", "จัดการโต๊ะ", "โต๊ะ โซน สถานะ และบิลที่เปิดอยู่"),
-        MoreMenu("sales", "≣", "รายการขายสินค้า", "รายการขายรายวัน / เดือน / ปี และช่วงวันที่"),
-        MoreMenu("best", "★", "สินค้าขายดี", "อันดับสินค้าขายดีจากข้อมูลสรุปยอดขาย CpIPOS"),
-        MoreMenu("members", "👥", "สมาชิก", "ข้อมูลสมาชิก คะแนน และแต้มสะสม"),
-        MoreMenu("tax", "🧾", "ออกใบกำกับภาษี", "บิลที่ชำระแล้วและสถานะใบกำกับภาษี")
+        MoreMenu("shift", R.drawable.ic_nav_history, "เปิด / ปิดกะ", "เปิดกะ ปิดกะ และดูประวัติกะตามสิทธิ์ของผู้ใช้งาน"),
+        MoreMenu("summary", R.drawable.ic_nav_report, "สรุปยอดขาย", "ยอดขายสุทธิ กราฟแนวโน้ม ช่องทางชำระเงิน และส่วนลด"),
+        MoreMenu("receipts", R.drawable.ic_cpipos_receipt_logo, "ใบเสร็จย้อนหลัง", "ค้นหา เปิดดูใบเสร็จจริง และพิมพ์ย้อนหลังตามสิทธิ์"),
+        MoreMenu("tables", R.drawable.ic_nav_tables, "จัดการโต๊ะ", "โต๊ะ โซน สถานะ และบิลที่เปิดอยู่"),
+        MoreMenu("sales", R.drawable.ic_nav_cart, "รายการขายสินค้า", "รายการขายรายวัน / เดือน / ปี และช่วงวันที่"),
+        MoreMenu("best", R.drawable.ic_nav_stock, "สินค้าขายดี", "อันดับสินค้าขายดีจากข้อมูลสรุปยอดขาย CpIPOS"),
+        MoreMenu("members", R.drawable.ic_store_front, "สมาชิก", "ข้อมูลสมาชิก คะแนน และแต้มสะสม"),
+        MoreMenu("tax", R.drawable.ic_pos_terminal, "ออกใบกำกับภาษี", "บิลที่ชำระแล้วและสถานะใบกำกับภาษี")
     )
 
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
@@ -174,7 +181,14 @@ internal fun NativeMoreScreen(
                                 shape = RoundedCornerShape(13.dp),
                                 modifier = Modifier.size(48.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center) { Text(menu.icon, fontSize = 22.sp) }
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        painter = painterResource(menu.iconRes),
+                                        contentDescription = menu.title,
+                                        tint = moreBlue,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
                             }
                             Spacer(Modifier.width(11.dp))
                             Column(Modifier.weight(1f)) {
@@ -818,6 +832,138 @@ private fun SummaryMetricCard(
 }
 
 @Composable
+private fun SalesTrendLineChart(points: List<WebSalesTrendPoint>) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color.White,
+        shape = RoundedCornerShape(20.dp),
+        shadowElevation = 1.dp
+    ) {
+        Column(Modifier.padding(15.dp)) {
+            Text("กราฟเส้นแนวโน้มยอดขาย", color = moreInk, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
+            Text(
+                "ยอดขายสุทธิตามช่วงเวลาที่เลือก",
+                color = moreMuted,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+            )
+            if (points.isEmpty()) {
+                Box(Modifier.fillMaxWidth().height(145.dp), contentAlignment = Alignment.Center) {
+                    Text("ยังไม่มีข้อมูลยอดขายสำหรับสร้างกราฟ", color = moreMuted, fontSize = 11.sp)
+                }
+            } else {
+                val maxValue = points.maxOf { it.netSales.value }.coerceAtLeast(1L).toFloat()
+                Canvas(
+                    modifier = Modifier.fillMaxWidth().height(165.dp)
+                ) {
+                    val inset = 10.dp.toPx()
+                    val chartWidth = (size.width - inset * 2).coerceAtLeast(1f)
+                    val chartHeight = (size.height - inset * 2).coerceAtLeast(1f)
+                    repeat(4) { index ->
+                        val y = inset + chartHeight * index / 3f
+                        drawLine(
+                            color = Color(0xFFE8EEF7),
+                            start = androidx.compose.ui.geometry.Offset(inset, y),
+                            end = androidx.compose.ui.geometry.Offset(size.width - inset, y),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                    }
+                    fun pointAt(index: Int): androidx.compose.ui.geometry.Offset {
+                        val x = if (points.size == 1) size.width / 2f
+                        else inset + chartWidth * index / (points.size - 1).toFloat()
+                        val ratio = points[index].netSales.value.toFloat() / maxValue
+                        val y = inset + chartHeight * (1f - ratio)
+                        return androidx.compose.ui.geometry.Offset(x, y)
+                    }
+                    if (points.size == 1) {
+                        drawCircle(moreBlue, radius = 5.dp.toPx(), center = pointAt(0))
+                    } else {
+                        val path = Path()
+                        points.indices.forEach { index ->
+                            val point = pointAt(index)
+                            if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y)
+                        }
+                        drawPath(
+                            path = path,
+                            color = moreBlue,
+                            style = Stroke(
+                                width = 3.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round
+                            )
+                        )
+                        points.indices.forEach { index ->
+                            drawCircle(Color.White, radius = 4.5.dp.toPx(), center = pointAt(index))
+                            drawCircle(moreBlue, radius = 3.dp.toPx(), center = pointAt(index))
+                        }
+                    }
+                }
+                val labelIndexes = listOf(0, points.size / 2, points.lastIndex).distinct()
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    labelIndexes.forEach { index ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(points[index].label, color = moreMuted, fontSize = 9.sp)
+                            Text(
+                                "฿" + points[index].netSales.bahtText(),
+                                color = moreInk,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SalesPaymentBarChart(snapshot: WebSalesSummarySnapshot) {
+    val bars = listOf(
+        "เงินสด" to snapshot.cashTotal,
+        "โอน / QR" to snapshot.transferTotal,
+        "บัตร" to snapshot.cardTotal
+    )
+    val maxValue = bars.maxOf { it.second.value }.coerceAtLeast(1L).toFloat()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color.White,
+        shape = RoundedCornerShape(20.dp),
+        shadowElevation = 1.dp
+    ) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Text("กราฟแท่งช่องทางชำระเงิน", color = moreInk, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
+            Text("เปรียบเทียบยอดรับเงินจริงในช่วงที่เลือก", color = moreMuted, fontSize = 10.sp)
+            bars.forEachIndexed { index, row ->
+                val fraction = (row.second.value.toFloat() / maxValue).coerceIn(0f, 1f)
+                val barColor = when (index) {
+                    0 -> Color(0xFF176DED)
+                    1 -> Color(0xFF4F8EF7)
+                    else -> Color(0xFF89ACF6)
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(row.first, color = moreInk, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text("฿" + row.second.bahtText(), color = moreInk, fontSize = 10.sp)
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth().height(12.dp),
+                    color = Color(0xFFEAF0F8),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Row {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(fraction.coerceAtLeast(0.01f)).fillMaxHeight(),
+                            color = if (row.second.value > 0) barColor else Color.Transparent,
+                            shape = RoundedCornerShape(50)
+                        ) {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun MoreSalesSummaryScreen(
     client: WebPosClient,
     session: WebPosSession,
@@ -903,6 +1049,8 @@ private fun MoreSalesSummaryScreen(
                         }
                     }
                 }
+                item { SalesTrendLineChart(snapshot.trend) }
+                item { SalesPaymentBarChart(snapshot) }
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         SummaryMetricCard("ยอดขายรวม", "฿" + snapshot.grossSales.bahtText(), Modifier.weight(1f))
@@ -1380,9 +1528,10 @@ private fun MoreReceiptsScreen(
     }
 
     detail?.let { row ->
-        ReceiptDetailDialog(
-            row = row,
-            onDismiss = { detail = null },
+        SavedDemoReceiptSheet(
+            receipt = row.receipt,
+            historyMode = true,
+            onDone = { detail = null },
             onPrint = {
                 detail = null
                 reprintError = null
