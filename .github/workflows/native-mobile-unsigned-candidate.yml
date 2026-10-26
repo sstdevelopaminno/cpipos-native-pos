@@ -1,0 +1,54 @@
+name: Native Mobile Unsigned Release Candidate
+
+on:
+  push:
+    branches:
+      - build/native-mobile-v2.0.0-candidate
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-37.0 build-tools;37.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.5.0"
+
+      - name: Test and build unsigned release
+        run: |
+          set -euo pipefail
+          gradle :app:testDebugUnitTest :app:assembleRelease --stacktrace \
+            -PCPIPOS_RELEASE_VERSION_NAME="2.0.0" \
+            -PCPIPOS_RELEASE_VERSION_CODE="2000000"
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -1)"
+          test -n "$APK"
+          mkdir -p release-candidate
+          cp "$APK" release-candidate/CpIPOS-Native-Mobile-2.0.0-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/37.0.0/lib/apksigner.jar" release-candidate/apksigner.jar
+          sha256sum release-candidate/CpIPOS-Native-Mobile-2.0.0-unsigned.apk > release-candidate/unsigned.sha256
+
+      - name: Upload unsigned release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpipos-native-mobile-v2.0.0-unsigned
+          path: release-candidate/
+          retention-days: 7
+          if-no-files-found: error
