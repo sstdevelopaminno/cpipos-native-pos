@@ -46,7 +46,8 @@ internal fun NativeMainTabScreen(
     products: List<WebPosProduct>,
     onTab: (String) -> Unit,
     onSessionChanged: (WebPosSession) -> Unit = {},
-    entitlements: WebPosEntitlements? = null
+    entitlements: WebPosEntitlements? = null,
+    moreInitialPage: String = "hub"
 ) {
     if (tab == "settings") {
         NativeSettingsHubScreen(
@@ -68,7 +69,8 @@ internal fun NativeMainTabScreen(
             products = products,
             onTab = onTab,
             onSessionChanged = onSessionChanged,
-            entitlements = entitlements
+            entitlements = entitlements,
+            initialPage = moreInitialPage
         )
         return
     }
