@@ -79,7 +79,23 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf("store") }
     var storeCode by remember { mutableStateOf("") }
-    var language by remember { mutableStateOf(LoginLanguage.Thai) }
+    val nativeLanguageCode by NativeUiLanguage.state(ctx)
+    var language by remember {
+        mutableStateOf(
+            when (nativeLanguageCode) {
+                "en" -> LoginLanguage.English
+                "lo" -> LoginLanguage.Lao
+                else -> LoginLanguage.Thai
+            }
+        )
+    }
+    LaunchedEffect(nativeLanguageCode) {
+        language = when (nativeLanguageCode) {
+            "en" -> LoginLanguage.English
+            "lo" -> LoginLanguage.Lao
+            else -> LoginLanguage.Thai
+        }
+    }
     var store by remember { mutableStateOf<WebStore?>(null) }
     var branch by remember { mutableStateOf<WebBranch?>(null) }
     var employeeCode by remember { mutableStateOf("") }
@@ -537,7 +553,17 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             storeCode = storeCode,
             isSubmitting = busy,
             selectedLanguage = language,
-            onLanguageSelected = { language = it },
+            onLanguageSelected = {
+                language = it
+                NativeUiLanguage.set(
+                    ctx,
+                    when (it) {
+                        LoginLanguage.English -> "en"
+                        LoginLanguage.Lao -> "lo"
+                        LoginLanguage.Thai -> "th"
+                    }
+                )
+            },
             onStoreCodeChange = {
                 storeCode = it.trimStart().uppercase().take(32)
                 error = null
