@@ -653,6 +653,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             devices = availableDevices?.devices.orEmpty(),
             canOverrideInUse = availableDevices?.canOverrideInUse == true,
             selected = selectedDevice,
+            entryAllowed = availableDevices?.entryAllowed != false,
             busy = busy,
             error = error,
             onSelect = { selectedDevice = it; error = null },
@@ -660,7 +661,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 val chosen = selectedDevice
                 val who = employee
                 val where = branch
-                if (!busy && chosen != null && who != null && where != null) {
+                if (!busy && chosen != null && who != null && where != null &&
+                    availableDevices?.entryAllowed != false
+                ) {
                     scope.launch {
                         busy = true
                         error = null
@@ -697,6 +700,16 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 availableDevices = null
                 selectedDevice = null
                 step = "branch"
+            }
+        )
+        "preentry_billing" -> NativePreEntrySubscriptionScreen(
+            client = client,
+            onBack = { step = "device" },
+            onUnlocked = { devices ->
+                availableDevices = devices
+                selectedDevice = null
+                error = null
+                step = "device"
             }
         )
         "shift" -> session?.let { verified ->
@@ -989,6 +1002,19 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         targetLabel = packageLockTarget,
         onDismiss = { packageLockTarget = null }
     )
+
+    if (step == "device") {
+        NativePreEntrySubscriptionLockDialog(
+            denial = availableDevices?.entryDenial,
+            onPayment = { step = "preentry_billing" },
+            onBack = {
+                employee = null
+                availableDevices = null
+                selectedDevice = null
+                step = "branch"
+            }
+        )
+    }
 
     val billingVisible = step == "tab" && mainTab == "history" && moreInitialPage == "billing"
     NativeSubscriptionLockDialog(
