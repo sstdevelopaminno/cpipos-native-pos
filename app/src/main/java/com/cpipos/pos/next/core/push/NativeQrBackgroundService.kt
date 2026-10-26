@@ -65,6 +65,14 @@ class NativeQrBackgroundService : Service() {
 
         while (scope.isActive) {
             try {
+                // The Compose foreground already owns a register-scoped QR poller.
+                // Do not run a second network poller at the same time; on older
+                // Android devices duplicate HTTP work competes with cashier UI.
+                if ((application as? NativePosApplication)?.isForeground == true) {
+                    delay(5_000L)
+                    continue
+                }
+
                 if (session == null || System.currentTimeMillis() - sessionRefreshAt > 5 * 60_000L) {
                     session = client.synchronizedShiftSession()
                     sessionRefreshAt = System.currentTimeMillis()
@@ -78,16 +86,13 @@ class NativeQrBackgroundService : Service() {
                     ?: Instant.now().minusSeconds(20).toString()
 
                 val result = client.qrActivity(active, cursor)
-                val appForeground = (application as? NativePosApplication)?.isForeground == true
-                if (!appForeground) {
-                    result.events.forEach { event ->
-                        NativeQrNotificationPublisher.show(
-                            context = this,
-                            sessionTenant = active.tenantId,
-                            sessionBranch = active.branchId,
-                            event = event
-                        )
-                    }
+                result.events.forEach { event ->
+                    NativeQrNotificationPublisher.show(
+                        context = this,
+                        sessionTenant = active.tenantId,
+                        sessionBranch = active.branchId,
+                        event = event
+                    )
                 }
 
                 val newer = runCatching { Instant.parse(result.cursor) }.getOrNull()
