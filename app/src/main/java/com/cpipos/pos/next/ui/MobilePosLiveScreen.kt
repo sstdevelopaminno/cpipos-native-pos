@@ -120,6 +120,11 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     val fcmNavigationRevision = NativeFcmRegistration.navigationRevision.intValue
     val mdmLocked by NativeDeviceManagementRuntime.deviceLocked.collectAsState()
     val mdmRefreshRevision by NativeDeviceManagementRuntime.refreshRevision.collectAsState()
+    // Fail closed for background operational workers until the subscription
+    // lifecycle has been fetched and is confirmed usable. MDM and Billing stay
+    // reachable so IT/payment recovery can still unlock the device.
+    val subscriptionOperational =
+        subscriptionRuntime?.let { it.exempt || !it.locked } == true
 
     fun tabPackageAllowed(tab: String, access: WebPosEntitlements? = entitlements): Boolean {
         val snapshot = access ?: return true
@@ -359,17 +364,13 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
-    // Keep QR operations reachable when the cashier leaves/swipes away the UI.
-    // FCM remains preferred when configured; this foreground-service poller is
-    // a zero-cost fallback and stops automatically on POS-session revocation.
+    // MDM health/commands remain reachable for the authenticated device even
+    // while package access is suspended. This is the recovery channel used by
+    // IT to enable/refresh/test the device.
     LaunchedEffect(session?.id) {
         val active = session
         if (active != null) {
             NativeDeviceManagementRuntime.start(ctx, client, active)
-            if (!mdmLocked) {
-                NativeQrBackgroundService.start(ctx)
-                NativePrintRuntime.start(ctx, client, active)
-            }
         } else {
             NativeDeviceManagementRuntime.stop()
             NativePrintRuntime.stop()
@@ -377,12 +378,13 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
-    // A disabled MDM device must not keep polling the print queue or QR worker.
-    // Once server access is restored, the same authenticated session resumes
-    // these workers without recreating the cart or sale workspace.
-    LaunchedEffect(mdmLocked, session?.id) {
+    // Printing and QR polling are operational POS capabilities. Do not start
+    // either worker until BOTH the MDM device gate and subscription lifecycle
+    // gate are open. This prevents an expired/suspended package from claiming
+    // queued print jobs while keeping Billing/MDM recovery available.
+    LaunchedEffect(mdmLocked, subscriptionOperational, session?.id) {
         val active = session ?: return@LaunchedEffect
-        if (mdmLocked) {
+        if (mdmLocked || !subscriptionOperational) {
             NativePrintRuntime.stop()
             NativeQrBackgroundService.stop(ctx)
         } else {
