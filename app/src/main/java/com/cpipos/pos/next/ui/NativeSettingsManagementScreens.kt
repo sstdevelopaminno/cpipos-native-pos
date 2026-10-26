@@ -551,7 +551,32 @@ internal fun NativeTaxSettingsScreen(
                     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                         OutlinedTextField(line.label,{v->settings=current.copy(lines=current.lines.toMutableList().also{it[index]=line.copy(label=v.take(80))})},label={Text("ชื่อรายการภาษี")})
                         OutlinedTextField(line.ratePct.toString(),{v->val n=v.toDoubleOrNull();if(n!=null)settings=current.copy(lines=current.lines.toMutableList().also{it[index]=line.copy(ratePct=n.coerceIn(0.0,100.0))})},label={Text("อัตรา %")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal))
-                        Text(if(line.mode=="deduct_from_bill")"รูปแบบ: หักออกจากบิล" else "รูปแบบ: บวกเพิ่มในบิล",fontSize=10.sp,color=managementMuted)
+                        var modeOpen by remember(line.id){ mutableStateOf(false) }
+                        Box{
+                            OutlinedButton(onClick={modeOpen=true},modifier=Modifier.fillMaxWidth()){
+                                Text("รูปแบบ: "+if(line.mode=="deduct_from_bill")"หักออกจากบิล" else "บวกเพิ่มในบิล")
+                            }
+                            DropdownMenu(modeOpen,{modeOpen=false}){
+                                DropdownMenuItem(
+                                    {Text("บวกเพิ่มในบิล")},
+                                    {
+                                        settings=current.copy(lines=current.lines.toMutableList().also{
+                                            it[index]=line.copy(mode="add_to_bill")
+                                        })
+                                        modeOpen=false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    {Text("หักออกจากบิล")},
+                                    {
+                                        settings=current.copy(lines=current.lines.toMutableList().also{
+                                            it[index]=line.copy(mode="deduct_from_bill")
+                                        })
+                                        modeOpen=false
+                                    }
+                                )
+                            }
+                        }
                         Row(verticalAlignment=Alignment.CenterVertically){Switch(line.active,{v->settings=current.copy(lines=current.lines.toMutableList().also{it[index]=line.copy(active=v)})});Spacer(Modifier.width(8.dp));Text("ใช้งานรายการนี้")}
                     }
                 }
