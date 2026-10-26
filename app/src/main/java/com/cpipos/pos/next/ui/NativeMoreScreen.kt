@@ -179,7 +179,9 @@ internal fun NativeMoreScreen(
                     Spacer(Modifier.height(9.dp))
                 }
                 items(menus, key = { it.key }) { menu ->
-                    val allowed = entitlements?.allows(
+                    // Billing must stay reachable even when a package/menu entitlement
+                    // is locked, otherwise a customer could be blocked from renewing service.
+                    val allowed = if (menu.key == "billing") true else entitlements?.allows(
                         featureCode = menu.featureCode,
                         menuKey = menu.menuKey,
                         parentMenuKey = if (menu.menuKey.startsWith("more.")) "main.more" else null,
