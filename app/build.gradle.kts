@@ -123,6 +123,10 @@ dependencies {
     implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.core:core-splashscreen:1.2.0")
     implementation("androidx.activity:activity-compose:1.13.0")
+    // Activity Result API release lint requires FragmentActivity backed by
+    // Fragment 1.3.0+. Pin the current stable AndroidX Fragment explicitly so
+    // transitive dependency drift cannot regress production release builds.
+    implementation("androidx.fragment:fragment-ktx:1.9.1")
     implementation("com.google.firebase:firebase-messaging:24.1.2")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
