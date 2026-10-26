@@ -98,9 +98,10 @@ internal fun NativeMoreScreen(
     products: List<WebPosProduct>,
     onTab: (String) -> Unit,
     onSessionChanged: (WebPosSession) -> Unit = {},
-    entitlements: WebPosEntitlements? = null
+    entitlements: WebPosEntitlements? = null,
+    initialPage: String = "hub"
 ) {
-    var page by remember(session.id) { mutableStateOf("hub") }
+    var page by remember(session.id, initialPage) { mutableStateOf(initialPage) }
     var packageLockTarget by remember(session.id) { mutableStateOf<String?>(null) }
 
     when (page) {
