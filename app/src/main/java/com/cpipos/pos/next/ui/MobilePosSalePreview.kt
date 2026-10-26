@@ -287,6 +287,7 @@ internal fun MobilePosSalePreview(
         val session = liveSession
         if (active != null && session != null) {
             if (heldIoBusy) return
+            val discountSnapshot = discount
             heldIoBusy = true
             scope.launch {
                 val saved = withContext(Dispatchers.IO) {
@@ -296,7 +297,7 @@ internal fun MobilePosSalePreview(
                         } else {
                             holdStore.update(
                                 session, active, next,
-                                discount.kind, discount.input
+                                discountSnapshot.kind, discountSnapshot.input
                             )
                         }
                         holdStore.all(session)
