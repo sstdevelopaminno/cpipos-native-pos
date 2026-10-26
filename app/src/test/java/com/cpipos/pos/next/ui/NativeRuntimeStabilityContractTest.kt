@@ -57,12 +57,14 @@ class NativeRuntimeStabilityContractTest {
         assertTrue(runtime.contains("ackNativePrintJob"))
         assertTrue(runtime.contains("failNativePrintJob"))
         assertTrue(client.contains("/api/print-agent/v1/jobs/claim"))
-        assertTrue(client.contains("/api/print-agent/v1/jobs/$jobId/ack"))
-        assertTrue(client.contains("/api/print-agent/v1/jobs/$jobId/fail"))
+        assertTrue(client.contains("/api/print-agent/v1/jobs/\\$jobId/ack"))
+        assertTrue(client.contains("/api/print-agent/v1/jobs/\\$jobId/fail"))
         assertTrue(transport.contains("NETWORK_ESC_POS"))
         assertTrue(transport.contains("LOCAL_BRIDGE"))
         assertTrue(transport.contains("BLUETOOTH_BRIDGE"))
         assertTrue(transport.contains("windows-874"))
+        val printerSettings = source("src/main/java/com/cpipos/pos/next/ui/NativePrinterSettingsScreen.kt")
+        assertTrue(printerSettings.contains("bottom = 150.dp"))
     }
 
     @Test
