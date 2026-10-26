@@ -233,7 +233,7 @@ internal fun NativePreEntrySubscriptionScreen(
                         enabled = !busy && slip != null,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1AA36F)),
                         onClick = {
-                            val token = quote.token ?: return@Button
+                            val token = quote.token
                             val selected = slip ?: return@Button
                             busy = true
                             error = null
