@@ -17,8 +17,10 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.cpipos.pos.next.core.webpos.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import kotlin.math.roundToInt
 
@@ -44,16 +46,27 @@ internal fun NativeQrGlobalAlerts(
         NativeQrNotificationPreferences(context.applicationContext)
     }
     var notificationSettings by remember(session.tenantId, session.branchId) {
-        mutableStateOf(policyStore.read(session.tenantId, session.branchId))
+        mutableStateOf(WebPosNotificationSettings())
     }
     var alerts by remember(session.tenantId, session.branchId, session.deviceCode) {
-        mutableStateOf(store.readPending(session))
+        mutableStateOf<List<WebQrActivityEvent>>(emptyList())
     }
     var apiError by remember(session.tenantId, session.branchId, session.deviceCode) {
         mutableStateOf(false)
     }
+    var persistBusy by remember(session.tenantId, session.branchId, session.deviceCode) {
+        mutableStateOf(false)
+    }
     val scope = rememberCoroutineScope()
     val event = alerts.firstOrNull()
+
+    LaunchedEffect(session.tenantId, session.branchId, session.deviceCode) {
+        val local = withContext(Dispatchers.IO) {
+            policyStore.read(session.tenantId, session.branchId) to store.readPending(session)
+        }
+        notificationSettings = local.first
+        alerts = local.second
+    }
 
     // Keep Android sound behavior aligned with the same branch setting used by CpIPOS Web.
     // Cashiers without settings:view keep the last verified local value; the QR activity
@@ -62,7 +75,9 @@ internal fun NativeQrGlobalAlerts(
         while (true) {
             try {
                 val server = client.notificationSettings(session)
-                policyStore.save(session.tenantId, session.branchId, server)
+                withContext(Dispatchers.IO) {
+                    policyStore.save(session.tenantId, session.branchId, server)
+                }
                 notificationSettings = server
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -77,15 +92,20 @@ internal fun NativeQrGlobalAlerts(
 
     // One register-scoped poller for ALL Native screens; not restarted on tabs.
     LaunchedEffect(client, session.id) {
-        var cursor = store.cursor(session) ?: Instant.now().minusSeconds(15).toString()
+        var cursor = withContext(Dispatchers.IO) {
+            store.cursor(session)
+        } ?: Instant.now().minusSeconds(15).toString()
         var delayMs = 3000L
         while (true) {
             try {
                 // Retry ONLY service acknowledgements; never retry a food submission.
-                for ((id, goToTable) in store.readAcks(session).entries.take(5)) {
+                val pendingAcks = withContext(Dispatchers.IO) {
+                    store.readAcks(session).entries.take(5)
+                }
+                for ((id, goToTable) in pendingAcks) {
                     try {
                         client.acknowledgeQrService(session, id, goToTable)
-                        store.confirmedAck(session, id)
+                        withContext(Dispatchers.IO) { store.confirmedAck(session, id) }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
@@ -94,14 +114,14 @@ internal fun NativeQrGlobalAlerts(
                 }
                 val result = client.qrActivity(session, cursor)
                 apiError = false
-                val seen = store.readSeen(session)
+                val seen = withContext(Dispatchers.IO) { store.readSeen(session) }
                 val queued = alerts.map { it.id }.toSet()
                 val fresh = result.events.filter {
                     it.id !in seen && it.id !in queued
                 }
                 if (fresh.isNotEmpty()) {
                     val next = (alerts + fresh).distinctBy { it.id }.takeLast(50)
-                    store.savePending(session, next)
+                    withContext(Dispatchers.IO) { store.savePending(session, next) }
                     alerts = next
                 }
                 // Backend returns an inclusive/unchanged cursor when idle.
@@ -112,7 +132,7 @@ internal fun NativeQrGlobalAlerts(
                     val overlapped = newer.minusMillis(1000)
                     if (overlapped.isAfter(old)) {
                         cursor = overlapped.toString()
-                        store.setCursor(session, cursor)
+                        withContext(Dispatchers.IO) { store.setCursor(session, cursor) }
                     }
                 }
                 delayMs = if (fresh.isNotEmpty() || result.events.size >= 45) {
@@ -152,32 +172,39 @@ internal fun NativeQrGlobalAlerts(
 
     fun closeCurrent(goToTable: Boolean) {
         val current = alerts.firstOrNull() ?: return
-        try {
-            store.markSeen(session, current.id)
-            if (current.type != "order") {
-                store.queueAck(session, current.id, goToTable)
-            }
-            val next = alerts.filterNot { it.id == current.id }
-            store.savePending(session, next)
-            alerts = next
-        } catch (_: Exception) {
-            // Do not silently hide an unpersisted service ACK.
-            apiError = true
-            return
-        }
-        if (goToTable) onGoToTable(current)
-        if (current.type != "order") {
-            scope.launch {
-                try {
-                    client.acknowledgeQrService(session, current.id, goToTable)
-                    store.confirmedAck(session, current.id)
-                    apiError = false
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    // Persisted ACK will retry next foreground poll.
-                    apiError = true
+        if (persistBusy) return
+        scope.launch {
+            persistBusy = true
+            try {
+                val next = alerts.filterNot { it.id == current.id }
+                withContext(Dispatchers.IO) {
+                    store.markSeen(session, current.id)
+                    if (current.type != "order") {
+                        store.queueAck(session, current.id, goToTable)
+                    }
+                    store.savePending(session, next)
                 }
+                alerts = next
+                if (goToTable) onGoToTable(current)
+                if (current.type != "order") {
+                    try {
+                        client.acknowledgeQrService(session, current.id, goToTable)
+                        withContext(Dispatchers.IO) { store.confirmedAck(session, current.id) }
+                        apiError = false
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // Persisted ACK will retry next foreground poll.
+                        apiError = true
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Do not silently hide an unpersisted service ACK.
+                apiError = true
+            } finally {
+                persistBusy = false
             }
         }
     }
@@ -232,7 +259,7 @@ internal fun NativeQrGlobalAlerts(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            enabled = canNavigate,
+                            enabled = canNavigate && !persistBusy,
                             modifier = Modifier.weight(1f),
                             onClick = { closeCurrent(true) },
                             contentPadding = PaddingValues(horizontal = 9.dp, vertical = 9.dp),
@@ -241,6 +268,7 @@ internal fun NativeQrGlobalAlerts(
                         ) { Text("ไปที่โต๊ะ ${event.tableCode}", fontSize = 11.sp) }
                         OutlinedButton(
                             modifier = Modifier.weight(0.75f),
+                            enabled = !persistBusy,
                             onClick = { closeCurrent(false) },
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
                             shape = RoundedCornerShape(12.dp)
