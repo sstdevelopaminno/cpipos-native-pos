@@ -60,7 +60,9 @@ import com.cpipos.pos.next.core.push.NativeFcmRegistration
 import com.cpipos.pos.next.core.push.NativeQrBackgroundService
 import com.cpipos.pos.next.core.print.NativePrintRuntime
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val liveBlue = Color(0xFF176DED)
 private val liveInk = Color(0xFF152749)
@@ -92,6 +94,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var entitlements by remember { mutableStateOf<WebPosEntitlements?>(null) }
     var entitlementCheckBusy by remember { mutableStateOf(false) }
     var packageLockTarget by remember { mutableStateOf<String?>(null) }
+    var unresolvedSaleCount by remember(session?.id) { mutableStateOf<Int?>(null) }
+    var logoutPendingCount by remember(session?.id) { mutableStateOf<Int?>(null) }
     var catalog by remember { mutableStateOf<List<WebPosProduct>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -220,7 +224,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     }
                     current.shiftId == null -> step = "shift"
                     else -> {
-                        val pending = journal.unresolved(current)
+                        val pending = withContext(Dispatchers.IO) { journal.unresolved(current) }
                         if (pending.isNotEmpty()) {
                             unresolved = "พบ ${pending.size} บิลค้างตรวจสอบ " +
                                 "(อ้างอิง ${pending.first().id.take(8)}) " +
@@ -290,6 +294,20 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
+    // Local SQLite safety state is read off the UI thread. Render paths and
+    // gesture handlers consume only this cached state so Android 8.1 devices do
+    // not block a frame while SQLite opens/locks the journal database.
+    LaunchedEffect(session?.id, step) {
+        val active = session
+        if (active == null) {
+            unresolvedSaleCount = null
+            return@LaunchedEffect
+        }
+        unresolvedSaleCount = withContext(Dispatchers.IO) {
+            runCatching { journal.unresolved(active).size }.getOrNull()
+        }
+    }
+
     // Keep QR operations reachable when the cashier leaves/swipes away the UI.
     // FCM remains preferred when configured; this foreground-service poller is
     // a zero-cost fallback and stops automatically on POS-session revocation.
@@ -331,8 +349,10 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         if (busy || takeaway.saving.value || dineWorkspace.drafts.values.any {
             it.busy || it.uncertain || it.items.isNotEmpty() || it.pendingQuantities.isNotEmpty()
         }) return@LaunchedEffect
-        if (runCatching { journal.unresolved(active).isEmpty() }.getOrDefault(false).not())
-            return@LaunchedEffect
+        val hasNoPendingSale = withContext(Dispatchers.IO) {
+            runCatching { journal.unresolved(active).isEmpty() }.getOrDefault(false)
+        }
+        if (!hasNoPendingSale) return@LaunchedEffect
         val floor = try {
             client.diningTables(active)
         } catch (cancelled: CancellationException) {
@@ -391,7 +411,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 remote.branchId != previous.branchId ||
                 remote.deviceCode != previous.deviceCode) continue
             if (remote.shiftId != previous.shiftId) {
-                val pending = runCatching { journal.unresolved(previous) }.getOrNull()
+                val pending = withContext(Dispatchers.IO) {
+                    runCatching { journal.unresolved(previous) }.getOrNull()
+                }
                 session = remote
                 if (pending == null || pending.isNotEmpty()) {
                     unresolved = "กะขายเปลี่ยนจาก POS หลัก และมีรายการที่ต้องตรวจสอบ " +
@@ -722,7 +744,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     fun enterMode() {
                         if (mode == MockSaleMode.Takeaway) {
                             scope.launch {
-                                val pending = runCatching { journal.unresolved(current) }.getOrNull()
+                                val pending = withContext(Dispatchers.IO) {
+                                    runCatching { journal.unresolved(current) }.getOrNull()
+                                }
                                 when {
                                     pending == null -> {
                                         unresolved = "อ่านสถานะบิลค้างไม่ได้ กรุณาตรวจสอบก่อนขาย"
@@ -973,12 +997,21 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         )
     }
 
+    LaunchedEffect(showLogoutConfirm, session?.id) {
+        if (!showLogoutConfirm) {
+            logoutPendingCount = null
+            return@LaunchedEffect
+        }
+        val verified = session
+        logoutPendingCount = if (verified == null) null else withContext(Dispatchers.IO) {
+            runCatching { journal.unresolved(verified).size }.getOrNull()
+        }
+    }
+
     if (showLogoutConfirm) {
         val verified = session
-        // Fail closed: an unresolved live sale must NEVER be lost when
-        // selecting a different branch/device or logging out.
-        val pendingCount = if (verified == null) -1 else
-            runCatching { journal.unresolved(verified).size }.getOrDefault(-1)
+        // Fail closed while the background SQLite read is pending or failed.
+        val pendingCount = logoutPendingCount ?: -1
         AlertDialog(
             onDismissRequest = { if (!busy) showLogoutConfirm = false },
             shape = RoundedCornerShape(24.dp),
@@ -1121,15 +1154,13 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             session = verifiedForAlerts,
             canNavigate = step in setOf("mode", "sale", "dine", "dine_order", "tab") &&
                 verifiedForAlerts.shiftId != null &&
-                runCatching { journal.unresolved(verifiedForAlerts).isEmpty() }
-                    .getOrDefault(false) &&
+                unresolvedSaleCount == 0 &&
                 !busy && !takeaway.saving.value &&
                 dineWorkspace.drafts.values.none { it.busy || it.uncertain },
             onGoToTable = { event ->
                 if (step in setOf("mode", "sale", "dine", "dine_order", "tab") &&
                     verifiedForAlerts.shiftId != null &&
-                    runCatching { journal.unresolved(verifiedForAlerts).isEmpty() }
-                        .getOrDefault(false) &&
+                    unresolvedSaleCount == 0 &&
                     !busy && !takeaway.saving.value &&
                     dineWorkspace.drafts.values.none { it.busy || it.uncertain }) {
                     scope.launch {
