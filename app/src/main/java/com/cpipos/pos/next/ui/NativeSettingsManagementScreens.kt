@@ -84,6 +84,7 @@ internal fun NativeBranchSettingsScreen(
 ) {
     val scope = rememberCoroutineScope()
     var rows by remember(session.id) { mutableStateOf<List<WebSettingsBranch>>(emptyList()) }
+    var canManage by remember(session.id) { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     var edit by remember { mutableStateOf<WebSettingsBranch?>(null) }
@@ -93,7 +94,12 @@ internal fun NativeBranchSettingsScreen(
     fun reload() {
         scope.launch {
             loading = true
-            try { rows = client.settingsBranches(session); error = null }
+            try {
+                val snapshot = client.settingsBranchesSnapshot(session)
+                rows = snapshot.branches
+                canManage = snapshot.canManage
+                error = null
+            }
             catch (e: Exception) { error = "โหลดสาขาไม่สำเร็จ: " + ((e as? WebPosApiException)?.code ?: e.message.orEmpty()) }
             finally { loading = false }
         }
@@ -101,12 +107,16 @@ internal fun NativeBranchSettingsScreen(
     LaunchedEffect(session.id) { reload() }
 
     SettingsManagementShell("เพิ่มสาขา", "ฟอร์มเดียวกับ CpIPOS · รหัสสาขา ชื่อสาขา ที่อยู่ และสถานะ", onBack, onTab) {
-        Button(
-            onClick = { edit = WebSettingsBranch("", "", "", "", true) },
-            enabled = !busy,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = managementBlue)
-        ) { Text("+ เพิ่มสาขา", fontWeight = FontWeight.Bold) }
+        if (canManage) {
+            Button(
+                onClick = { edit = WebSettingsBranch("", "", "", "", true) },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = managementBlue)
+            ) { Text("+ เพิ่มสาขา", fontWeight = FontWeight.Bold) }
+        } else if (!loading) {
+            SettingsNotice("บัญชีนี้ดูข้อมูลสาขาได้ แต่การเพิ่ม/แก้ไขสาขาสงวนสำหรับ Owner")
+        }
         SettingsNotice(notice)
         SettingsNotice(error, true)
         if (loading) {
@@ -122,9 +132,9 @@ internal fun NativeBranchSettingsScreen(
                             Text(row.code + " · " + if (row.active) "ใช้งาน" else "ปิดใช้งาน", color = managementMuted, fontSize = 10.sp)
                             if (row.address.isNotBlank()) Text(row.address, color = managementMuted, fontSize = 10.sp)
                         }
-                        TextButton(onClick = { edit = row }) { Text("แก้ไข") }
+                        if (canManage) TextButton(onClick = { edit = row }) { Text("แก้ไข") }
                     }
-                    if (row.id != session.branchId && row.active) {
+                    if (canManage && row.id != session.branchId && row.active) {
                         TextButton(
                             enabled = !busy,
                             onClick = {
@@ -145,7 +155,7 @@ internal fun NativeBranchSettingsScreen(
         }
     }
 
-    edit?.let { original ->
+    if (canManage) edit?.let { original ->
         var code by remember(original.id) { mutableStateOf(original.code) }
         var name by remember(original.id) { mutableStateOf(original.name) }
         var address by remember(original.id) { mutableStateOf(original.address) }
@@ -190,6 +200,7 @@ internal fun NativeDeviceSettingsScreen(
     val scope = rememberCoroutineScope()
     var devices by remember(session.id) { mutableStateOf<List<WebSettingsDevice>>(emptyList()) }
     var branches by remember(session.id) { mutableStateOf<List<WebSettingsBranch>>(emptyList()) }
+    var canManage by remember(session.id) { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     var edit by remember { mutableStateOf<WebSettingsDevice?>(null) }
@@ -202,10 +213,13 @@ internal fun NativeDeviceSettingsScreen(
             try {
                 val pair = coroutineScope {
                     val a = async { client.settingsDevices(session) }
-                    val b = async { client.settingsBranches(session) }
+                    val b = async { client.settingsBranchesSnapshot(session) }
                     a.await() to b.await()
                 }
-                devices = pair.first; branches = pair.second; error = null
+                devices = pair.first
+                branches = pair.second.branches
+                canManage = pair.second.canManage
+                error = null
             } catch (e: Exception) { error = "โหลดเครื่องแคชเชียร์ไม่สำเร็จ: " + ((e as? WebPosApiException)?.code ?: e.message.orEmpty()) }
             finally { loading = false }
         }
@@ -213,12 +227,16 @@ internal fun NativeDeviceSettingsScreen(
     LaunchedEffect(session.id) { reload() }
 
     SettingsManagementShell("เพิ่มเครื่องแคชเชียร์", "ฟอร์มเดียวกับ CpIPOS · สาขา รหัสเครื่อง ชื่อเครื่อง ประเภท สถานะ Counter และตำแหน่ง", onBack, onTab) {
-        Button(
-            onClick = { edit = WebSettingsDevice("", session.branchId, "", "", "pos_terminal", "active", true, "", "", null) },
-            enabled = !busy,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = managementBlue)
-        ) { Text("+ เพิ่มเครื่องแคชเชียร์", fontWeight = FontWeight.Bold) }
+        if (canManage) {
+            Button(
+                onClick = { edit = WebSettingsDevice("", session.branchId, "", "", "pos_terminal", "active", true, "", "", null) },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = managementBlue)
+            ) { Text("+ เพิ่มเครื่องแคชเชียร์", fontWeight = FontWeight.Bold) }
+        } else if (!loading) {
+            SettingsNotice("บัญชีนี้ดูเครื่องแคชเชียร์ได้ แต่การเพิ่ม/แก้ไข/ลบสงวนสำหรับ Owner")
+        }
         SettingsNotice(notice); SettingsNotice(error, true)
         if (loading) CircularProgressIndicator(color = managementBlue)
         devices.forEach { device ->
@@ -228,7 +246,7 @@ internal fun NativeDeviceSettingsScreen(
                     Text(device.deviceName, fontWeight = FontWeight.ExtraBold, color = managementInk)
                     Text(device.deviceCode + " · " + branchName, fontSize = 10.sp, color = managementMuted)
                     Text(device.deviceType + " · " + device.status + " · " + if (device.locked) "ล็อกอินผูกเครื่อง" else "ไม่ล็อกเครื่อง", fontSize = 10.sp, color = managementMuted)
-                    Row {
+                    if (canManage) Row {
                         TextButton(onClick = { edit = device }) { Text("แก้ไข") }
                         TextButton(onClick = {
                             busy = true
@@ -244,7 +262,7 @@ internal fun NativeDeviceSettingsScreen(
         }
     }
 
-    edit?.let { original ->
+    if (canManage) edit?.let { original ->
         var branchId by remember(original.id) { mutableStateOf(original.branchId) }
         var code by remember(original.id) { mutableStateOf(original.deviceCode) }
         var name by remember(original.id) { mutableStateOf(original.deviceName) }
