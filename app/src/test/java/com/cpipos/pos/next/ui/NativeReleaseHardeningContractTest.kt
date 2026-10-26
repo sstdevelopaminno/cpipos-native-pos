@@ -126,7 +126,7 @@ class NativeReleaseHardeningContractTest {
 
     @Test
     fun releaseUsesCompatibleAndroidxFragmentForActivityResultApi() {
-        val gradle = source("../../../../../build.gradle.kts")
+        val gradle = source("build.gradle.kts")
         assertTrue(gradle.contains("androidx.fragment:fragment-ktx:1.9.1"))
     }
 
