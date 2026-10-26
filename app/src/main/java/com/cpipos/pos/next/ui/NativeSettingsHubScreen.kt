@@ -112,11 +112,11 @@ internal fun NativeSettingsHubScreen(
             Column(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 17.dp, end = 17.dp, top = 15.dp, bottom = 112.dp),
+                    .padding(start = 17.dp, end = 17.dp, top = 15.dp, bottom = 156.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    "ตั้งค่า",
+                    nativeUiText("settings.title", "ตั้งค่า"),
                     fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = settingsHubInk
@@ -137,7 +137,7 @@ internal fun NativeSettingsHubScreen(
                 val storeAllowed = allowed("core_pos_sales", "settings.store")
                 SettingsHubCard(
                     icon = "🏪",
-                    title = "ตั้งชื่อร้านค้า / บริษัท",
+                    title = nativeUiText("settings.store","ตั้งชื่อร้านค้า / บริษัท"),
                     subtitle = "ชื่อร้าน โลโก้ ที่อยู่ และเบอร์ติดต่อ · ใช้ร่วมกับ CpIPOS และใบเสร็จ",
                     locked = !storeAllowed,
                     onClick = {
@@ -149,7 +149,7 @@ internal fun NativeSettingsHubScreen(
                 val branchesAllowed = allowed("branch_management", "settings.branches")
                 SettingsHubCard(
                     icon = "🏬",
-                    title = "เพิ่มสาขา",
+                    title = nativeUiText("settings.branches","เพิ่มสาขา"),
                     subtitle = "เพิ่ม แก้ไข และปิดใช้งานสาขา · ใช้ข้อมูลชุดเดียวกับ CpIPOS",
                     locked = !branchesAllowed,
                     onClick = { if (branchesAllowed) page = "branches" else packageLockTarget = "เพิ่มสาขา" }
@@ -158,7 +158,7 @@ internal fun NativeSettingsHubScreen(
                 val devicesAllowed = allowed("mobile_device_enrollment", "settings.devices")
                 SettingsHubCard(
                     icon = "🧾",
-                    title = "เพิ่มเครื่องแคชเชียร์",
+                    title = nativeUiText("settings.devices","เพิ่มเครื่องแคชเชียร์"),
                     subtitle = "ผูกเครื่อง POS กับสาขา รหัสเครื่อง Counter สถานะ และนโยบายล็อกอิน",
                     locked = !devicesAllowed,
                     onClick = { if (devicesAllowed) page = "devices" else packageLockTarget = "เพิ่มเครื่องแคชเชียร์" }
@@ -167,7 +167,7 @@ internal fun NativeSettingsHubScreen(
                 val usersAllowed = allowed("user_management", "settings.users")
                 SettingsHubCard(
                     icon = "👥",
-                    title = "ผู้ใช้งาน POS",
+                    title = nativeUiText("settings.users","ผู้ใช้งาน POS"),
                     subtitle = "พนักงาน บทบาท รหัสพนักงาน PIN Permission Role และขอบเขตเครื่อง",
                     locked = !usersAllowed,
                     onClick = { if (usersAllowed) page = "users" else packageLockTarget = "ผู้ใช้งาน POS" }
@@ -178,7 +178,7 @@ internal fun NativeSettingsHubScreen(
                     (entitlements?.featureEnabled("qr_table_ordering") ?: true)
                 SettingsHubCard(
                     icon = "▦",
-                    title = "ตั้งค่า QR โต๊ะ",
+                    title = nativeUiText("settings.table_qr","ตั้งค่า QR โต๊ะ"),
                     subtitle = "กำหนดอายุ QR แบบตามเวลา/ชั่วโมง หรือใช้งานจนปิดบิล",
                     locked = !tableQrAllowed,
                     onClick = { if (tableQrAllowed) page = "table_qr" else packageLockTarget = "ตั้งค่า QR โต๊ะ" }
@@ -187,7 +187,7 @@ internal fun NativeSettingsHubScreen(
                 val taxesAllowed = allowed("core_pos_sales", "settings.taxes")
                 SettingsHubCard(
                     icon = "％",
-                    title = "ตั้งค่าภาษี",
+                    title = nativeUiText("settings.taxes","ตั้งค่าภาษี"),
                     subtitle = "VAT และภาษีหัก ณ ที่จ่าย · คำนวณจากยอดหลังส่วนลดเหมือน CpIPOS",
                     locked = !taxesAllowed,
                     onClick = { if (taxesAllowed) page = "taxes" else packageLockTarget = "ตั้งค่าภาษี" }
@@ -196,7 +196,7 @@ internal fun NativeSettingsHubScreen(
                 val languageAllowed = entitlements?.menuEnabled("settings.language", "main.settings") ?: true
                 SettingsHubCard(
                     icon = "🌐",
-                    title = "เปลี่ยนภาษา",
+                    title = nativeUiText("settings.language","เปลี่ยนภาษา"),
                     subtitle = "ไทย / English / ລາວ ตามตัวเลือกของ CpIPOS",
                     locked = !languageAllowed,
                     onClick = { if (languageAllowed) page = "language" else packageLockTarget = "เปลี่ยนภาษา" }
@@ -207,7 +207,7 @@ internal fun NativeSettingsHubScreen(
                         (entitlements?.featureEnabled("kitchen_printing") ?: true))
                 SettingsHubCard(
                     icon = "🍳",
-                    title = "การแจ้งเตือนออเดอร์และครัว",
+                    title = nativeUiText("settings.order_kitchen","การแจ้งเตือนออเดอร์และครัว"),
                     subtitle = "POP UP, ส่งเข้าครัวอัตโนมัติ และพิมพ์ครัวอัตโนมัติ พร้อม IT override",
                     locked = !orderKitchenAllowed,
                     onClick = { if (orderKitchenAllowed) page = "order_kitchen" else packageLockTarget = "การแจ้งเตือนออเดอร์และครัว" }
@@ -216,7 +216,7 @@ internal fun NativeSettingsHubScreen(
                 val supportAllowed = entitlements?.menuEnabled("settings.support", "main.settings") ?: true
                 SettingsHubCard(
                     icon = "🎧",
-                    title = "ศูนย์ช่วยเหลือ",
+                    title = nativeUiText("settings.support","ศูนย์ช่วยเหลือ"),
                     subtitle = "CpIPOS Support Center · LINE และช่องทางติดต่อบริษัท",
                     locked = !supportAllowed,
                     onClick = { if (supportAllowed) page = "support" else packageLockTarget = "ศูนย์ช่วยเหลือ" }
@@ -225,7 +225,7 @@ internal fun NativeSettingsHubScreen(
                 val notificationsAllowed = allowed("qr_table_ordering", "settings.notifications")
                 SettingsHubCard(
                     icon = "🔔",
-                    title = "ตั้งค่าการแจ้งเตือน",
+                    title = nativeUiText("settings.notifications","ตั้งค่าการแจ้งเตือน"),
                     subtitle = "POP UP, เสียง, ระดับเสียง และสถานะ Android Notification",
                     locked = !notificationsAllowed,
                     onClick = {
@@ -237,7 +237,7 @@ internal fun NativeSettingsHubScreen(
                 val paymentsAllowed = allowed("core_pos_sales", "settings.payments")
                 SettingsHubCard(
                     icon = "💳",
-                    title = "ตั้งค่าชำระเงิน",
+                    title = nativeUiText("settings.payments","ตั้งค่าชำระเงิน"),
                     subtitle = "บัญชีรับโอน PromptPay และ QR · ใช้ร่วมกับ CpIPOS และหน้าชำระเงิน",
                     locked = !paymentsAllowed,
                     onClick = {
@@ -249,7 +249,7 @@ internal fun NativeSettingsHubScreen(
                 val printerAllowed = allowed("core_pos_sales", "settings.printers")
                 SettingsHubCard(
                     icon = "🖨️",
-                    title = "ตั้งค่า เครื่องปริ้นใบเสร็จ",
+                    title = nativeUiText("settings.printers","ตั้งค่า เครื่องปริ้นใบเสร็จ"),
                     subtitle = "ค้นหาและเชื่อมต่อ LAN / USB / Bluetooth พร้อมกำหนดเส้นทางพิมพ์",
                     locked = !printerAllowed,
                     onClick = {
