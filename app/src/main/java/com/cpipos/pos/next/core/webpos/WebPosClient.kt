@@ -1,6 +1,8 @@
 package com.cpipos.pos.next.core.webpos
 
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import com.cpipos.pos.next.BuildConfig
 import com.cpipos.pos.next.core.offline.DemoReceiptLine
 import com.cpipos.pos.next.core.offline.DemoSaleReceipt
@@ -791,6 +793,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         require(path.startsWith("/") && !path.startsWith("//"))
         val url = URL(base + path)
         val conn = url.openConnection() as HttpURLConnection
+        val startedAt = SystemClock.elapsedRealtime()
+        var responseStatus = -1
         try {
             conn.instanceFollowRedirects = false
             conn.connectTimeout = connectTimeoutMs.coerceIn(1000, 30000)
@@ -817,6 +821,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 conn.outputStream.use { it.write(json.toString().toByteArray(Charsets.UTF_8)) }
             }
             val status = conn.responseCode
+            responseStatus = status
             val cookies = conn.headerFields.filterKeys { it?.equals("Set-Cookie", true) == true }
             if (cookies.isNotEmpty()) {
                 cookieManager.put(url.toURI(), cookies)
@@ -836,6 +841,16 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             }
             document.optJSONObject("data") ?: throw WebPosApiException("missing_data", status)
         } finally {
+            val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+            if (elapsedMs >= 2_500L) {
+                // Route-only diagnostic: never log query values, request bodies,
+                // cookies, PINs, customer data or payment payloads.
+                Log.w(
+                    "CpIPOSHttp",
+                    "Slow POS API " + method + " " + path.substringBefore("?") +
+                        " " + elapsedMs + "ms status=" + responseStatus
+                )
+            }
             conn.disconnect()
         }
     }
