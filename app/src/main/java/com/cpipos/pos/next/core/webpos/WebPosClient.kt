@@ -332,6 +332,12 @@ data class WebCatalogRecipeDraft(
     val quantity: Double,
     val unit: String
 )
+data class WebSalesTrendPoint(
+    val key: String,
+    val label: String,
+    val netSales: Satang,
+    val receiptCount: Int
+)
 data class WebSalesSummarySnapshot(
     val currencyCode: String,
     val grossSales: Satang,
@@ -339,11 +345,13 @@ data class WebSalesSummarySnapshot(
     val receiptCount: Int,
     val cashTotal: Satang,
     val transferTotal: Satang,
+    val cardTotal: Satang = Satang.ZERO,
     val discountTotal: Satang,
     val taxTotal: Satang,
     val cancelledTotal: Satang,
     val averageReceipt: Satang,
-    val bestSelling: List<WebBestSellingProduct>
+    val bestSelling: List<WebBestSellingProduct>,
+    val trend: List<WebSalesTrendPoint> = emptyList()
 )
 data class WebBestSellingProduct(
     val productId: String,
@@ -1073,8 +1081,16 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         dateFrom: LocalDate = LocalDate.now(ZoneId.of("Asia/Bangkok")).minusDays(29),
         dateTo: LocalDate = LocalDate.now(ZoneId.of("Asia/Bangkok"))
     ): WebSalesSummarySnapshot {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(!dateTo.isBefore(dateFrom))
+
+        val totalDays = ChronoUnit.DAYS.between(dateFrom, dateTo) + 1
+        val trendGrouping = when {
+            totalDays <= 1 -> "hour"
+            totalDays <= 62 -> "day"
+            else -> "month"
+        }
+        val bangkok = ZoneId.of("Asia/Bangkok")
 
         suspend fun loadChunk(from: LocalDate, to: LocalDate): WebSalesSummarySnapshot {
             val data = call(
@@ -1086,7 +1102,48 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             )
             val summary = data.optJSONObject("summary") ?: JSONObject()
             val bestRows = data.optJSONArray("bestSellingProducts") ?: JSONArray()
+            val salesRows = data.optJSONArray("salesRows") ?: JSONArray()
             fun money(key: String): Satang = Satang.fromBaht(summary.opt(key)?.toString() ?: "0")
+
+            val trendBuckets = linkedMapOf<String, WebSalesTrendPoint>()
+            for (index in 0 until salesRows.length()) {
+                val row = salesRows.optJSONObject(index) ?: continue
+                if (row.optString("status") != "completed") continue
+                val created = runCatching {
+                    Instant.parse(row.optString("createdAt")).atZone(bangkok)
+                }.getOrNull() ?: continue
+                val key: String
+                val label: String
+                when (trendGrouping) {
+                    "hour" -> {
+                        val hour = created.hour.toString().padStart(2, '0')
+                        key = created.toLocalDate().toString() + "T" + hour
+                        label = "$hour:00"
+                    }
+                    "month" -> {
+                        val month = created.monthValue.toString().padStart(2, '0')
+                        key = created.year.toString() + "-" + month
+                        label = month + "/" + created.year.toString().takeLast(2)
+                    }
+                    else -> {
+                        val day = created.dayOfMonth.toString().padStart(2, '0')
+                        val month = created.monthValue.toString().padStart(2, '0')
+                        key = created.toLocalDate().toString()
+                        label = "$day/$month"
+                    }
+                }
+                val amount = runCatching {
+                    Satang.fromBaht(row.opt("netTotal")?.toString() ?: "0")
+                }.getOrDefault(Satang.ZERO)
+                val current = trendBuckets[key]
+                trendBuckets[key] = WebSalesTrendPoint(
+                    key = key,
+                    label = label,
+                    netSales = if (current == null) amount else current.netSales + amount,
+                    receiptCount = (current?.receiptCount ?: 0) + 1
+                )
+            }
+
             return WebSalesSummarySnapshot(
                 currencyCode = data.optString("currencyCode").ifBlank { "THB" },
                 grossSales = money("grossSales"),
@@ -1094,6 +1151,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 receiptCount = summary.optInt("receiptCount", 0),
                 cashTotal = money("cashTotal"),
                 transferTotal = money("qrTransferTotal"),
+                cardTotal = money("cardTotal"),
                 discountTotal = money("discountTotal"),
                 taxTotal = money("taxTotal"),
                 cancelledTotal = money("cancelledTotal"),
@@ -1108,11 +1166,11 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                         grossAmount = Satang.fromBaht(row.opt("grossAmount")?.toString() ?: "0"),
                         netAmount = Satang.fromBaht(row.opt("netAmount")?.toString() ?: "0")
                     )
-                }
+                },
+                trend = trendBuckets.values.sortedBy { it.key }
             )
         }
 
-        val totalDays = ChronoUnit.DAYS.between(dateFrom, dateTo) + 1
         if (totalDays <= 120) return loadChunk(dateFrom, dateTo)
 
         val chunks = mutableListOf<WebSalesSummarySnapshot>()
@@ -1124,6 +1182,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         }
 
         val productBuckets = linkedMapOf<String, WebBestSellingProduct>()
+        val trendBuckets = linkedMapOf<String, WebSalesTrendPoint>()
         for (snapshot in chunks) {
             for (row in snapshot.bestSelling) {
                 val current = productBuckets[row.productId]
@@ -1131,6 +1190,13 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                     quantitySold = current.quantitySold + row.quantitySold,
                     grossAmount = current.grossAmount + row.grossAmount,
                     netAmount = current.netAmount + row.netAmount
+                )
+            }
+            for (point in snapshot.trend) {
+                val current = trendBuckets[point.key]
+                trendBuckets[point.key] = if (current == null) point else current.copy(
+                    netSales = current.netSales + point.netSales,
+                    receiptCount = current.receiptCount + point.receiptCount
                 )
             }
         }
@@ -1143,18 +1209,20 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             receiptCount = receiptCount,
             cashTotal = chunks.fold(Satang.ZERO) { sum, row -> sum + row.cashTotal },
             transferTotal = chunks.fold(Satang.ZERO) { sum, row -> sum + row.transferTotal },
+            cardTotal = chunks.fold(Satang.ZERO) { sum, row -> sum + row.cardTotal },
             discountTotal = chunks.fold(Satang.ZERO) { sum, row -> sum + row.discountTotal },
             taxTotal = chunks.fold(Satang.ZERO) { sum, row -> sum + row.taxTotal },
             cancelledTotal = chunks.fold(Satang.ZERO) { sum, row -> sum + row.cancelledTotal },
             averageReceipt = if (receiptCount > 0) Satang.of(netSales.value / receiptCount) else Satang.ZERO,
             bestSelling = productBuckets.values
                 .sortedByDescending { it.quantitySold }
-                .take(20)
+                .take(20),
+            trend = trendBuckets.values.sortedBy { it.key }
         )
     }
 
     suspend fun members(session: WebPosSession, query: String = ""): List<WebMemberRow> {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(query.length <= 80)
         val data = call(
             "GET",
@@ -1177,7 +1245,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     suspend fun taxReceipts(session: WebPosSession, query: String = ""): List<WebTaxReceiptRow> {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(query.length <= 80)
         val data = call(
             "GET",
@@ -1207,7 +1275,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         orderId: String,
         managerPin: String
     ): Int {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(orderId) }.isSuccess)
         require(managerPin.length in 4..12 && managerPin.all(Char::isDigit))
         val data = call(
@@ -1229,7 +1297,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         points: Int = 0,
         stamps: Int = 0
     ): WebMemberRow {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         val digits = phone.filter(Char::isDigit)
         require(name.trim().isNotBlank() && digits.length in 9..10)
         require(points >= 0 && stamps >= 0)
@@ -1255,7 +1323,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     suspend fun deleteMember(session: WebPosSession, memberId: String) {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(memberId) }.isSuccess)
         val data = call("DELETE", "/api/pos/members?id=" + queryValue(memberId))
         if (!data.optBoolean("deleted", false)) {
@@ -1264,7 +1332,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     suspend fun taxProfiles(session: WebPosSession, query: String = ""): List<WebTaxProfileRow> {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(query.length <= 80)
         val data = call(
             "GET",
@@ -1297,7 +1365,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         capacity: Int,
         count: Int = 1
     ): Int {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(session.canManageTables)
         require(capacity in 1..100 && count in 1..50)
         val data = call(
@@ -1319,7 +1387,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         session: WebPosSession,
         postalCode: String
     ): List<WebTaxAddressOption> {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         val digits = postalCode.filter(Char::isDigit)
         require(digits.length == 5)
         val data = call(
@@ -1349,7 +1417,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         district: String,
         province: String
     ): WebTaxProfileRow {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(entityType in setOf("company", "limited_partnership", "shop", "individual"))
         val digits = taxId.filter(Char::isDigit)
         require(digits.length == 13 && postalCode.filter(Char::isDigit).length == 5)
@@ -1387,7 +1455,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         profileId: String,
         managerPin: String
     ) {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(profileId) }.isSuccess)
         require(managerPin.length in 4..12 && managerPin.all(Char::isDigit))
         val data = call(
@@ -1409,7 +1477,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         orderId: String,
         managerPin: String
     ): String {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(profileId) }.isSuccess)
         require(runCatching { UUID.fromString(orderId) }.isSuccess)
         require(managerPin.length in 4..12 && managerPin.all(Char::isDigit))
@@ -1429,7 +1497,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
 
     /** POS-cookie catalog bridge backed by the same CpIPOS products/ingredients tables. */
     suspend fun catalogBranches(session: WebPosSession): List<WebCatalogBranch> {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         val result = call("GET", "/api/pos/catalog-management?view=branches")
         val rows = result.optJSONArray("branches") ?: JSONArray()
         return (0 until rows.length()).mapNotNull { index ->
@@ -1453,7 +1521,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         search: String = "",
         category: String = ""
     ): WebCatalogPage {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(page >= 1 && pageSize in 1..50 && search.length <= 60)
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
         val view = if (ingredients) "ingredients" else "products"
@@ -1548,7 +1616,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         useIngredientRecipe: Boolean,
         ingredientLines: List<WebCatalogRecipeDraft>
     ) {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
         require(name.isNotBlank() && category.isNotBlank())
         require(stockQuantity >= 0.0)
@@ -1593,7 +1661,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         receivedTotalCostText: String,
         reason: String
     ) {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
         require(ingredientName.isNotBlank() && purchaseQuantity > 0.0)
         val totalCost = receivedTotalCostText.trim().ifBlank { "0" }.toBigDecimal()
@@ -1622,7 +1690,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         priceText: String,
         recommended: Boolean = item.recommended
     ) {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
         require(name.isNotBlank() && skuOrUnit.isNotBlank())
         val payload = JSONObject()
@@ -1651,7 +1719,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         productId: String,
         pin: String
     ): String {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
         require(UUID.fromString(productId).toString() == productId)
         require(pin.length in 4..12 && pin.all(Char::isDigit))
@@ -1675,7 +1743,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         item: WebCatalogRow,
         approvalId: String
     ) {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(item.active)
         require(UUID.fromString(approvalId).toString() == approvalId)
         val response = call("POST", "/api/pos/catalog-management", JSONObject()
@@ -1690,22 +1758,22 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
 
     /** Printer Settings V3 uses the same POS-session auth as CpIPOS Web. */
     suspend fun printerRegistry(session: WebPosSession): JSONObject {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         return call("GET", "/api/backoffice/printers/devices")
     }
 
     suspend fun createPrinter(session: WebPosSession, payload: JSONObject): JSONObject {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         return call("POST", "/api/backoffice/printers/devices", payload)
     }
 
     suspend fun updatePrinter(session: WebPosSession, payload: JSONObject): JSONObject {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         return call("PATCH", "/api/backoffice/printers/devices", payload)
     }
 
     suspend fun testPrinter(session: WebPosSession, printerId: String): JSONObject {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(UUID.fromString(printerId).toString() == printerId)
         return call("POST", "/api/backoffice/printers/test",
             JSONObject().put("printer_id", printerId))
@@ -1714,7 +1782,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     suspend fun bootstrapNativePrintAgent(
         session: WebPosSession, installationId: String
     ): JSONObject {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(UUID.fromString(installationId).toString() == installationId)
         return call(
             method = "POST",
@@ -1795,7 +1863,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     suspend fun storeSettings(session: WebPosSession): WebStoreSettings {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         return parseStoreSettings(call("GET", "/api/pos/settings/store"))
     }
 
@@ -1806,7 +1874,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         companyAddress: String,
         contactPhone: String
     ): WebStoreSettings {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(displayName.trim().isNotEmpty() && displayName.length <= 120)
         require(logoUrl.length <= 220_000)
         val data = call(
@@ -1823,7 +1891,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
 
     /** Same payment-account settings used by CpIPOS Web. */
     suspend fun paymentSettings(session: WebPosSession): WebPaymentSettingsSnapshot {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         val data = call("GET", "/api/pos/settings/payment-accounts")
         val accountRows = data.optJSONArray("payment_accounts") ?: JSONArray()
         val branchRows = data.optJSONArray("branches") ?: JSONArray()
@@ -1865,7 +1933,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         session: WebPosSession,
         account: WebPaymentSettingsAccount
     ): WebPaymentSettingsAccount {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(account.branchId) }.isSuccess)
         require(account.bankName.trim().isNotBlank())
         require(account.accountName.trim().isNotBlank())
@@ -1912,7 +1980,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         accountId: String,
         managerPin: String
     ) {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(accountId) }.isSuccess)
         require(managerPin.length in 4..12 && managerPin.all(Char::isDigit))
         val data = call(
@@ -1927,7 +1995,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
 
     /** Shared branch policy used by CpIPOS Web and Native notification UI. */
     suspend fun notificationSettings(session: WebPosSession): WebPosNotificationSettings {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         return parsePosNotificationSettings(call("GET", "/api/pos/settings/notifications"))
     }
 
@@ -1935,7 +2003,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         session: WebPosSession,
         settings: WebPosNotificationSettings
     ): WebPosNotificationSettings {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         val data = call("PATCH", "/api/pos/settings/notifications", JSONObject()
             .put("branch_id", session.branchId)
             .put("table_qr_popup_enabled", settings.popupEnabled)
@@ -1948,7 +2016,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     suspend fun registerNativeQrPush(
         session: WebPosSession, installationId: String, fcmToken: String, appId: String
     ) {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(UUID.fromString(installationId).toString() == installationId)
         require(fcmToken.length in 50..4096)
         val data = call("PUT", "/api/pos/native-qr-push-registration", JSONObject()
@@ -1960,7 +2028,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     suspend fun unregisterNativeQrPush(session: WebPosSession, installationId: String) {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(UUID.fromString(installationId).toString() == installationId)
         val data = call("DELETE", "/api/pos/native-qr-push-registration", JSONObject()
             .put("installation_id", installationId))
@@ -1969,7 +2037,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
 
     /** Canonical POS Web mobile/tablet global QR activity, scoped to the signed-in POS branch. */
     suspend fun qrActivity(session: WebPosSession, since: String): WebQrActivityPage {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { java.time.Instant.parse(since) }.isSuccess)
         val data = call("GET", "/api/pos/table-qr-activity?since=" + queryValue(since))
         return parseQrActivityPage(data, since)
@@ -1979,7 +2047,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     suspend fun acknowledgeQrService(
         session: WebPosSession, eventId: String, goToTable: Boolean
     ) {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(UUID.fromString(eventId).toString() == eventId)
         val data = call("POST", "/api/pos/table-qr-activity", JSONObject()
             .put("event_id", eventId)
@@ -2018,7 +2086,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     suspend fun diningTables(session: WebPosSession): WebTableFloor {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         val data = call("GET", "/api/pos/tables")
         val zones = data.optJSONArray("zones") ?: JSONArray()
         val tables = data.optJSONArray("tables") ?: JSONArray()
@@ -2463,7 +2531,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
 
     /** Cash drawer readiness is owned by CpIPOS printer/drawer routing. */
     suspend fun cashDrawerStatus(session: WebPosSession): WebCashDrawerStatus {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         val data = call("GET", "/api/pos/cash-drawer/open")
         val printer = data.optJSONObject("printer")
         return WebCashDrawerStatus(
@@ -2484,7 +2552,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         session: WebPosSession,
         reason: String = "เปิดลิ้นชักด้วยตนเองจาก POS มือถือ"
     ): Boolean {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(reason.trim().isNotBlank())
         val data = call(
             "POST",
@@ -2509,7 +2577,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
 
     private suspend fun requireSameLiveSession(
         expected: WebPosSession,
-        requireShift: Boolean = true
+        requireShift: Boolean = true,
+        requireSell: Boolean = true
     ): WebPosSession {
         val current = getSession()
         if (current.id != expected.id ||
@@ -2517,7 +2586,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             current.branchId != expected.branchId ||
             current.deviceCode != expected.deviceCode ||
             current.employeeId != expected.employeeId ||
-            !current.canSell ||
+            (requireSell && !current.canSell) ||
             (requireShift && (current.shiftId == null || current.shiftId != expected.shiftId))
         ) {
             throw WebPosApiException("cashier_session_or_shift_changed", 409)
@@ -2609,7 +2678,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     suspend fun approveSalesRecordDelete(
         session: WebPosSession, orderId: String, pin: String
     ): String {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(UUID.fromString(orderId).toString() == orderId)
         require(pin.length in 4..12 && pin.all(Char::isDigit))
         val data = call("POST", "/api/backoffice/approvals/pin", JSONObject()
@@ -2629,7 +2698,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     suspend fun deleteSalesRecord(
         session: WebPosSession, orderId: String, approvalId: String
     ) {
-        requireSameLiveSession(session)
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(UUID.fromString(orderId).toString() == orderId)
         require(UUID.fromString(approvalId).toString() == approvalId)
         val result = call("DELETE", "/api/pos/sales-list",
