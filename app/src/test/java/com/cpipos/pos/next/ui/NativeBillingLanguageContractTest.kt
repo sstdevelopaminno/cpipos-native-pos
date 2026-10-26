@@ -70,6 +70,23 @@ class NativeBillingLanguageContractTest {
     }
 
     @Test
+    fun loginAndRuntimeLocksSharePersistentThaiEnglishLaoLanguage() {
+        val preview = source("src/main/java/com/cpipos/pos/next/ui/MobilePosPreviewScreen.kt")
+        val live = source("src/main/java/com/cpipos/pos/next/ui/MobilePosLiveScreen.kt")
+        val locks = source("src/main/java/com/cpipos/pos/next/ui/NativeRuntimeLockDialogs.kt")
+
+        assertTrue(preview.contains("Lao"))
+        assertTrue(preview.contains("NativeUiLanguage.set("))
+        assertTrue(preview.contains("ລາວ"))
+        assertTrue(live.contains("NativeUiLanguage.state(ctx)"))
+        assertTrue(live.contains("NativeUiLanguage.set("))
+        assertTrue(locks.contains("NativeUiLanguage.state(LocalContext.current)"))
+        assertTrue(locks.contains("Package expired / system suspended"))
+        assertTrue(locks.contains("ແພັກເກດໝົດອາຍຸ"))
+        assertTrue(locks.contains("Device disabled by IT"))
+    }
+
+    @Test
     fun settingsContentClearsRaisedBottomNavigation() {
         val hub = source("src/main/java/com/cpipos/pos/next/ui/NativeSettingsHubScreen.kt")
         val screens = source("src/main/java/com/cpipos/pos/next/ui/NativeSettingsManagementScreens.kt")

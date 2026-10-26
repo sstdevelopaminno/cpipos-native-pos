@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -124,7 +126,8 @@ private val previewProducts = listOf(
 
 internal enum class LoginLanguage {
     Thai,
-    English
+    English,
+    Lao
 }
 
 @Composable
@@ -140,10 +143,27 @@ fun MobilePosPreviewScreen(
     BackHandler(enabled = startAtModeSelector && step == PosPreviewStep.Sale && onReturnToLive != null) {
         onReturnToLive?.invoke()
     }
+    val context = LocalContext.current
+    val nativeLanguageCode by NativeUiLanguage.state(context)
     var storeCode by remember { mutableStateOf("") }
     var employeePin by remember { mutableStateOf("") }
     var isPinVisible by remember { mutableStateOf(false) }
-    var selectedLanguage by remember { mutableStateOf(LoginLanguage.Thai) }
+    var selectedLanguage by remember {
+        mutableStateOf(
+            when (nativeLanguageCode) {
+                "en" -> LoginLanguage.English
+                "lo" -> LoginLanguage.Lao
+                else -> LoginLanguage.Thai
+            }
+        )
+    }
+    LaunchedEffect(nativeLanguageCode) {
+        selectedLanguage = when (nativeLanguageCode) {
+            "en" -> LoginLanguage.English
+            "lo" -> LoginLanguage.Lao
+            else -> LoginLanguage.Thai
+        }
+    }
     var isSubmitting by remember { mutableStateOf(false) }
     var branch by remember { mutableStateOf(previewBranches.first()) }
     var counter by remember { mutableStateOf(previewCounters.first()) }
@@ -166,7 +186,17 @@ fun MobilePosPreviewScreen(
             storeCode = storeCode,
             isSubmitting = isSubmitting,
             selectedLanguage = selectedLanguage,
-            onLanguageSelected = { selectedLanguage = it },
+            onLanguageSelected = {
+                selectedLanguage = it
+                NativeUiLanguage.set(
+                    context,
+                    when (it) {
+                        LoginLanguage.English -> "en"
+                        LoginLanguage.Lao -> "lo"
+                        LoginLanguage.Thai -> "th"
+                    }
+                )
+            },
             onStoreCodeChange = { value -> storeCode = value.trimStart().take(32) },
             onSubmit = {
                 branch = previewBranches.first()
@@ -192,7 +222,17 @@ fun MobilePosPreviewScreen(
             isPinVisible = isPinVisible,
             isSubmitting = isSubmitting,
             selectedLanguage = selectedLanguage,
-            onLanguageSelected = { selectedLanguage = it },
+            onLanguageSelected = {
+                selectedLanguage = it
+                NativeUiLanguage.set(
+                    context,
+                    when (it) {
+                        LoginLanguage.English -> "en"
+                        LoginLanguage.Lao -> "lo"
+                        LoginLanguage.Thai -> "th"
+                    }
+                )
+            },
             onPinChange = { value -> employeePin = value.filter(Char::isDigit).take(12) },
             onTogglePinVisible = { isPinVisible = !isPinVisible },
             onBack = { step = PosPreviewStep.Branch },
@@ -275,11 +315,26 @@ internal fun LoginLandingScreen(
     errorText: String? = null,
     onPreview: (() -> Unit)? = null
 ) {
-    val isThai = selectedLanguage == LoginLanguage.Thai
-    val storeCodeLabel = if (isThai) stringResource(R.string.pos_label_store_code_full) else "Store code"
-    val storeCodePlaceholder = if (isThai) stringResource(R.string.pos_placeholder_store_code) else "Enter store code"
-    val checkingText = if (isThai) stringResource(R.string.pos_action_checking) else "Checking..."
-    val loginText = if (isThai) stringResource(R.string.pos_action_login) else "Log in"
+    val storeCodeLabel = when (selectedLanguage) {
+        LoginLanguage.Thai -> stringResource(R.string.pos_label_store_code_full)
+        LoginLanguage.English -> "Store code"
+        LoginLanguage.Lao -> "ລະຫັດຮ້ານ"
+    }
+    val storeCodePlaceholder = when (selectedLanguage) {
+        LoginLanguage.Thai -> stringResource(R.string.pos_placeholder_store_code)
+        LoginLanguage.English -> "Enter store code"
+        LoginLanguage.Lao -> "ໃສ່ລະຫັດຮ້ານ"
+    }
+    val checkingText = when (selectedLanguage) {
+        LoginLanguage.Thai -> stringResource(R.string.pos_action_checking)
+        LoginLanguage.English -> "Checking..."
+        LoginLanguage.Lao -> "ກຳລັງກວດສອບ..."
+    }
+    val loginText = when (selectedLanguage) {
+        LoginLanguage.Thai -> stringResource(R.string.pos_action_login)
+        LoginLanguage.English -> "Log in"
+        LoginLanguage.Lao -> "ເຂົ້າລະບົບ"
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFF3F7FE)) {
         Box(
@@ -407,8 +462,11 @@ internal fun LoginLandingScreen(
                                 )
                             ) {
                                 Text(
-                                    if (isThai) "ทดลอง UI ที่พัฒนาแล้ว (ไม่บันทึกยอดจริง)"
-                                    else "Test the UI (no real sales)",
+                                    when (selectedLanguage) {
+                                        LoginLanguage.Thai -> "ทดลอง UI ที่พัฒนาแล้ว (ไม่บันทึกยอดจริง)"
+                                        LoginLanguage.English -> "Test the UI (no real sales)"
+                                        LoginLanguage.Lao -> "ທົດລອງ UI (ບໍ່ບັນທຶກຍອດຂາຍຈິງ)"
+                                    },
                                     color = Color(0xFF33639A),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.SemiBold
@@ -444,6 +502,11 @@ internal fun LanguageToggle(
             text = stringResource(R.string.pos_language_en),
             selected = selectedLanguage == LoginLanguage.English,
             onClick = { onLanguageSelected(LoginLanguage.English) }
+        )
+        LanguageOption(
+            text = "ລາວ",
+            selected = selectedLanguage == LoginLanguage.Lao,
+            onClick = { onLanguageSelected(LoginLanguage.Lao) }
         )
     }
 }
@@ -536,10 +599,21 @@ private fun EmployeePinScreen(
     onBack: () -> Unit,
     onSubmit: () -> Unit
 ) {
-    val isThai = selectedLanguage == LoginLanguage.Thai
-    val pinLabel = if (isThai) stringResource(R.string.pos_label_employee_code) else "Employee code"
-    val confirmText = if (isThai) stringResource(R.string.pos_action_confirm_employee) else "Confirm employee"
-    val checkingText = if (isThai) stringResource(R.string.pos_action_checking) else "Checking..."
+    val pinLabel = when (selectedLanguage) {
+        LoginLanguage.Thai -> stringResource(R.string.pos_label_employee_code)
+        LoginLanguage.English -> "Employee code"
+        LoginLanguage.Lao -> "ລະຫັດພະນັກງານ"
+    }
+    val confirmText = when (selectedLanguage) {
+        LoginLanguage.Thai -> stringResource(R.string.pos_action_confirm_employee)
+        LoginLanguage.English -> "Confirm employee"
+        LoginLanguage.Lao -> "ຢືນຢັນພະນັກງານ"
+    }
+    val checkingText = when (selectedLanguage) {
+        LoginLanguage.Thai -> stringResource(R.string.pos_action_checking)
+        LoginLanguage.English -> "Checking..."
+        LoginLanguage.Lao -> "ກຳລັງກວດສອບ..."
+    }
 
     BrandedAuthSurface {
         Column(modifier = Modifier.padding(horizontal = 22.dp, vertical = 22.dp)) {

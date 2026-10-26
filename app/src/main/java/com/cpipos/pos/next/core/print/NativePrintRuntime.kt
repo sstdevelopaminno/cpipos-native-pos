@@ -214,7 +214,7 @@ object NativePrintRuntime {
 
             try {
                 val result = withContext(Dispatchers.IO) { transport.print(parsed) }
-                rememberPrinted(jobId)
+                val ledgerPersisted = rememberPrinted(jobId)
                 client.ackNativePrintJob(
                     agentKey = agentKey,
                     jobId = jobId,
@@ -225,7 +225,7 @@ object NativePrintRuntime {
                 )
                 lastTransport = result.transport
                 lastSuccessAt = System.currentTimeMillis()
-                lastError = null
+                lastError = if (ledgerPersisted) null else "print_dedupe_ledger_persist_failed"
             } catch (failure: NativePrintException) {
                 lastError = failure.code + ":" + failure.message.orEmpty()
                 runCatching {
@@ -254,7 +254,7 @@ object NativePrintRuntime {
             return at > 0L && now - at < PRINTED_TTL_MS
         }
 
-        private fun rememberPrinted(jobId: String) {
+        private fun rememberPrinted(jobId: String): Boolean {
             val now = System.currentTimeMillis()
             val ledger = readLedger(now)
             ledger.put(jobId, now)
@@ -264,7 +264,12 @@ object NativePrintRuntime {
                     .take(keys.size - 120)
                     .forEach { ledger.remove(it) }
             }
-            prefs.edit().putString("printed:" + scopeKey, ledger.toString()).apply()
+            // This runs on the print worker's Dispatchers.IO scope, not the UI
+            // thread. commit() closes the crash window between physical output
+            // and the server ACK so a reclaimed lease can be deduplicated.
+            return prefs.edit()
+                .putString("printed:" + scopeKey, ledger.toString())
+                .commit()
         }
 
         private fun readLedger(now: Long): JSONObject {
