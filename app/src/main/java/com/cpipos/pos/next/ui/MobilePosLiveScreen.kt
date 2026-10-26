@@ -52,6 +52,7 @@ import com.cpipos.pos.next.core.webpos.WebBranch
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.core.webpos.WebPosProduct
 import com.cpipos.pos.next.core.webpos.WebPosSession
+import com.cpipos.pos.next.core.webpos.WebPosEntitlements
 import com.cpipos.pos.next.core.webpos.WebStore
 import com.cpipos.pos.next.core.webpos.WebPosApiException
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
