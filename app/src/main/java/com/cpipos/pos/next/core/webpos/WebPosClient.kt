@@ -2273,6 +2273,30 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             JSONObject().put("printer_id", printerId))
     }
 
+    suspend fun testAssignedNativePrinter(session: WebPosSession): JSONObject {
+        val registry = printerRegistry(session)
+        val rows = registry.optJSONArray("devices") ?: JSONArray()
+        var fallbackProfileId: String? = null
+        var matchedProfileId: String? = null
+        for (index in 0 until rows.length()) {
+            val row = rows.optJSONObject(index) ?: continue
+            val profileId = row.optString("printer_profile_id").trim()
+            if (profileId.isBlank()) continue
+            val status = row.optString("status").lowercase()
+            if (status in setOf("disabled", "inactive", "disconnected")) continue
+            if (fallbackProfileId == null) fallbackProfileId = profileId
+            val runtimeCode = row.optString("runtime_device_code").trim()
+            if (runtimeCode.equals(session.deviceCode, ignoreCase = true)) {
+                matchedProfileId = profileId
+                break
+            }
+        }
+        val profileId = matchedProfileId ?: fallbackProfileId
+            ?: throw WebPosApiException("printer_not_configured", 409)
+        val result = testPrinter(session, profileId)
+        return result
+    }
+
     suspend fun bootstrapNativePrintAgent(
         session: WebPosSession, installationId: String
     ): JSONObject {
