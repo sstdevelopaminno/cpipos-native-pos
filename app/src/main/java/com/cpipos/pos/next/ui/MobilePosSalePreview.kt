@@ -910,7 +910,7 @@ internal fun MobilePosSalePreview(
             },
             onCancelBill = { showCart = false; showCancelBillConfirm = true },
             onCheckout = {
-                if (quantity > 0 && total > 0L) {
+                if (!heldIoBusy && quantity > 0 && total > 0L) {
                     selectedMethod = PreviewPayment.Cash
                     showCart = false
                     showMethods = true
@@ -923,36 +923,50 @@ internal fun MobilePosSalePreview(
             discountAmount = discountAmount,
             onHoldBill = if (liveSession == null) null else {
                 {
-                    if (!saving && quantity > 0 && liveJournal != null) {
-                        runCatching {
-                            check(liveJournal.unresolved(liveSession).isEmpty()) {
-                                "มีบิลที่ต้อง Reconcile ก่อนพักบิล"
+                    if (!saving && !heldIoBusy && quantity > 0 && liveJournal != null) {
+                        val session = liveSession
+                        val journal = liveJournal
+                        val cartSnapshot = cart.toMap()
+                        val discountSnapshot = discount
+                        val billIdSnapshot = activeBillId
+                        val heldIdSnapshot = activeHeldId
+                        heldIoBusy = true
+                        scope.launch {
+                            val stored = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    check(journal.unresolved(session).isEmpty()) {
+                                        "มีบิลที่ต้อง Reconcile ก่อนพักบิล"
+                                    }
+                                    check(journal.stage(session, billIdSnapshot) == null) {
+                                        "รหัสบิลนี้เคยส่งเซิร์ฟเวอร์แล้ว ห้ามพักและส่งซ้ำ"
+                                    }
+                                    val savedId = if (heldIdSnapshot != null) {
+                                        holdStore.update(
+                                            session, heldIdSnapshot, cartSnapshot,
+                                            discountSnapshot.kind, discountSnapshot.input
+                                        )
+                                        heldIdSnapshot
+                                    } else {
+                                        holdStore.hold(
+                                            session, billIdSnapshot, cartSnapshot,
+                                            discountSnapshot.kind, discountSnapshot.input
+                                        ).id
+                                    }
+                                    savedId to holdStore.all(session)
+                                }
                             }
-                            check(liveJournal.stage(liveSession, activeBillId) == null) {
-                                "รหัสบิลนี้เคยส่งเซิร์ฟเวอร์แล้ว ห้ามพักและส่งซ้ำ"
+                            stored.onSuccess { (savedId, drafts) ->
+                                cart.clear()
+                                discount = PosDiscount()
+                                activeHeldId = null
+                                activeBillId = UUID.randomUUID().toString()
+                                heldDrafts = drafts
+                                showCart = false
+                                notice = "พักรายการเรียบร้อย: " + savedId.take(8)
+                            }.onFailure {
+                                notice = it.message ?: "พักบิลไม่ได้ กรุณาตรวจข้อมูลในเครื่อง"
                             }
-                            val savedId = if (activeHeldId != null) {
-                                val existingId = requireNotNull(activeHeldId)
-                                holdStore.update(
-                                    liveSession, existingId, cart.toMap(),
-                                    discount.kind, discount.input
-                                )
-                                existingId
-                            } else {
-                                holdStore.hold(
-                                    liveSession, activeBillId, cart.toMap(),
-                                    discount.kind, discount.input
-                                ).id
-                            }
-                            cart.clear()
-                            discount = PosDiscount()
-                            activeHeldId = null
-                            activeBillId = UUID.randomUUID().toString()
-                            heldDrafts = holdStore.all(liveSession)
-                            showCart = false
-                            notice = "พักรายการเรียบร้อย: " + savedId.take(8)
-                        }.onFailure {
-                            notice = it.message ?: "พักบิลไม่ได้ กรุณาตรวจข้อมูลในเครื่อง"
+                            heldIoBusy = false
                         }
                     }
                 }
@@ -963,18 +977,33 @@ internal fun MobilePosSalePreview(
         subtotal = subtotal, current = discount,
         onDismiss = { showDiscount = false },
         onConfirm = { next ->
-            val saved = if (activeHeldId != null && liveSession != null)
-                runCatching {
-                    holdStore.update(
-                        liveSession, requireNotNull(activeHeldId), cart.toMap(),
-                        next.kind, next.input
-                    )
-                } else Result.success(Unit)
-            if (saved.isSuccess) {
+            val session = liveSession
+            val heldId = activeHeldId
+            if (heldId != null && session != null) {
+                if (!heldIoBusy) {
+                    heldIoBusy = true
+                    val cartSnapshot = cart.toMap()
+                    scope.launch {
+                        val saved = withContext(Dispatchers.IO) {
+                            runCatching {
+                                holdStore.update(
+                                    session, heldId, cartSnapshot,
+                                    next.kind, next.input
+                                )
+                            }
+                        }
+                        if (saved.isSuccess) {
+                            discount = next
+                            showDiscount = false
+                        } else {
+                            notice = "เก็บส่วนลดของบิลพักไม่ได้ กรุณาลองอีกครั้ง"
+                        }
+                        heldIoBusy = false
+                    }
+                }
+            } else {
                 discount = next
                 showDiscount = false
-            } else {
-                notice = "เก็บส่วนลดของบิลพักไม่ได้ กรุณาลองอีกครั้ง"
             }
         }
     )
@@ -996,33 +1025,51 @@ internal fun MobilePosSalePreview(
                             color = Color(0xFFEDF4FF),
                             shape = RoundedCornerShape(15.dp),
                             modifier = Modifier.fillMaxWidth().clickable {
-                                if (cart.isNotEmpty() || saving) {
+                                if (cart.isNotEmpty() || saving || heldIoBusy) {
                                     notice = "กรุณาพักหรือเคลียร์ตะกร้าปัจจุบันก่อนเรียกบิล"
                                 } else {
-                                    runCatching {
-                                        check(liveJournal?.unresolved(liveSession)?.isEmpty() == true) {
-                                            "มีบิลค้างตรวจสอบ ห้ามเรียกบิลพัก"
-                                        }
-                                        check(liveJournal.stage(liveSession, entry.saleId) == null) {
-                                            "บิลพักนี้เคยส่งถึงเซิร์ฟเวอร์แล้ว " +
-                                                "ห้ามเรียกขายซ้ำ กรุณาตรวจ POS Web"
-                                        }
+                                    val itemValidation = runCatching {
                                         entry.items.forEach { (id, count) ->
                                             check(products.any { it.id == id }) {
                                                 "สินค้าของบิลพักไม่อยู่ในรายการปัจจุบัน"
                                             }
                                             check(count > 0)
                                         }
-                                        // Keep the original saved draft until payment succeeds.
-                                        // A process crash can then recover it with the same sale UUID.
-                                        cart.putAll(entry.items)
-                                        discount = PosDiscount(entry.discountKind, entry.discountInput)
-                                        activeBillId = entry.saleId
-                                        activeHeldId = entry.id
-                                        heldDrafts = holdStore.all(liveSession)
-                                        showHeldBills = false
-                                        showCart = true
-                                    }.onFailure { notice = it.message ?: "เรียกบิลพักไม่สำเร็จ" }
+                                    }
+                                    if (itemValidation.isFailure) {
+                                        notice = itemValidation.exceptionOrNull()?.message
+                                            ?: "เรียกบิลพักไม่สำเร็จ"
+                                    } else {
+                                        heldIoBusy = true
+                                        scope.launch {
+                                            val local = withContext(Dispatchers.IO) {
+                                                runCatching {
+                                                    check(liveJournal?.unresolved(liveSession)?.isEmpty() == true) {
+                                                        "มีบิลค้างตรวจสอบ ห้ามเรียกบิลพัก"
+                                                    }
+                                                    check(liveJournal.stage(liveSession, entry.saleId) == null) {
+                                                        "บิลพักนี้เคยส่งถึงเซิร์ฟเวอร์แล้ว " +
+                                                            "ห้ามเรียกขายซ้ำ กรุณาตรวจ POS Web"
+                                                    }
+                                                    holdStore.all(liveSession)
+                                                }
+                                            }
+                                            local.onSuccess { drafts ->
+                                                // Keep the original saved draft until payment succeeds.
+                                                // A process crash can then recover it with the same sale UUID.
+                                                cart.putAll(entry.items)
+                                                discount = PosDiscount(entry.discountKind, entry.discountInput)
+                                                activeBillId = entry.saleId
+                                                activeHeldId = entry.id
+                                                heldDrafts = drafts
+                                                showHeldBills = false
+                                                showCart = true
+                                            }.onFailure {
+                                                notice = it.message ?: "เรียกบิลพักไม่สำเร็จ"
+                                            }
+                                            heldIoBusy = false
+                                        }
+                                    }
                                 }
                             }
                         ) {
@@ -1053,14 +1100,20 @@ internal fun MobilePosSalePreview(
                     val draftId = activeBillId
                     scope.launch {
                         try {
-                            check(liveJournal?.unresolved(liveSession)?.isEmpty() == true) {
-                                "มีรายการที่ยังไม่ได้ตรวจสอบผลบิล ห้ามล้างตะกร้า"
+                            withContext(Dispatchers.IO) {
+                                check(liveJournal?.unresolved(liveSession)?.isEmpty() == true) {
+                                    "มีรายการที่ยังไม่ได้ตรวจสอบผลบิล ห้ามล้างตะกร้า"
+                                }
                             }
                             liveClient.approveTakeawayDraftCancellation(liveSession, draftId, pin)
                             if (activeHeldId != null) {
-                                holdStore.remove(liveSession, requireNotNull(activeHeldId))
+                                val heldId = requireNotNull(activeHeldId)
+                                val drafts = withContext(Dispatchers.IO) {
+                                    holdStore.remove(liveSession, heldId)
+                                    holdStore.all(liveSession)
+                                }
                                 activeHeldId = null
-                                heldDrafts = holdStore.all(liveSession)
+                                heldDrafts = drafts
                             }
                             cart.clear()
                             discount = PosDiscount()
