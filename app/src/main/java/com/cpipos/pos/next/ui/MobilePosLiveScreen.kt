@@ -625,6 +625,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                             employee = verified
                             availableDevices = devices
                             selectedDevice = null
+                            error = devices.entryDenial?.message
                             step = "device"
                         } catch (e: WebPosApiException) {
                             error = when (e.code) {
@@ -1018,7 +1019,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
 
     val billingVisible = step == "tab" && mainTab == "history" && moreInitialPage == "billing"
     NativeSubscriptionLockDialog(
-        runtime = subscriptionRuntime.takeUnless { billingVisible },
+        runtime = subscriptionRuntime.takeUnless { billingVisible || mdmLocked },
         onBilling = { openPackageBilling() }
     )
     if (mdmLocked) {
