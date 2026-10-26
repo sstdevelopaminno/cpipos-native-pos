@@ -308,7 +308,7 @@ internal fun NativeSalesListScreen(
                                                         "เงินสด" else record.paymentMethods.joinToString(","),
                                                 1.15f, false
                                             )
-                                            SalesCell("฿" + record.receipt.total.bahtText(),
+                                            SalesCell("฿" + salesMoneyText(record.receipt.total.value),
                                                 .95f, false, true)
                                         }
                                         if (isOpen) {
