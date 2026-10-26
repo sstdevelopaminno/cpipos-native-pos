@@ -69,6 +69,10 @@ data class WebSettingsBranch(
     val address: String,
     val active: Boolean
 )
+data class WebSettingsBranchesSnapshot(
+    val branches: List<WebSettingsBranch>,
+    val canManage: Boolean
+)
 data class WebSettingsDevice(
     val id: String,
     val branchId: String,
@@ -2110,21 +2114,31 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         )
     }
 
-    suspend fun settingsBranches(session: WebPosSession): List<WebSettingsBranch> {
+    suspend fun settingsBranchesSnapshot(
+        session: WebPosSession
+    ): WebSettingsBranchesSnapshot {
         requireSameLiveSession(session, requireShift = false, requireSell = false)
-        val rows = call("GET", "/api/pos/settings/branches").optJSONArray("branches") ?: JSONArray()
-        return (0 until rows.length()).mapNotNull { index ->
-            val row = rows.optJSONObject(index) ?: return@mapNotNull null
-            val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            WebSettingsBranch(
-                id = id,
-                code = row.optString("code"),
-                name = row.optString("name").ifBlank { row.optString("code") },
-                address = row.optString("address"),
-                active = row.optBoolean("is_active", true)
-            )
-        }
+        val data = call("GET", "/api/pos/settings/branches")
+        val rows = data.optJSONArray("branches") ?: JSONArray()
+        val metadata = data.optJSONObject("metadata")
+        return WebSettingsBranchesSnapshot(
+            branches = (0 until rows.length()).mapNotNull { index ->
+                val row = rows.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                WebSettingsBranch(
+                    id = id,
+                    code = row.optString("code"),
+                    name = row.optString("name").ifBlank { row.optString("code") },
+                    address = row.optString("address"),
+                    active = row.optBoolean("is_active", true)
+                )
+            },
+            canManage = metadata?.optBoolean("can_manage", false) ?: false
+        )
     }
+
+    suspend fun settingsBranches(session: WebPosSession): List<WebSettingsBranch> =
+        settingsBranchesSnapshot(session).branches
 
     suspend fun saveSettingsBranch(
         session: WebPosSession,
