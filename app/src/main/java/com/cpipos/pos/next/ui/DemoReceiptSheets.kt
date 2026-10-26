@@ -71,7 +71,8 @@ private fun paidDate(time: Long): String {
 internal fun SavedDemoReceiptSheet(
     receipt: DemoSaleReceipt,
     onPrint: () -> Unit,
-    onDone: () -> Unit
+    onDone: () -> Unit,
+    historyMode: Boolean = false
 ) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val h = LocalConfiguration.current.screenHeightDp.dp
@@ -98,11 +99,17 @@ internal fun SavedDemoReceiptSheet(
                 }
                 Spacer(Modifier.width(11.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(if (receipt.isDemo) "บันทึกบิลทดลองแล้ว" else "ชำระเงินสำเร็จ",
-                        fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = receiptInk)
-                    Text(if (receipt.isDemo) "ข้อมูลบิลทดลองอยู่เฉพาะในเครื่องนี้"
+                    Text(
+                        if (historyMode) "ใบเสร็จย้อนหลัง"
+                        else if (receipt.isDemo) "บันทึกบิลทดลองแล้ว" else "ชำระเงินสำเร็จ",
+                        fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = receiptInk
+                    )
+                    Text(
+                        if (historyMode) "ข้อมูลใบเสร็จจริงจากบิลที่ชำระแล้วใน CpIPOS"
+                        else if (receipt.isDemo) "ข้อมูลบิลทดลองอยู่เฉพาะในเครื่องนี้"
                         else "บันทึกบิลกับระบบร้านค้าเรียบร้อยแล้ว",
-                        fontSize = 11.sp, color = Color(0xFF72829B))
+                        fontSize = 11.sp, color = Color(0xFF72829B)
+                    )
                 }
             }
             Surface(
@@ -253,7 +260,9 @@ internal fun SavedDemoReceiptSheet(
                 onClick = onDone,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(16.dp)
-            ) { Text("เสร็จสิ้น • กลับหน้าขาย", color = receiptInk) }
+            ) {
+                Text(if (historyMode) "ปิดใบเสร็จ" else "เสร็จสิ้น • กลับหน้าขาย", color = receiptInk)
+            }
         }
     }
 }
