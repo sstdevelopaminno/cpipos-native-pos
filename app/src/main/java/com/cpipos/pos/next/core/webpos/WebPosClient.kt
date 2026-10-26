@@ -35,12 +35,27 @@ data class WebCashierDevice(
     val status: String,
     val currentUserName: String?
 )
+data class WebEntryAccess(
+    val allowed: Boolean = true,
+    val code: String? = null,
+    val title: String? = null,
+    val message: String? = null,
+    val expiresAt: String? = null,
+    val kind: String? = null
+)
+data class WebPaymentReview(
+    val status: String,
+    val submittedAt: String?,
+    val reviewDueAt: String?
+)
 data class WebCashierDevices(
     val branchId: String,
     val branchName: String,
     val employeeName: String,
     val canOverrideInUse: Boolean,
-    val devices: List<WebCashierDevice>
+    val devices: List<WebCashierDevice>,
+    val entryAccess: WebEntryAccess = WebEntryAccess(),
+    val paymentReview: WebPaymentReview? = null
 )
 data class WebTableZone(val id: String, val name: String, val color: String)
 data class WebDiningTable(
@@ -454,6 +469,39 @@ data class WebSubscriptionSubmitResult(
     val status: String,
     val alreadySubmitted: Boolean,
     val provisionalAccessGranted: Boolean
+)
+data class WebSubscriptionRuntime(
+    val locked: Boolean,
+    val lockReason: String?,
+    val lifecycleStatus: String,
+    val expiresAt: String?,
+    val daysRemaining: Int?,
+    val packageName: String,
+    val billingInterval: String,
+    val amountDue: Double?,
+    val currency: String
+)
+data class WebPreEntrySubscriptionQuote(
+    val token: String?,
+    val storeCode: String,
+    val storeName: String,
+    val packageName: String,
+    val amount: Double,
+    val currency: String,
+    val billingInterval: String,
+    val bankName: String,
+    val accountName: String,
+    val accountNumber: String,
+    val promptPayId: String,
+    val pendingStatus: String?,
+    val pendingHasEvidence: Boolean,
+    val pendingCanAttachEvidence: Boolean
+)
+data class WebPreEntrySubscriptionSubmitResult(
+    val id: String,
+    val status: String,
+    val provisionalAccessGranted: Boolean,
+    val provisionalAccessExpiresAt: String?
 )
 
 data class WebPosSalesModes(
@@ -1184,6 +1232,9 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         val branch = data.getJSONObject("branch")
         val employee = data.getJSONObject("employee")
         val rows = data.optJSONArray("devices") ?: JSONArray()
+        val entry = data.optJSONObject("entry_access") ?: JSONObject().put("allowed", true)
+        val denial = entry.optJSONObject("error")
+        val review = data.optJSONObject("payment_review")
         return WebCashierDevices(
             branchId = branch.getString("id"),
             branchName = branch.optString("name"),
@@ -1199,6 +1250,21 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                     status = row.optString("status"),
                     currentUserName = row.optJSONObject("currentUser")
                         ?.optString("name")?.takeIf { it.isNotBlank() }
+                )
+            },
+            entryAccess = WebEntryAccess(
+                allowed = entry.optBoolean("allowed", true),
+                code = denial?.optString("code")?.takeIf { it.isNotBlank() },
+                title = denial?.optString("title")?.takeIf { it.isNotBlank() },
+                message = denial?.optString("message")?.takeIf { it.isNotBlank() },
+                expiresAt = denial?.optString("expires_at")?.takeIf { it.isNotBlank() && it != "null" },
+                kind = denial?.optString("kind")?.takeIf { it.isNotBlank() }
+            ),
+            paymentReview = review?.let {
+                WebPaymentReview(
+                    status = it.optString("status"),
+                    submittedAt = it.optString("submitted_at").takeIf { value -> value.isNotBlank() && value != "null" },
+                    reviewDueAt = it.optString("review_due_at").takeIf { value -> value.isNotBlank() && value != "null" }
                 )
             }
         )
@@ -2759,7 +2825,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     suspend fun subscriptionOverview(session: WebPosSession): WebSubscriptionOverview {
-        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(session.id.isNotBlank() && session.tenantId.isNotBlank())
         val data = call(
             "GET",
             "/api/pos/billing/overview",
@@ -2873,7 +2939,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         note: String = "",
         slip: WebSubscriptionSlip? = null
     ): WebSubscriptionSubmitResult {
-        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(session.id.isNotBlank() && session.tenantId.isNotBlank())
         require(session.role == "owner")
         require(UUID.fromString(requestKey).toString() == requestKey)
         require(kind in setOf("renewal_intent", "payment_notice", "custom_quote_request"))
@@ -2895,6 +2961,110 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             status = data.optString("status"),
             alreadySubmitted = data.optBoolean("already_submitted", false),
             provisionalAccessGranted = data.optBoolean("provisional_access_granted", false)
+        )
+    }
+
+    suspend fun subscriptionRuntime(
+        session: WebPosSession,
+        reason: String = "fallback"
+    ): WebSubscriptionRuntime {
+        require(session.id.isNotBlank() && session.tenantId.isNotBlank())
+        val safeReason = if (reason in setOf("focus", "fallback")) reason else "native"
+        val data = call(
+            "GET",
+            "/api/pos/billing/runtime?reason=" + queryValue(safeReason),
+            readTimeoutMs = 6_000,
+            connectTimeoutMs = 3_500
+        )
+        val row = data.optJSONObject("runtime") ?: JSONObject()
+        return WebSubscriptionRuntime(
+            locked = row.optBoolean("locked", false),
+            lockReason = row.optString("lock_reason").takeIf { it.isNotBlank() && it != "null" },
+            lifecycleStatus = row.optString("lifecycle_status").ifBlank { "unknown" },
+            expiresAt = row.optString("expires_at").takeIf { it.isNotBlank() && it != "null" },
+            daysRemaining = if (row.isNull("days_remaining")) null else row.optInt("days_remaining"),
+            packageName = row.optString("package_name").ifBlank { "แพ็กเกจ" },
+            billingInterval = row.optString("billing_interval").ifBlank { "monthly" },
+            amountDue = if (row.isNull("amount_due")) null else row.optDouble("amount_due").takeIf { it.isFinite() },
+            currency = row.optString("currency").ifBlank { "THB" }
+        )
+    }
+
+    suspend fun preEntrySubscriptionQuote(): WebPreEntrySubscriptionQuote {
+        val data = call(
+            "GET",
+            "/api/auth/subscription-checkout",
+            readTimeoutMs = 8_000,
+            connectTimeoutMs = 4_000
+        )
+        val store = data.optJSONObject("store") ?: JSONObject()
+        val pkg = data.optJSONObject("package") ?: JSONObject()
+        val issuer = data.optJSONObject("issuer") ?: JSONObject()
+        val pending = data.optJSONObject("pending_review")
+        return WebPreEntrySubscriptionQuote(
+            token = data.optString("token").takeIf { it.isNotBlank() && it != "null" },
+            storeCode = store.optString("code"),
+            storeName = store.optString("name"),
+            packageName = pkg.optString("name"),
+            amount = pkg.optDouble("amount", 0.0),
+            currency = pkg.optString("currency").ifBlank { "THB" },
+            billingInterval = pkg.optString("billing_interval").ifBlank { "monthly" },
+            bankName = issuer.optString("bank_name"),
+            accountName = issuer.optString("account_name"),
+            accountNumber = issuer.optString("account_number"),
+            promptPayId = issuer.optString("promptpay_id"),
+            pendingStatus = pending?.optString("status")?.takeIf { it.isNotBlank() },
+            pendingHasEvidence = pending?.optBoolean("has_evidence", false) ?: false,
+            pendingCanAttachEvidence = pending?.optBoolean("can_attach_evidence", false) ?: false
+        )
+    }
+
+    suspend fun submitPreEntrySubscriptionPayment(
+        quote: WebPreEntrySubscriptionQuote,
+        slip: WebSubscriptionSlip,
+        note: String = ""
+    ): WebPreEntrySubscriptionSubmitResult {
+        val token = quote.token ?: throw WebPosApiException("checkout_token_invalid", 401)
+        val data = callMultipart(
+            path = "/api/auth/subscription-checkout",
+            fields = linkedMapOf(
+                "checkout_token" to token,
+                "note" to note.take(500)
+            ),
+            slip = slip
+        )
+        return WebPreEntrySubscriptionSubmitResult(
+            id = data.optString("id"),
+            status = data.optString("status"),
+            provisionalAccessGranted = data.optBoolean("provisional_access_granted", false),
+            provisionalAccessExpiresAt = data.optString("provisional_access_expires_at")
+                .takeIf { it.isNotBlank() && it != "null" }
+        )
+    }
+
+    suspend fun nativeDeviceHeartbeat(payload: JSONObject): JSONObject =
+        call(
+            method = "POST",
+            path = "/api/pos/device-heartbeat",
+            json = payload,
+            readTimeoutMs = 8_000,
+            connectTimeoutMs = 4_000,
+            headers = mapOf("X-CpIPOS-Client" to "native-android")
+        )
+
+    suspend fun ackNativeDeviceCommands(results: JSONArray) {
+        if (results.length() == 0) return
+        require(results.length() <= 10)
+        call(
+            method = "POST",
+            path = "/api/pos/device-commands/ack",
+            json = JSONObject()
+                .put("results", results)
+                .put("agent_surface", "native-android")
+                .put("agent_version", BuildConfig.VERSION_NAME),
+            readTimeoutMs = 8_000,
+            connectTimeoutMs = 4_000,
+            headers = mapOf("X-CpIPOS-Client" to "native-android")
         )
     }
 
