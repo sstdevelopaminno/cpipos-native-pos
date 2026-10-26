@@ -259,6 +259,79 @@ data class WebPosSession(
     val canCloseShift: Boolean = false
 )
 
+data class WebPosSalesModes(
+    val takeaway: Boolean,
+    val dineIn: Boolean,
+    val buffetTable: Boolean,
+    val delivery: Boolean,
+    val generalSale: Boolean,
+    val opticalRetail: Boolean
+) {
+    fun enabled(mode: String): Boolean = when (mode) {
+        "takeaway", "home" -> takeaway
+        "dine_in" -> dineIn
+        "buffet_table" -> buffetTable
+        "delivery" -> delivery
+        "general_sale" -> generalSale
+        "optical_retail" -> opticalRetail
+        else -> false
+    }
+}
+
+/**
+ * Effective package/menu entitlement snapshot resolved by CpIPOS Server from
+ * the same CpiPOS-001 control-plane tables managed by CpIPOS-IT.
+ *
+ * Android never receives a service-role key and never chooses a Supabase
+ * project. UI locks are advisory UX; every protected API remains authoritative.
+ */
+data class WebPosEntitlements(
+    val tenantId: String,
+    val branchId: String,
+    val features: Map<String, Boolean>,
+    val menuPolicy: Map<String, Boolean>,
+    val isCustom: Boolean,
+    val isInternalTestFull: Boolean,
+    val salesModes: WebPosSalesModes,
+    val opticalMoreAccess: Map<String, Boolean>
+) {
+    fun featureEnabled(code: String): Boolean = features[code] == true
+
+    fun menuEnabled(key: String, parentKey: String? = null): Boolean {
+        // CpIPOS deliberately keeps shift operationally reachable regardless of
+        // package navigation switches.
+        if (key == "main.shift") return true
+        if (isCustom) {
+            if (menuPolicy[key] != true) return false
+            if (parentKey != null && menuPolicy[parentKey] != true) return false
+            return true
+        }
+        // Fixed packages use menu switches as independent navigation locks.
+        return menuPolicy[key] != false
+    }
+
+    fun allows(
+        featureCode: String? = null,
+        menuKey: String? = null,
+        parentMenuKey: String? = null,
+        opticalRoute: String? = null
+    ): Boolean {
+        if (menuKey != null && !menuEnabled(menuKey, parentMenuKey)) return false
+        if (featureCode == null) return true
+        if (featureEnabled(featureCode)) return true
+        return opticalRoute != null && opticalMoreAccess[opticalRoute] == true
+    }
+
+    fun takeawayAllowed(): Boolean =
+        allows(featureCode = "core_pos_sales", menuKey = "main.sales") &&
+            salesModes.takeaway
+
+    fun dineInAllowed(): Boolean =
+        allows(featureCode = "core_pos_sales", menuKey = "main.sales") &&
+            featureEnabled("table_management") &&
+            salesModes.dineIn
+}
+
 data class WebShiftBranchOption(
     val id: String,
     val code: String?,
@@ -853,6 +926,54 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             throw WebPosApiException("selected_device_session_scope_mismatch", 403)
         }
         return session
+    }
+
+    suspend fun posEntitlements(
+        session: WebPosSession,
+        forceFresh: Boolean = false
+    ): WebPosEntitlements {
+        val path = if (forceFresh) "/api/pos/features?refresh=1" else "/api/pos/features"
+        val data = call("GET", path)
+        val tenantId = data.optString("tenant_id")
+        val branchId = data.optString("branch_id")
+        if (tenantId != session.tenantId || branchId != session.branchId) {
+            throw WebPosApiException("feature_scope_mismatch", 409)
+        }
+
+        fun booleanMap(source: JSONObject?): Map<String, Boolean> {
+            if (source == null) return emptyMap()
+            val result = linkedMapOf<String, Boolean>()
+            val keys = source.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                if (key.isNotBlank()) result[key] = source.optBoolean(key, false)
+            }
+            return result
+        }
+
+        val isCustom = data.optBoolean("is_custom", false)
+        val sales = data.optJSONObject("sales_modes")
+        fun mode(key: String, fixedDefault: Boolean): Boolean =
+            sales?.optBoolean(key, if (isCustom) false else fixedDefault)
+                ?: if (isCustom) false else fixedDefault
+
+        return WebPosEntitlements(
+            tenantId = tenantId,
+            branchId = branchId,
+            features = booleanMap(data.optJSONObject("features")),
+            menuPolicy = booleanMap(data.optJSONObject("menu_policy")),
+            isCustom = isCustom,
+            isInternalTestFull = data.optBoolean("is_internal_test_full", false),
+            salesModes = WebPosSalesModes(
+                takeaway = mode("takeaway", true),
+                dineIn = mode("dine_in", true),
+                buffetTable = mode("buffet_table", true),
+                delivery = mode("delivery", true),
+                generalSale = mode("general_sale", true),
+                opticalRetail = mode("optical_retail", false)
+            ),
+            opticalMoreAccess = booleanMap(data.optJSONObject("optical_more_access"))
+        )
     }
 
     suspend fun getSession(): WebPosSession {
