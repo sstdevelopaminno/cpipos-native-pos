@@ -41,6 +41,9 @@ internal fun NativeSubscriptionBillingScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val language by NativeUiLanguage.state(context)
+    fun tr(th: String, en: String, lo: String): String =
+        tr(language, th, en, lo)
     var snapshot by remember(session.id) { mutableStateOf<WebSubscriptionOverview?>(null) }
     var loading by remember(session.id) { mutableStateOf(true) }
     var busy by remember(session.id) { mutableStateOf(false) }
@@ -76,7 +79,7 @@ internal fun NativeSubscriptionBillingScreen(
                     WebSubscriptionSlip(name, mime, bytes)
                 }
                 slip = picked
-                notice = nativeBillingText("เลือกสลิปแล้ว: " + picked.fileName, "Selected slip: " + picked.fileName, "ເລືອກສະລິບແລ້ວ: " + picked.fileName)
+                notice = tr("เลือกสลิปแล้ว: " + picked.fileName, "Selected slip: " + picked.fileName, "ເລືອກສະລິບແລ້ວ: " + picked.fileName)
             } catch (failure: Exception) {
                 slip = null
                 error = failure.message ?: "เลือกสลิปไม่สำเร็จ"
@@ -101,7 +104,7 @@ internal fun NativeSubscriptionBillingScreen(
         } catch (failure: Exception) {
             val api = failure as? WebPosApiException
             error = when (api?.status) {
-                403 -> nativeBillingText(
+                403 -> tr(
                     "เมนูชำระแพ็กเกจสำหรับ Owner / Manager เท่านั้น",
                     "Package billing is available to Owner / Manager only",
                     "ເມນູຊຳລະແພັກເກດສຳລັບ Owner / Manager ເທົ່ານັ້ນ"
@@ -129,17 +132,17 @@ internal fun NativeSubscriptionBillingScreen(
                     slip = pickedSlip
                 )
                 notice = when {
-                    result.provisionalAccessGranted -> nativeBillingText(
+                    result.provisionalAccessGranted -> tr(
                         "ตรวจสลิปผ่านและเปิดสิทธิ์ชั่วคราวแล้ว · รอ IT ยืนยันยอดเงินจริง",
                         "Slip verified; provisional access granted while IT confirms settlement",
                         "ກວດສະລິບຜ່ານ ແລະເປີດສິດຊົ່ວຄາວ · ລໍຖ້າ IT ຢືນຢັນ"
                     )
-                    kind == "payment_notice" -> nativeBillingText(
+                    kind == "payment_notice" -> tr(
                         "ส่งสลิปให้ IT ตรวจสอบแล้ว",
                         "Payment slip sent to IT for review",
                         "ສົ່ງສະລິບໃຫ້ IT ກວດສອບແລ້ວ"
                     )
-                    else -> nativeBillingText(
+                    else -> tr(
                         "ส่งคำขอแพ็กเกจแล้ว",
                         "Package request submitted",
                         "ສົ່ງຄຳຂໍແພັກເກດແລ້ວ"
@@ -211,11 +214,11 @@ internal fun NativeSubscriptionBillingScreen(
                                 }
                                 BillingMetric(nativeUiText("billing.status", "สถานะการใช้งาน"), data.contractStatus)
                                 BillingMetric(
-                                    nativeBillingText("ค่าบริการต่อรอบ", "Price per cycle", "ຄ່າບໍລິການຕໍ່ຮອບ"),
+                                    tr("ค่าบริการต่อรอบ", "Price per cycle", "ຄ່າບໍລິການຕໍ່ຮອບ"),
                                     data.amountPerCycle?.let { moneyText(it, data.currency) } ?: "—"
                                 )
                                 BillingMetric(
-                                    nativeBillingText("วันคงเหลือ", "Days remaining", "ວັນຄົງເຫຼືອ"),
+                                    tr("วันคงเหลือ", "Days remaining", "ວັນຄົງເຫຼືອ"),
                                     data.daysRemaining?.toString() ?: "—"
                                 )
                             }
@@ -247,7 +250,7 @@ internal fun NativeSubscriptionBillingScreen(
 
                     item {
                         Text(
-                            nativeBillingText("เลือกแพ็กเกจ", "Choose package", "ເລືອກແພັກເກດ"),
+                            tr("เลือกแพ็กเกจ", "Choose package", "ເລືອກແພັກເກດ"),
                             fontWeight = FontWeight.ExtraBold,
                             color = billingInk,
                             fontSize = 15.sp
@@ -448,9 +451,13 @@ private fun BillingEmpty(message: String) {
 }
 
 @Composable
-private fun nativeBillingText(th: String, en: String, lo: String): String {
-    val context = LocalContext.current
-    return when (NativeUiLanguage.state(context).value) {
+private fun nativeBillingText(language: String, th: String, en: String, lo: String): String = when (language) {
+        "en" -> en
+        "lo" -> lo
+        else -> th
+    }
+
+/*
         "en" -> en
         "lo" -> lo
         else -> th
