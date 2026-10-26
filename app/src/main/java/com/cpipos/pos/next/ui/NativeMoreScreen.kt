@@ -49,7 +49,10 @@ private data class MoreMenu(
     val key: String,
     val iconRes: Int,
     val title: String,
-    val subtitle: String
+    val subtitle: String,
+    val featureCode: String?,
+    val menuKey: String,
+    val opticalRoute: String? = null
 )
 
 
@@ -94,9 +97,11 @@ internal fun NativeMoreScreen(
     session: WebPosSession,
     products: List<WebPosProduct>,
     onTab: (String) -> Unit,
-    onSessionChanged: (WebPosSession) -> Unit = {}
+    onSessionChanged: (WebPosSession) -> Unit = {},
+    entitlements: WebPosEntitlements? = null
 ) {
     var page by remember(session.id) { mutableStateOf("hub") }
+    var packageLockTarget by remember(session.id) { mutableStateOf<String?>(null) }
 
     when (page) {
         "shift" -> {
@@ -146,16 +151,15 @@ internal fun NativeMoreScreen(
     }
 
     val menus = listOf(
-        MoreMenu("shift", R.drawable.ic_nav_history, "เปิด / ปิดกะ", "เปิดกะ ปิดกะ และดูประวัติกะตามสิทธิ์ของผู้ใช้งาน"),
-        MoreMenu("summary", R.drawable.ic_nav_report, "สรุปยอดขาย", "ยอดขายสุทธิ กราฟแนวโน้ม ช่องทางชำระเงิน และส่วนลด"),
-        MoreMenu("receipts", R.drawable.ic_receipt_bill, "ใบเสร็จย้อนหลัง", "ค้นหา เปิดดูใบเสร็จจริง และพิมพ์ย้อนหลังตามสิทธิ์"),
-        MoreMenu("tables", R.drawable.ic_nav_tables, "จัดการโต๊ะ", "โต๊ะ โซน สถานะ และบิลที่เปิดอยู่"),
-        MoreMenu("sales", R.drawable.ic_nav_cart, "รายการขายสินค้า", "รายการขายรายวัน / เดือน / ปี และช่วงวันที่"),
-        MoreMenu("best", R.drawable.ic_nav_stock, "สินค้าขายดี", "อันดับสินค้าขายดีจากข้อมูลสรุปยอดขาย CpIPOS"),
-        MoreMenu("members", R.drawable.ic_store_front, "สมาชิก", "ข้อมูลสมาชิก คะแนน และแต้มสะสม"),
-        MoreMenu("tax", R.drawable.ic_pos_terminal, "ออกใบกำกับภาษี", "บิลที่ชำระแล้วและสถานะใบกำกับภาษี")
+        MoreMenu("shift", R.drawable.ic_nav_history, "เปิด / ปิดกะ", "เปิดกะ ปิดกะ และดูประวัติกะตามสิทธิ์ของผู้ใช้งาน", null, "main.shift"),
+        MoreMenu("summary", R.drawable.ic_nav_report, "สรุปยอดขาย", "ยอดขายสุทธิ กราฟแนวโน้ม ช่องทางชำระเงิน และส่วนลด", "advanced_sales_reports", "more.sales_summary", "/preview/pos/sales-summary"),
+        MoreMenu("receipts", R.drawable.ic_receipt_bill, "ใบเสร็จย้อนหลัง", "ค้นหา เปิดดูใบเสร็จจริง และพิมพ์ย้อนหลังตามสิทธิ์", "receipt_reprint_history", "more.receipts", "/preview/pos/receipts"),
+        MoreMenu("tables", R.drawable.ic_nav_tables, "จัดการโต๊ะ", "โต๊ะ โซน สถานะ และบิลที่เปิดอยู่", "table_management", "more.tables"),
+        MoreMenu("sales", R.drawable.ic_nav_cart, "รายการขายสินค้า", "รายการขายรายวัน / เดือน / ปี และช่วงวันที่", "advanced_sales_reports", "more.product_sales", "/preview/pos/product-sales"),
+        MoreMenu("best", R.drawable.ic_nav_stock, "สินค้าขายดี", "อันดับสินค้าขายดีจากข้อมูลสรุปยอดขาย CpIPOS", "advanced_sales_reports", "more.sales_summary", "/preview/pos/sales-summary"),
+        MoreMenu("members", R.drawable.ic_store_front, "สมาชิก", "ข้อมูลสมาชิก คะแนน และแต้มสะสม", "core_pos_sales", "more.members"),
+        MoreMenu("tax", R.drawable.ic_pos_terminal, "ออกใบกำกับภาษี", "บิลที่ชำระแล้วและสถานะใบกำกับภาษี", "core_pos_sales", "more.tax_invoices")
     )
-
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Box(Modifier.fillMaxSize()) {
             LazyColumn(
@@ -170,11 +174,19 @@ internal fun NativeMoreScreen(
                     Spacer(Modifier.height(9.dp))
                 }
                 items(menus, key = { it.key }) { menu ->
+                    val allowed = entitlements?.allows(
+                        featureCode = menu.featureCode,
+                        menuKey = menu.menuKey,
+                        parentMenuKey = if (menu.menuKey.startsWith("more.")) "main.more" else null,
+                        opticalRoute = menu.opticalRoute
+                    ) ?: true
                     Surface(
                         color = Color.White,
                         shape = RoundedCornerShape(17.dp),
                         shadowElevation = 1.dp,
-                        modifier = Modifier.fillMaxWidth().clickable { page = menu.key }
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            if (allowed) page = menu.key else packageLockTarget = menu.title
+                        }
                     ) {
                         Row(
                             Modifier.fillMaxWidth().padding(14.dp),
@@ -205,7 +217,22 @@ internal fun NativeMoreScreen(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            Text("›", color = moreBlue, fontSize = 25.sp)
+                            if (!allowed) {
+                                Surface(
+                                    color = Color(0xFFFFF3DD),
+                                    shape = RoundedCornerShape(20.dp)
+                                ) {
+                                    Text(
+                                        "แพ็กเกจ",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        color = Color(0xFF9B6518),
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Text("›", color = if (allowed) moreBlue else moreMuted, fontSize = 25.sp)
                         }
                     }
                 }
@@ -217,6 +244,11 @@ internal fun NativeMoreScreen(
             )
         }
     }
+
+    NativePackageLockDialog(
+        targetLabel = packageLockTarget,
+        onDismiss = { packageLockTarget = null }
+    )
 }
 
 @Composable
