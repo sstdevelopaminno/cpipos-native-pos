@@ -2297,6 +2297,91 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         )
     }
 
+    suspend fun updatePosUserProfile(
+        session: WebPosSession,
+        user: WebPosUserRow,
+        fullName: String,
+        email: String,
+        role: String,
+        employeeCode: String,
+        positionTitle: String,
+        permissionRole: String,
+        approvalPin: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(role in setOf("manager", "staff", "accountant", "kitchen", "owner"))
+        require(employeeCode.all(Char::isDigit) && employeeCode.isNotBlank())
+        call(
+            "PATCH",
+            "/api/pos/users",
+            JSONObject()
+                .put("action", "update_profile")
+                .put("user_id", user.userId)
+                .put("branch_id", session.branchId)
+                .put("full_name", fullName.trim())
+                .put("email", email.trim())
+                .put("role", role)
+                .put("employee_code", employeeCode)
+                .put("position_title", positionTitle.trim())
+                .put("permission_role", permissionRole.trim().ifBlank { role })
+                .put("approval_pin", approvalPin.trim())
+        )
+    }
+
+    suspend fun setPosUserPin(
+        session: WebPosSession,
+        userId: String,
+        pin: String,
+        approvalPin: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(pin.length in 4..12 && pin.all(Char::isDigit))
+        call(
+            "PATCH",
+            "/api/pos/users",
+            JSONObject()
+                .put("action", "set_pin")
+                .put("user_id", userId)
+                .put("branch_id", session.branchId)
+                .put("pin", pin)
+                .put("approval_pin", approvalPin.trim())
+        )
+    }
+
+    suspend fun setPosUserDeviceScope(
+        session: WebPosSession,
+        userId: String,
+        scopeMode: String,
+        deviceId: String?
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(scopeMode in setOf("all_devices", "single_device"))
+        if (scopeMode == "single_device") require(!deviceId.isNullOrBlank())
+        call(
+            "PATCH",
+            "/api/pos/users",
+            JSONObject()
+                .put("action", "set_device_scope")
+                .put("user_id", userId)
+                .put("branch_id", session.branchId)
+                .put("scope_mode", scopeMode)
+                .put("device_id", deviceId ?: JSONObject.NULL)
+        )
+    }
+
+    suspend fun deletePosUser(
+        session: WebPosSession,
+        userId: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(UUID.fromString(userId).toString() == userId)
+        call(
+            "DELETE",
+            "/api/pos/users?user_id=" + queryValue(userId) +
+                "&branch_id=" + queryValue(session.branchId)
+        )
+    }
+
     suspend fun taxSettings(session: WebPosSession): WebTaxSettings {
         requireSameLiveSession(session, requireShift = false, requireSell = false)
         val data = call(
