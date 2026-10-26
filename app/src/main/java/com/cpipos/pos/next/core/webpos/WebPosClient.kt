@@ -2369,6 +2369,29 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         )
     }
 
+    suspend fun setPosUserCancelBillApproval(
+        session: WebPosSession,
+        userId: String,
+        enabled: Boolean,
+        staffPin: String,
+        ownerPin: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        if (enabled) require(staffPin.length in 4..12 && staffPin.all(Char::isDigit))
+        require(ownerPin.length in 4..12 && ownerPin.all(Char::isDigit))
+        call(
+            "PATCH",
+            "/api/pos/users",
+            JSONObject()
+                .put("action", "set_cancel_bill_approval")
+                .put("user_id", userId)
+                .put("branch_id", session.branchId)
+                .put("is_enabled", enabled)
+                .put("pin", staffPin)
+                .put("approval_pin", ownerPin)
+        )
+    }
+
     suspend fun deletePosUser(
         session: WebPosSession,
         userId: String
