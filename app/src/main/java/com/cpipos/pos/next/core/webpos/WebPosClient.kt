@@ -2276,7 +2276,6 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     suspend fun testAssignedNativePrinter(session: WebPosSession): JSONObject {
         val registry = printerRegistry(session)
         val rows = registry.optJSONArray("devices") ?: JSONArray()
-        var fallbackProfileId: String? = null
         var matchedProfileId: String? = null
         for (index in 0 until rows.length()) {
             val row = rows.optJSONObject(index) ?: continue
@@ -2284,15 +2283,14 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             if (profileId.isBlank()) continue
             val status = row.optString("status").lowercase()
             if (status in setOf("disabled", "inactive", "disconnected")) continue
-            if (fallbackProfileId == null) fallbackProfileId = profileId
             val runtimeCode = row.optString("runtime_device_code").trim()
             if (runtimeCode.equals(session.deviceCode, ignoreCase = true)) {
                 matchedProfileId = profileId
                 break
             }
         }
-        val profileId = matchedProfileId ?: fallbackProfileId
-            ?: throw WebPosApiException("printer_not_configured", 409)
+        val profileId = matchedProfileId
+            ?: throw WebPosApiException("printer_not_assigned_to_device", 409)
         val result = testPrinter(session, profileId)
         return result
     }
@@ -2907,7 +2905,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         session: WebPosSession,
         reason: String = "fallback"
     ): WebSubscriptionRuntime? {
-        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(session.tenantId.isNotBlank())
         require(reason in setOf("focus", "fallback", "reconnect", "realtime", "payment"))
         val data = call(
             "GET",
@@ -2916,6 +2914,10 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             connectTimeoutMs = 4_000
         )
         val row = data.optJSONObject("runtime") ?: return null
+        val tenantId = row.optString("tenant_id")
+        if (tenantId.isNotBlank() && tenantId != session.tenantId) {
+            throw WebPosApiException("subscription_runtime_scope_mismatch", 409)
+        }
         return WebSubscriptionRuntime(
             exempt = row.optBoolean("exempt", false),
             locked = row.optBoolean("locked", false),
@@ -2938,7 +2940,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         installationId: String,
         printerDiagnostics: JSONObject
     ): WebDeviceHeartbeatResult {
-        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(session.tenantId.isNotBlank() && session.branchId.isNotBlank() && session.deviceCode.isNotBlank())
         require(UUID.fromString(installationId).toString() == installationId)
         val now = Instant.now().toString()
         val data = call(
@@ -2987,7 +2989,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         session: WebPosSession,
         results: List<WebDeviceCommandAck>
     ) {
-        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(session.tenantId.isNotBlank() && session.branchId.isNotBlank() && session.deviceCode.isNotBlank())
         require(results.isNotEmpty() && results.size <= 10)
         val payload = JSONArray()
         results.forEach { item ->
