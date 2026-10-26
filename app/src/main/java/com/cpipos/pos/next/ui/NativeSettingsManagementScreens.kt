@@ -605,7 +605,11 @@ internal fun NativeLanguageSettingsScreen(
 
 @Composable
 internal fun NativeOrderKitchenSettingsScreen(
-    client: WebPosClient, session: WebPosSession, onBack: () -> Unit, onTab: (String) -> Unit
+    client: WebPosClient,
+    session: WebPosSession,
+    entitlements: WebPosEntitlements?,
+    onBack: () -> Unit,
+    onTab: (String) -> Unit
 ){
     val scope=rememberCoroutineScope();var policy by remember(session.id){mutableStateOf<WebOrderKitchenPolicy?>(null)}
     var loading by remember{mutableStateOf(true)};var busy by remember{mutableStateOf(false)};var error by remember{mutableStateOf<String?>(null)};var notice by remember{mutableStateOf<String?>(null)}
@@ -613,20 +617,75 @@ internal fun NativeOrderKitchenSettingsScreen(
     SettingsManagementShell("การแจ้งเตือนออเดอร์และครัว","ใช้ policy เดียวกับ CpIPOS และเคารพ IT override",onBack,onTab){
         SettingsNotice(notice);SettingsNotice(error,true);if(loading)CircularProgressIndicator(color=managementBlue)
         policy?.let{p->
-            SettingSwitchCard("POP UP ออเดอร์จาก QR",p.popupEnabled,p.effectivePopupEnabled,p.popupForcedByIt,!busy){policy=p.copy(popupEnabled=it)}
-            SettingSwitchCard("ส่งออเดอร์เข้าครัวอัตโนมัติ",p.kitchenAutoSendEnabled,p.effectiveKitchenAutoSendEnabled,p.sendForcedByIt,!busy){policy=p.copy(kitchenAutoSendEnabled=it)}
-            SettingSwitchCard("พิมพ์ครัวอัตโนมัติ",p.kitchenAutoPrintEnabled,p.effectiveKitchenAutoPrintEnabled,p.printForcedByIt,!busy){policy=p.copy(kitchenAutoPrintEnabled=it)}
-            Button(onClick={busy=true;scope.launch{try{policy=client.saveOrderKitchenPolicy(session,policy!!);notice="บันทึกการแจ้งเตือนออเดอร์และครัวแล้ว"}catch(e:Exception){error="บันทึกไม่สำเร็จ: "+((e as? WebPosApiException)?.code?:e.message.orEmpty())}finally{busy=false}}},enabled=!busy,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=managementBlue)){Text("บันทึก")}
+            val canQrOrdering=entitlements?.featureEnabled("qr_table_ordering")?:true
+            val canKitchenPrinting=entitlements?.featureEnabled("kitchen_printing")?:true
+            SettingSwitchCard(
+                "POP UP ออเดอร์จาก QR",
+                p.popupEnabled,p.effectivePopupEnabled,p.popupForcedByIt,
+                !busy&&canQrOrdering,
+                packageLocked=!canQrOrdering
+            ){policy=p.copy(popupEnabled=it)}
+            SettingSwitchCard(
+                "ส่งออเดอร์เข้าครัวอัตโนมัติ",
+                p.kitchenAutoSendEnabled,p.effectiveKitchenAutoSendEnabled,p.sendForcedByIt,
+                !busy&&canQrOrdering,
+                packageLocked=!canQrOrdering
+            ){policy=p.copy(kitchenAutoSendEnabled=it)}
+            SettingSwitchCard(
+                "พิมพ์ครัวอัตโนมัติ",
+                p.kitchenAutoPrintEnabled,p.effectiveKitchenAutoPrintEnabled,p.printForcedByIt,
+                !busy&&canKitchenPrinting,
+                packageLocked=!canKitchenPrinting
+            ){policy=p.copy(kitchenAutoPrintEnabled=it)}
+            Button(
+                onClick={
+                    busy=true
+                    scope.launch{
+                        try{
+                            policy=client.saveOrderKitchenPolicy(
+                                session,policy!!,
+                                canQrOrdering=canQrOrdering,
+                                canKitchenPrinting=canKitchenPrinting
+                            )
+                            notice="บันทึกการแจ้งเตือนออเดอร์และครัวแล้ว"
+                        }catch(e:Exception){
+                            error="บันทึกไม่สำเร็จ: "+((e as? WebPosApiException)?.code?:e.message.orEmpty())
+                        }finally{busy=false}
+                    }
+                },
+                enabled=!busy&&(canQrOrdering||canKitchenPrinting),
+                modifier=Modifier.fillMaxWidth(),
+                colors=ButtonDefaults.buttonColors(containerColor=managementBlue)
+            ){Text("บันทึก")}
         }
     }
 }
 
 @Composable
-private fun SettingSwitchCard(title:String,storeValue:Boolean,effectiveValue:Boolean,forced:Boolean,enabled:Boolean,onChange:(Boolean)->Unit){
+private fun SettingSwitchCard(
+    title:String,
+    storeValue:Boolean,
+    effectiveValue:Boolean,
+    forced:Boolean,
+    enabled:Boolean,
+    packageLocked:Boolean=false,
+    onChange:(Boolean)->Unit
+){
     Surface(color=Color.White,shape=androidx.compose.foundation.shape.RoundedCornerShape(16.dp)){
         Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){
-            Column(Modifier.weight(1f)){Text(title,fontWeight=FontWeight.Bold,color=managementInk);Text((if(forced)"IT override · " else "")+"ค่าที่ใช้จริง: "+if(effectiveValue)"เปิด" else "ปิด",fontSize=10.sp,color=if(forced)Color(0xFF9B6518) else managementMuted)}
-            Switch(storeValue,onChange,enabled=enabled&&!forced)
+            Column(Modifier.weight(1f)){
+                Text(title,fontWeight=FontWeight.Bold,color=managementInk)
+                Text(
+                    when{
+                        packageLocked->"แพ็กเกจปัจจุบันยังไม่เปิดฟีเจอร์นี้"
+                        forced->"IT override · ค่าที่ใช้จริง: "+if(effectiveValue)"เปิด" else "ปิด"
+                        else->"ค่าที่ใช้จริง: "+if(effectiveValue)"เปิด" else "ปิด"
+                    },
+                    fontSize=10.sp,
+                    color=if(packageLocked||forced)Color(0xFF9B6518) else managementMuted
+                )
+            }
+            Switch(storeValue,onChange,enabled=enabled&&!forced&&!packageLocked)
         }
     }
 }
