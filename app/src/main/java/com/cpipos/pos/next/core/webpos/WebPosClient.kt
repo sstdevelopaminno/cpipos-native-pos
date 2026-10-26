@@ -138,6 +138,33 @@ data class WebTableQrPolicy(
     val ttlMinutes: Int?
 )
 
+data class WebSupportConversationHead(
+    val id: String,
+    val subject: String,
+    val contactName: String,
+    val status: String,
+    val assignedUserName: String?,
+    val latestMessageAt: String?,
+    val latestMessagePreview: String?,
+    val latestSenderType: String?,
+    val unreadStoreCount: Int
+)
+data class WebSupportMessage(
+    val id: String,
+    val senderType: String,
+    val senderName: String,
+    val senderRole: String?,
+    val body: String,
+    val createdAt: String
+)
+data class WebSupportConversationSnapshot(
+    val id: String,
+    val subject: String,
+    val status: String,
+    val assignedUserName: String?,
+    val messages: List<WebSupportMessage>
+)
+
 data class WebPosNotificationSettings(
     val popupEnabled: Boolean = true,
     val soundEnabled: Boolean = true,
@@ -2538,6 +2565,117 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             tableName = data.optString("table_name"),
             mode = row.optString("mode").ifBlank { policy.mode },
             ttlMinutes = if (row.isNull("ttl_minutes")) null else row.optInt("ttl_minutes")
+        )
+    }
+
+    suspend fun supportConversations(
+        session: WebPosSession
+    ): List<WebSupportConversationHead> {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        val rows = call("GET", "/api/pos/support-chat/conversations")
+            .optJSONArray("conversations") ?: JSONArray()
+        return (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            val id = row.optString("conversation_id").takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            WebSupportConversationHead(
+                id = id,
+                subject = row.optString("subject"),
+                contactName = row.optString("contact_name"),
+                status = row.optString("status"),
+                assignedUserName = row.optString("assigned_user_name")
+                    .takeIf { it.isNotBlank() && it != "null" },
+                latestMessageAt = row.optString("latest_message_at")
+                    .takeIf { it.isNotBlank() && it != "null" },
+                latestMessagePreview = row.optString("latest_message_preview")
+                    .takeIf { it.isNotBlank() && it != "null" },
+                latestSenderType = row.optString("latest_sender_type")
+                    .takeIf { it.isNotBlank() && it != "null" },
+                unreadStoreCount = row.optInt("unread_store_count", 0)
+            )
+        }
+    }
+
+    suspend fun createSupportConversation(
+        session: WebPosSession,
+        subject: String,
+        contactName: String
+    ): String {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(subject.trim().length >= 2 && contactName.trim().length >= 2)
+        val data = call(
+            "POST",
+            "/api/pos/support-chat/conversations",
+            JSONObject()
+                .put("subject", subject.trim().take(180))
+                .put("contact_name", contactName.trim().take(120))
+        )
+        val head = data.optJSONObject("head")
+        val conversation = data.optJSONObject("conversation")
+        return head?.optString("conversation_id")?.takeIf { it.isNotBlank() }
+            ?: conversation?.optString("id")?.takeIf { it.isNotBlank() }
+            ?: throw WebPosApiException("support_chat_create_unconfirmed", 502)
+    }
+
+    suspend fun supportConversation(
+        session: WebPosSession,
+        conversationId: String
+    ): WebSupportConversationSnapshot {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(conversationId.isNotBlank())
+        val data = call(
+            "GET",
+            "/api/pos/support-chat/conversations/" + queryValue(conversationId) + "/messages"
+        )
+        val conversation = data.optJSONObject("conversation") ?: JSONObject()
+        val messages = data.optJSONArray("messages") ?: JSONArray()
+        return WebSupportConversationSnapshot(
+            id = conversation.optString("id").ifBlank { conversationId },
+            subject = conversation.optString("subject"),
+            status = conversation.optString("status"),
+            assignedUserName = conversation.optString("assigned_user_name")
+                .takeIf { it.isNotBlank() && it != "null" },
+            messages = (0 until messages.length()).mapNotNull { index ->
+                val row = messages.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                WebSupportMessage(
+                    id = id,
+                    senderType = row.optString("sender_type"),
+                    senderName = row.optString("sender_name"),
+                    senderRole = row.optString("sender_role")
+                        .takeIf { it.isNotBlank() && it != "null" },
+                    body = row.optString("message_body"),
+                    createdAt = row.optString("created_at")
+                )
+            }
+        )
+    }
+
+    suspend fun sendSupportMessage(
+        session: WebPosSession,
+        conversationId: String,
+        message: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(conversationId.isNotBlank() && message.trim().isNotBlank())
+        call(
+            "POST",
+            "/api/pos/support-chat/conversations/" + queryValue(conversationId) + "/messages",
+            JSONObject().put("message", message.trim().take(4000))
+        )
+    }
+
+    suspend fun closeSupportConversation(
+        session: WebPosSession,
+        conversationId: String
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(conversationId.isNotBlank())
+        call(
+            "POST",
+            "/api/pos/support-chat/conversations/" + queryValue(conversationId),
+            JSONObject().put("action", "close")
         )
     }
 
