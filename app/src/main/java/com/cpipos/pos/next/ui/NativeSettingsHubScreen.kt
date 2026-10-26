@@ -98,7 +98,7 @@ internal fun NativeSettingsHubScreen(
             return
         }
         "order_kitchen" -> {
-            NativeOrderKitchenSettingsScreen(client, session, { page = "hub" }, ::routeBottom)
+            NativeOrderKitchenSettingsScreen(client, session, entitlements, { page = "hub" }, ::routeBottom)
             return
         }
         "support" -> {
@@ -203,7 +203,8 @@ internal fun NativeSettingsHubScreen(
                 )
 
                 val orderKitchenAllowed = (entitlements?.menuEnabled("settings.order_kitchen", "main.settings") ?: true) &&
-                    (entitlements?.featureEnabled("qr_table_ordering") ?: true)
+                    ((entitlements?.featureEnabled("qr_table_ordering") ?: true) ||
+                        (entitlements?.featureEnabled("kitchen_printing") ?: true))
                 SettingsHubCard(
                     icon = "🍳",
                     title = "การแจ้งเตือนออเดอร์และครัว",
