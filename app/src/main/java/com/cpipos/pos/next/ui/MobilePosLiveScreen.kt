@@ -94,6 +94,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var unresolved by remember { mutableStateOf("") }
     var recoveredReceipt by remember { mutableStateOf<DemoSaleReceipt?>(null) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
+    var browsingWithoutShift by remember { mutableStateOf(false) }
+    var showShiftRequiredDialog by remember { mutableStateOf(false) }
     // Single workspace for the authenticated register. Switching to the mode
     // chooser never disposes its cart, entered cash or checkout step.
     val takeaway = remember(session?.id) { TakeawayWorkspace() }
@@ -126,6 +128,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         catalog = emptyList()
         error = null
         recoveredReceipt = null
+        browsingWithoutShift = false
+        showShiftRequiredDialog = false
         step = "store"
     }
 
@@ -297,10 +301,19 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     step = "review"
                 } else if (remote.shiftId == null) {
                     error = null
-                    step = "shift"
+                    if (!browsingWithoutShift) {
+                        step = "shift"
+                    } else if (step in setOf("sale", "dine", "dine_order")) {
+                        // Defensive fail-closed guard: browse mode may use all
+                        // non-sale menus, but a closed shift may never retain a
+                        // transaction screen.
+                        step = "mode"
+                        showShiftRequiredDialog = true
+                    }
                 } else {
                     // A tablet/POS on the same device scope opened or
                     // replaced the shift: reload catalog then select mode.
+                    browsingWithoutShift = false
                     refreshCatalog(remote)
                 }
             }
@@ -511,6 +524,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                             // tenant/branch/device instead of creating another.
                             val opened = client.openShift(openingCash)
                             session = opened
+                            browsingWithoutShift = false
                             refreshCatalog(opened)
                         } catch (failure: Exception) {
                             // An uncertain POST response may have created the shift.
@@ -521,6 +535,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                                 observed.deviceCode == verified.deviceCode &&
                                 observed.shiftId != null) {
                                 session = observed
+                                browsingWithoutShift = false
                                 refreshCatalog(observed)
                             } else {
                                 error = if (failure is WebPosApiException)
@@ -530,6 +545,13 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                         } finally {
                             busy = false
                         }
+                    }
+                },
+                onBrowseWithoutShift = {
+                    if (!busy) {
+                        browsingWithoutShift = true
+                        error = null
+                        step = "mode"
                     }
                 },
                 onBack = { goToStore() }
@@ -588,25 +610,27 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         )
         "mode" -> HomeModeScreen(
             onSelectMode = { mode ->
-                if (mode == MockSaleMode.Takeaway) {
-                    val current = session
-                    if (current != null) {
-                        scope.launch {
-                            val pending = runCatching { journal.unresolved(current) }.getOrNull()
-                            when {
-                                pending == null -> {
-                                    unresolved = "อ่านสถานะบิลค้างไม่ได้ กรุณาตรวจสอบก่อนขาย"
-                                    step = "review"
-                                }
-                                pending.isNotEmpty() -> {
-                                    unresolved = "พบบิลค้าง ${pending.size} รายการ โปรด Reconcile ก่อนขายต่อ"
-                                    step = "review"
-                                }
-                                else -> step = "sale"
+                val current = session
+                if (current == null || current.shiftId == null) {
+                    showShiftRequiredDialog = true
+                } else if (mode == MockSaleMode.Takeaway) {
+                    scope.launch {
+                        val pending = runCatching { journal.unresolved(current) }.getOrNull()
+                        when {
+                            pending == null -> {
+                                unresolved = "อ่านสถานะบิลค้างไม่ได้ กรุณาตรวจสอบก่อนขาย"
+                                step = "review"
                             }
+                            pending.isNotEmpty() -> {
+                                unresolved = "พบบิลค้าง ${pending.size} รายการ โปรด Reconcile ก่อนขายต่อ"
+                                step = "review"
+                            }
+                            else -> step = "sale"
                         }
                     }
-                } else step = "dine"
+                } else {
+                    step = "dine"
+                }
             },
             allowDineIn = true,
             onLogout = { if (!busy) showLogoutConfirm = true },
@@ -653,7 +677,11 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     session = verified,
                     products = catalog,
                     onTab = { destination ->
-                        if (mainTab == "stock" && destination == "sale" && !busy) {
+                        if (destination == "sale" && verified.shiftId == null && !busy) {
+                            // Browse-without-shift mode can return to the sale-mode chooser,
+                            // but actual transaction modes remain guarded there.
+                            step = "mode"
+                        } else if (mainTab == "stock" && destination == "sale" && !busy) {
                             // Product editors may change the canonical server price. Refresh
                             // before reopening the sale screen; never sell from stale memory.
                             scope.launch {
@@ -692,6 +720,50 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 onMainMenu = { tab -> navigateTab(tab) }
             )
         }
+    }
+
+    if (showShiftRequiredDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) showShiftRequiredDialog = false },
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text(
+                    "กรุณาเปิดกะก่อน",
+                    fontWeight = FontWeight.ExtraBold,
+                    color = liveInk
+                )
+            },
+            text = {
+                Text(
+                    "ขณะนี้คุณเข้าแอปในโหมดไม่เปิดกะ จึงดูเมนูหลัก สินค้า รายงาน เพิ่มเติม และตั้งค่าได้ " +
+                        "แต่ยังไม่สามารถเข้าโหมดขาย “กลับบ้าน” หรือ “นั่งโต๊ะ” ได้",
+                    color = Color(0xFF66758D),
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showShiftRequiredDialog = false
+                        step = "shift"
+                    },
+                    enabled = !busy,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = liveBlue)
+                ) {
+                    Text("ไปเปิดกะ", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showShiftRequiredDialog = false },
+                    enabled = !busy
+                ) {
+                    Text("อยู่ในเมนูต่อ")
+                }
+            }
+        )
     }
 
     if (showLogoutConfirm) {
