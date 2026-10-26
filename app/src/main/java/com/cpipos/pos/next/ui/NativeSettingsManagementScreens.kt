@@ -319,6 +319,8 @@ internal fun NativePosUsersSettingsScreen(
     var loading by remember{ mutableStateOf(true) }
     var busy by remember{ mutableStateOf(false) }
     var showAdd by remember{ mutableStateOf(false) }
+    var editUser by remember{ mutableStateOf<WebPosUserRow?>(null) }
+    var deleteUser by remember{ mutableStateOf<WebPosUserRow?>(null) }
     var error by remember{ mutableStateOf<String?>(null) }
     var notice by remember{ mutableStateOf<String?>(null) }
     fun reload(){ scope.launch{ loading=true; try{ snapshot=client.posUsers(session); error=null }catch(e:Exception){error="โหลดผู้ใช้งานไม่สำเร็จ: "+((e as? WebPosApiException)?.code?:e.message.orEmpty())}finally{loading=false} } }
@@ -329,7 +331,11 @@ internal fun NativePosUsersSettingsScreen(
         SettingsNotice(notice); SettingsNotice(error,true)
         if(loading) CircularProgressIndicator(color=managementBlue)
         snapshot?.items?.forEach{ user->
-            Surface(color=Color.White,shape=androidx.compose.foundation.shape.RoundedCornerShape(16.dp)){
+            Surface(
+                color=Color.White,
+                shape=androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                modifier=Modifier.fillMaxWidth().clickable(enabled=user.canEdit&&!busy){ editUser=user }
+            ){
                 Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){
                     Column(Modifier.weight(1f)){
                         Text(user.fullName.ifBlank{user.employeeCode},fontWeight=FontWeight.ExtraBold,color=managementInk)
@@ -343,6 +349,130 @@ internal fun NativePosUsersSettingsScreen(
                 }
             }
         }
+    }
+
+
+    editUser?.let { original ->
+        var fullName by remember(original.userId){ mutableStateOf(original.fullName) }
+        var email by remember(original.userId){ mutableStateOf(original.email) }
+        var role by remember(original.userId){ mutableStateOf(original.role) }
+        var employeeCode by remember(original.userId){ mutableStateOf(original.employeeCode) }
+        var position by remember(original.userId){ mutableStateOf(original.positionTitle) }
+        var permissionRole by remember(original.userId){ mutableStateOf(original.permissionRole) }
+        var scopeMode by remember(original.userId){ mutableStateOf(original.scopeMode) }
+        var deviceId by remember(original.userId){ mutableStateOf(original.deviceId) }
+        var active by remember(original.userId){ mutableStateOf(original.active) }
+        var newPin by remember(original.userId){ mutableStateOf("") }
+        var staffApproval by remember(original.userId){ mutableStateOf(original.canApproveCancelBill) }
+        var staffPin by remember(original.userId){ mutableStateOf("") }
+        var approvalPin by remember(original.userId){ mutableStateOf("") }
+        var roleOpen by remember{ mutableStateOf(false) }
+        var deviceOpen by remember{ mutableStateOf(false) }
+        val validScope = scopeMode != "single_device" || deviceId != null
+
+        AlertDialog(
+            onDismissRequest={ if(!busy) editUser=null },
+            title={ Text("แก้ไขผู้ใช้งาน POS",fontWeight=FontWeight.ExtraBold) },
+            text={
+                Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                    OutlinedTextField(fullName,{fullName=it.take(120)},label={Text("ชื่อ-นามสกุล")})
+                    OutlinedTextField(email,{email=it.take(160)},label={Text("อีเมล")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Email))
+                    Box{
+                        OutlinedButton(onClick={roleOpen=true},modifier=Modifier.fillMaxWidth()){Text("บทบาท: "+role)}
+                        DropdownMenu(roleOpen,{roleOpen=false}){
+                            val roleOptions=if(original.role=="owner") listOf("owner") else listOf("manager","staff","accountant","kitchen")
+                            roleOptions.forEach{v->DropdownMenuItem({Text(v)},{role=v;roleOpen=false})}
+                        }
+                    }
+                    OutlinedTextField(employeeCode,{employeeCode=it.filter(Char::isDigit).take(32)},label={Text("รหัสพนักงาน")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number))
+                    OutlinedTextField(position,{position=it.take(120)},label={Text("ตำแหน่ง")})
+                    OutlinedTextField(permissionRole,{permissionRole=it.take(80)},label={Text("Permission Role")})
+                    Row(verticalAlignment=Alignment.CenterVertically){
+                        Switch(active,{active=it});Spacer(Modifier.width(8.dp));Text("เปิดใช้งานผู้ใช้")
+                    }
+                    Row(verticalAlignment=Alignment.CenterVertically){
+                        Switch(scopeMode=="single_device",{scopeMode=if(it)"single_device" else "all_devices"});Spacer(Modifier.width(8.dp));Text("จำกัดเครื่องเดียว")
+                    }
+                    if(scopeMode=="single_device"){
+                        Box{
+                            OutlinedButton(onClick={deviceOpen=true},modifier=Modifier.fillMaxWidth()){
+                                Text("เครื่อง: "+(snapshot?.devices?.firstOrNull{it.id==deviceId}?.deviceName?:"เลือกเครื่อง"))
+                            }
+                            DropdownMenu(deviceOpen,{deviceOpen=false}){
+                                snapshot?.devices?.filter{it.status=="active"}?.forEach{d->
+                                    DropdownMenuItem({Text(d.deviceName+" ("+d.deviceCode+")")},{deviceId=d.id;deviceOpen=false})
+                                }
+                            }
+                        }
+                    }
+                    if(role!="staff"){
+                        OutlinedTextField(newPin,{newPin=it.filter(Char::isDigit).take(12)},label={Text("PIN ใหม่ (เว้นว่าง = ไม่เปลี่ยน)")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.NumberPassword))
+                    } else {
+                        Row(verticalAlignment=Alignment.CenterVertically){
+                            Switch(staffApproval,{staffApproval=it});Spacer(Modifier.width(8.dp));Text("อนุญาต PIN ยกเลิกบิล")
+                        }
+                        if(staffApproval&&!original.canApproveCancelBill){
+                            OutlinedTextField(staffPin,{staffPin=it.filter(Char::isDigit).take(12)},label={Text("PIN พนักงาน 4-12 หลัก")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.NumberPassword))
+                        }
+                    }
+                    OutlinedTextField(approvalPin,{approvalPin=it.filter(Char::isDigit).take(12)},label={Text("PIN Owner/Manager สำหรับอนุมัติ")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.NumberPassword))
+                    if(original.canDelete){
+                        TextButton(onClick={deleteUser=original;editUser=null},enabled=!busy){
+                            Text("ลบผู้ใช้งานจากสาขานี้",color=Color(0xFFB33A49))
+                        }
+                    }
+                }
+            },
+            confirmButton={
+                Button(
+                    enabled=!busy&&fullName.isNotBlank()&&employeeCode.isNotBlank()&&validScope,
+                    onClick={
+                        busy=true
+                        scope.launch{
+                            try{
+                                client.updatePosUserProfile(session,original,fullName,email,role,employeeCode,position,permissionRole,approvalPin)
+                                client.setPosUserDeviceScope(session,original.userId,scopeMode,deviceId)
+                                if(active!=original.active) client.setPosUserActive(session,original.userId,active)
+                                if(newPin.isNotBlank()) client.setPosUserPin(session,original.userId,newPin,approvalPin)
+                                if(role=="staff"&&staffApproval!=original.canApproveCancelBill){
+                                    client.setPosUserCancelBillApproval(session,original.userId,staffApproval,if(staffApproval)staffPin else "",approvalPin)
+                                }
+                                editUser=null;notice="บันทึกผู้ใช้งานแล้ว";reload()
+                            }catch(e:Exception){
+                                error="บันทึกผู้ใช้ไม่สำเร็จ: "+((e as? WebPosApiException)?.code?:e.message.orEmpty())
+                            }finally{busy=false}
+                        }
+                    }
+                ){Text("บันทึก")}
+            },
+            dismissButton={TextButton(onClick={editUser=null},enabled=!busy){Text("ยกเลิก")}}
+        )
+    }
+
+    deleteUser?.let { target ->
+        AlertDialog(
+            onDismissRequest={if(!busy)deleteUser=null},
+            title={Text("ลบผู้ใช้งานจากสาขา",fontWeight=FontWeight.ExtraBold)},
+            text={Text("ยืนยันลบ "+target.fullName.ifBlank{target.employeeCode}+" ออกจากสาขานี้?")},
+            confirmButton={
+                Button(
+                    enabled=!busy,
+                    colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFB33A49)),
+                    onClick={
+                        busy=true
+                        scope.launch{
+                            try{
+                                client.deletePosUser(session,target.userId)
+                                deleteUser=null;notice="ลบผู้ใช้งานแล้ว";reload()
+                            }catch(e:Exception){
+                                error="ลบผู้ใช้ไม่สำเร็จ: "+((e as? WebPosApiException)?.code?:e.message.orEmpty())
+                            }finally{busy=false}
+                        }
+                    }
+                ){Text("ยืนยันลบ")}
+            },
+            dismissButton={TextButton(onClick={deleteUser=null},enabled=!busy){Text("ยกเลิก")}}
+        )
     }
 
     if(showAdd){
