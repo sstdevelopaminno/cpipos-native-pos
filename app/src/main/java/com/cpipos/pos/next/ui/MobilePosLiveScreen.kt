@@ -59,6 +59,8 @@ import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import com.cpipos.pos.next.core.push.NativeFcmRegistration
 import com.cpipos.pos.next.core.push.NativeQrBackgroundService
 import com.cpipos.pos.next.core.print.NativePrintRuntime
+import com.cpipos.pos.next.core.mdm.NativeMdmRuntime
+import com.cpipos.pos.next.core.webpos.WebSubscriptionRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -92,6 +94,10 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     }
     var session by remember { mutableStateOf<WebPosSession?>(null) }
     var entitlements by remember { mutableStateOf<WebPosEntitlements?>(null) }
+    var subscriptionRuntime by remember(session?.id) { mutableStateOf<WebSubscriptionRuntime?>(null) }
+    var subscriptionClock by remember { mutableStateOf(System.currentTimeMillis()) }
+    var subscriptionWarningDismissed by remember(session?.id) { mutableStateOf(false) }
+    var mdmRefreshRevision by remember { mutableStateOf(0) }
     var entitlementCheckBusy by remember { mutableStateOf(false) }
     var packageLockTarget by remember { mutableStateOf<String?>(null) }
     var unresolvedSaleCount by remember(session?.id) { mutableStateOf<Int?>(null) }
@@ -186,6 +192,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     }
 
     fun goToStore() {
+        NativeMdmRuntime.stop()
         NativePrintRuntime.stop()
         NativeQrBackgroundService.stop(ctx)
         NativeFcmRegistration.clearScope(ctx)
@@ -195,6 +202,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         selectedDevice = null
         session = null
         entitlements = null
+        subscriptionRuntime = null
+        subscriptionWarningDismissed = false
         entitlementCheckBusy = false
         packageLockTarget = null
         catalog = emptyList()
@@ -294,6 +303,57 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
+    // Mirror the canonical CpIPOS subscription lifecycle guard in Native.
+    // Locked state is never cached as entitlement truth: billing remains reachable
+    // and this loop refreshes quickly until IT settlement unlocks the tenant.
+    LaunchedEffect(client, session?.id, session?.tenantId, mdmRefreshRevision) {
+        val active = session
+        if (active == null) {
+            subscriptionRuntime = null
+            return@LaunchedEffect
+        }
+        var first = true
+        var signature = ""
+        while (session?.id == active.id && session?.tenantId == active.tenantId) {
+            val latest = try {
+                client.subscriptionRuntime(active, forceFresh = first)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w(
+                    "CpIPOSSubscription",
+                    "Runtime refresh unavailable: " + failure.javaClass.simpleName
+                )
+                null
+            }
+            if (latest != null && session?.id == active.id) {
+                val nextSignature = listOf(
+                    latest.lifecycleStatus,
+                    latest.locked.toString(),
+                    latest.lockReason.orEmpty(),
+                    latest.expiresAt.orEmpty()
+                ).joinToString("|")
+                if (signature.isNotBlank() && signature != nextSignature) {
+                    subscriptionWarningDismissed = false
+                }
+                signature = nextSignature
+                subscriptionRuntime = latest
+                subscriptionClock = System.currentTimeMillis()
+            }
+            first = false
+            val locked = subscriptionRuntime?.lockedAt(System.currentTimeMillis()) == true
+            kotlinx.coroutines.delay(if (locked) 15_000L else 60_000L)
+        }
+    }
+
+    // Local clock closes the exact expiry boundary even between server refreshes.
+    LaunchedEffect(session?.id) {
+        while (session != null) {
+            kotlinx.coroutines.delay(30_000L)
+            subscriptionClock = System.currentTimeMillis()
+        }
+    }
+
     // Local SQLite safety state is read off the UI thread. Render paths and
     // gesture handlers consume only this cached state so Android 8.1 devices do
     // not block a frame while SQLite opens/locks the journal database.
@@ -316,7 +376,11 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         if (active != null) {
             NativeQrBackgroundService.start(ctx)
             NativePrintRuntime.start(ctx, client, active)
+            NativeMdmRuntime.start(ctx, client, active) {
+                mdmRefreshRevision += 1
+            }
         } else {
+            NativeMdmRuntime.stop()
             NativePrintRuntime.stop()
             NativeQrBackgroundService.stop(ctx)
         }
@@ -599,7 +663,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                             val verified = client.selectEntryDevice(
                                 branchId = where.id,
                                 employeeId = who.id,
-                                selected = chosen
+                                selected = chosen,
+                                androidInstallId = NativeFcmRegistration.installationId(ctx)
                             )
                             session = verified
                             refreshCatalog(verified)
@@ -837,6 +902,14 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 )
             }
         }
+        "billing" -> session?.let { verified ->
+            NativeSubscriptionBillingScreen(
+                client = client,
+                session = verified,
+                onBack = { step = "mode" },
+                onTab = { destination -> if (!busy) navigateTab(destination) }
+            )
+        }
         "tab" -> session?.let { verified ->
             androidx.compose.runtime.key(verified.id, mainTab, tabRevision) {
                 NativeMainTabScreen(
@@ -915,10 +988,26 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
-    NativePackageLockDialog(
-        targetLabel = packageLockTarget,
-        onDismiss = { packageLockTarget = null }
-    )
+    if (subscriptionRuntime?.lockedAt(subscriptionClock) != true) {
+        NativePackageLockDialog(
+            targetLabel = packageLockTarget,
+            onDismiss = { packageLockTarget = null }
+        )
+    }
+
+    if (step != "billing") {
+        NativeSubscriptionLifecycleDialog(
+            runtime = subscriptionRuntime,
+            nowMs = subscriptionClock,
+            warningDismissed = subscriptionWarningDismissed,
+            onDismissWarning = { subscriptionWarningDismissed = true },
+            onOpenBilling = {
+                packageLockTarget = null
+                subscriptionWarningDismissed = true
+                step = "billing"
+            }
+        )
+    }
 
     if (showSalePermissionDialog) {
         AlertDialog(
@@ -1148,6 +1237,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     // The server owns QR order state; dismissing a food notification NEVER accepts an order.
     val verifiedForAlerts = session
     if (verifiedForAlerts != null &&
+        subscriptionRuntime?.lockedAt(subscriptionClock) != true &&
         step in setOf("shift", "review", "mode", "sale", "dine", "dine_order", "tab")) {
         NativeQrGlobalAlerts(
             client = client,
