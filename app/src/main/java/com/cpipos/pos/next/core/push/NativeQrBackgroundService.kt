@@ -62,6 +62,7 @@ class NativeQrBackgroundService : Service() {
     private suspend fun pollLoop() {
         var session = runCatching { client.synchronizedShiftSession() }.getOrNull()
         var sessionRefreshAt = System.currentTimeMillis()
+        var policyRefreshAt = 0L
         var delayMs = 4_000L
 
         while (scope.isActive) {
@@ -84,6 +85,17 @@ class NativeQrBackgroundService : Service() {
                 }
                 // Service survives activity/task removal: never poll QR under
                 // a tenant's active developer/ADB security restriction.
+                if (System.currentTimeMillis() - policyRefreshAt >= 30_000L) {
+                    policyRefreshAt = System.currentTimeMillis()
+                    try {
+                        val enabled = client.androidDeveloperPolicyEnabled(active)
+                        NativeAndroidDeveloperGuard.rememberEnabled(this, active.tenantId, enabled)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // Preserve last verified policy on connectivity failures.
+                    }
+                }
                 val policy = NativeAndroidDeveloperGuard.cachedEnabled(this, active.tenantId)
                 if (policy == null || (policy && NativeAndroidDeveloperGuard.inspect(this).detected)) {
                     delay(5_000L)
