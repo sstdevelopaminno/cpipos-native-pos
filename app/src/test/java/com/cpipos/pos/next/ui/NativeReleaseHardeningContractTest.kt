@@ -79,6 +79,20 @@ class NativeReleaseHardeningContractTest {
     }
 
     @Test
+    fun mdmITDisableCannotBeUndoneByRoutineHeartbeatAndSurvivesRestart() {
+        val mdm = source("src/main/java/com/cpipos/pos/next/core/mdm/NativeDeviceManagementRuntime.kt")
+        val store = source("src/main/java/com/cpipos/pos/next/core/mdm/NativeDeviceLockStore.kt")
+        assertTrue(mdm.contains("_deviceLocked.value = it.restoreDeviceLock()"))
+        assertTrue(mdm.contains("updateDeviceLock(true)"))
+        assertTrue(mdm.contains("updateDeviceLock(false)"))
+        assertTrue(mdm.contains("lockStore.setLocked(locked)"))
+        assertFalse(mdm.contains("_lastHealth.value = result.status\n                    _deviceLocked.value = false"))
+        assertTrue(store.contains("tenantId + \":\" + branchId + \":\" + deviceCode"))
+        assertTrue(store.contains("prefs.getBoolean(key, false)"))
+        assertTrue(store.contains("prefs.edit().putBoolean(key, value).commit()"))
+    }
+
+    @Test
     fun nativePrintPathStaysOnCanonicalQueueWithDedupe() {
         val runtime = source("src/main/java/com/cpipos/pos/next/core/print/NativePrintRuntime.kt")
         val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
