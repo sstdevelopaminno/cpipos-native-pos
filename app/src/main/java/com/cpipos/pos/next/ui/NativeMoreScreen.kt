@@ -171,7 +171,7 @@ internal fun NativeMoreScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
                     .padding(horizontal = 14.dp)
-                    .padding(top = 12.dp, bottom = 156.dp),
+                    .padding(top = 12.dp, bottom = 212.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 item {
