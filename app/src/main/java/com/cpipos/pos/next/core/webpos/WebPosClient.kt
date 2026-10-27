@@ -2901,6 +2901,25 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         )
     }
 
+    /**
+     * Authenticated, tenant-scoped read of IT's Android developer-mode policy.
+     * This endpoint remains accessible during subscription payment recovery.
+     */
+    suspend fun androidDeveloperPolicyEnabled(session: WebPosSession): Boolean {
+        require(session.tenantId.isNotBlank())
+        val row = call(
+            method = "GET",
+            path = "/api/pos/android-security-policy",
+            readTimeoutMs = 5_000,
+            connectTimeoutMs = 3_000
+        )
+        if (row.optString("tenant_id") != session.tenantId ||
+            !row.has("enforce_developer_options_off")) {
+            throw WebPosApiException("android_security_policy_scope_mismatch", 409)
+        }
+        return row.optBoolean("enforce_developer_options_off", false)
+    }
+
     suspend fun subscriptionRuntime(
         session: WebPosSession,
         reason: String = "fallback"
