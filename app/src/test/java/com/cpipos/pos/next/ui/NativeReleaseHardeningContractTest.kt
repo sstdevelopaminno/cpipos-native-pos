@@ -98,6 +98,17 @@ class NativeReleaseHardeningContractTest {
     }
 
     @Test
+    fun physicalReceiptSuccessIsNeverMisreportedAsRetryableFailureAfterAckTimeout() {
+        val runtime = source("src/main/java/com/cpipos/pos/next/core/print/NativePrintRuntime.kt")
+        assertTrue(runtime.contains("var physicalOutputCompleted = false"))
+        assertTrue(runtime.contains("physicalOutputCompleted = true"))
+        assertTrue(runtime.contains("if (!physicalOutputCompleted) runCatching"))
+        assertTrue(runtime.contains("print_ack_pending:"))
+        assertTrue(runtime.contains("recentPrinted[jobId] = now"))
+        assertTrue(runtime.contains("if (recentPrinted.containsKey(jobId)) return true"))
+    }
+
+    @Test
     fun mdmTelemetryIdentifiesNativeAndroidWithoutPretendingToBeWindowsBridge() {
         val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
         val block = functionBlock(client, "sendDeviceHeartbeat")

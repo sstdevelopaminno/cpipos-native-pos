@@ -70,6 +70,8 @@ object NativePrintRuntime {
         private var lastSuccessAt: Long? = null
         private var lastHeartbeatAt = 0L
         private var idleIndex = 0
+        // Process-local fallback if persisting the dedupe ledger fails.
+        private val recentPrinted = LinkedHashMap<String, Long>()
         private val scopeKey =
             session.tenantId + ":" + session.branchId + ":" + session.deviceCode
 
@@ -212,31 +214,47 @@ object NativePrintRuntime {
                 return
             }
 
+            // An ACK/network failure *after* successful physical output is not a
+            // print failure. Never mark such a job failed/retryable on the server.
+            var physicalOutputCompleted = false
             try {
                 val result = withContext(Dispatchers.IO) { transport.print(parsed) }
+                physicalOutputCompleted = true
+                // Persist before ACK so a reclaimed server lease is deduplicated.
                 val ledgerPersisted = rememberPrinted(jobId)
-                client.ackNativePrintJob(
-                    agentKey = agentKey,
-                    jobId = jobId,
-                    attemptId = attemptId,
-                    providerJobId = result.providerJobId,
-                    bytesSent = result.bytesSent,
-                    transport = result.transport
-                )
                 lastTransport = result.transport
                 lastSuccessAt = System.currentTimeMillis()
-                lastError = if (ledgerPersisted) null else "print_dedupe_ledger_persist_failed"
+                try {
+                    client.ackNativePrintJob(
+                        agentKey = agentKey,
+                        jobId = jobId,
+                        attemptId = attemptId,
+                        providerJobId = result.providerJobId,
+                        bytesSent = result.bytesSent,
+                        transport = result.transport
+                    )
+                    lastError = if (ledgerPersisted) null else "print_dedupe_ledger_persist_failed"
+                } catch (failure: Exception) {
+                    if (failure is CancellationException) throw failure
+                    // Leave the lease to be reconciled by the server. Our local
+                    // dedupe ledger will ACK a later claim without printing again.
+                    lastError = "print_ack_pending:" + failure.javaClass.simpleName
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (failure: NativePrintException) {
                 lastError = failure.code + ":" + failure.message.orEmpty()
-                runCatching {
+                if (!physicalOutputCompleted) runCatching {
                     client.failNativePrintJob(
                         agentKey, jobId, attemptId,
                         failure.code, failure.message ?: failure.code, failure.retryable
                     )
                 }
             } catch (failure: Exception) {
-                lastError = failure.message ?: "native_print_failed"
-                runCatching {
+                lastError = if (physicalOutputCompleted)
+                    "print_ack_pending:" + failure.javaClass.simpleName
+                else failure.message ?: "native_print_failed"
+                if (!physicalOutputCompleted) runCatching {
                     client.failNativePrintJob(
                         agentKey, jobId, attemptId,
                         "native_print_failed",
@@ -249,6 +267,8 @@ object NativePrintRuntime {
 
         private fun wasPrinted(jobId: String): Boolean {
             val now = System.currentTimeMillis()
+            recentPrinted.entries.removeAll { now - it.value >= PRINTED_TTL_MS }
+            if (recentPrinted.containsKey(jobId)) return true
             val ledger = readLedger(now)
             val at = ledger.optLong(jobId, 0L)
             return at > 0L && now - at < PRINTED_TTL_MS
@@ -256,6 +276,11 @@ object NativePrintRuntime {
 
         private fun rememberPrinted(jobId: String): Boolean {
             val now = System.currentTimeMillis()
+            recentPrinted[jobId] = now
+            while (recentPrinted.size > 120) {
+                val oldest = recentPrinted.keys.firstOrNull() ?: break
+                recentPrinted.remove(oldest)
+            }
             val ledger = readLedger(now)
             ledger.put(jobId, now)
             val keys = ledger.keys().asSequence().toList()
