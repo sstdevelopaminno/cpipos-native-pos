@@ -8,6 +8,7 @@ import android.os.IBinder
 import androidx.core.content.ContextCompat
 import com.cpipos.pos.next.BuildConfig
 import com.cpipos.pos.next.NativePosApplication
+import com.cpipos.pos.next.core.security.NativeAndroidDeveloperGuard
 import com.cpipos.pos.next.core.webpos.WebPosApiException
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import java.time.Instant
@@ -80,6 +81,13 @@ class NativeQrBackgroundService : Service() {
                 val active = session ?: run {
                     stopSelf()
                     return
+                }
+                // Service survives activity/task removal: never poll QR under
+                // a tenant's active developer/ADB security restriction.
+                val policy = NativeAndroidDeveloperGuard.cachedEnabled(this, active.tenantId)
+                if (policy == null || (policy && NativeAndroidDeveloperGuard.inspect(this).detected)) {
+                    delay(5_000L)
+                    continue
                 }
                 val key = "cursor:" + active.tenantId + ":" + active.branchId + ":" + active.deviceCode
                 var cursor = prefs.getString(key, null)
