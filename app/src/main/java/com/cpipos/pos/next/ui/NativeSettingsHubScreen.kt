@@ -112,7 +112,7 @@ internal fun NativeSettingsHubScreen(
             Column(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 17.dp, end = 17.dp, top = 15.dp, bottom = 156.dp),
+                    .padding(start = 17.dp, end = 17.dp, top = 15.dp, bottom = 212.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
