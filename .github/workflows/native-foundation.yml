@@ -38,7 +38,7 @@ jobs:
           gradle-version: "9.5.0"
 
       - name: Test and build debug APK
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
+        run: gradle :app:testDebugUnitTest :app:assembleDebug :app:lintVitalRelease --stacktrace
 
       - name: Upload installable preview APK
         uses: actions/upload-artifact@v4
