@@ -44,6 +44,9 @@ import com.cpipos.pos.next.core.pos.Satang
 import com.cpipos.pos.next.core.webpos.WebPaymentAccount
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.core.webpos.WebPosSession
+import com.cpipos.pos.next.core.webpos.WebPosApiException
+import kotlinx.coroutines.CancellationException
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -92,8 +95,10 @@ internal fun TransferQrCheckoutScreen(
             } else null
             qrImage = bitmap ?: throw IllegalStateException("บัญชีนี้ยังไม่มี PromptPay หรือรูป QR ที่ใช้ได้")
             qrDataUri = bitmapToPngDataUri(requireNotNull(bitmap))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (failure: Exception) {
-            qrError = "ไม่สามารถแสดง QR ได้: " + (failure.message ?: "โปรดตรวจสอบการตั้งค่ารับชำระ").take(100)
+            qrError = transferQrFailureMessage(failure)
         } finally {
             loading = false
         }
@@ -296,4 +301,32 @@ private fun bitmapToPngDataUri(bitmap: Bitmap): String {
         "payment_notice_qr_too_large"
     }
     return "data:image/png;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+}
+
+/** Explain the failed API or QR configuration instead of showing only "POS API:".
+ * Do not expose authorization cookies, bank identifiers or raw server errors.
+ */
+internal fun transferQrFailureMessage(failure: Exception): String {
+    val instruction = when (failure) {
+        is WebPosApiException -> when (failure.code) {
+            "session_expired", "session_not_active", "missing_pos_session", "invalid_handoff_token" ->
+                "เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง"
+            "subscription_access_locked" ->
+                "แพ็กเกจถูกระงับ กรุณาติดต่อเจ้าของร้านเพื่อต่ออายุ"
+            "payment_provider_currency_unsupported" ->
+                "PromptPay ใช้ได้เฉพาะร้านที่รับชำระสกุลเงินบาท (THB)"
+            "promptpay_qr_path_invalid", "promptpay_qr_account_invalid" ->
+                "กรุณาตรวจสอบหมายเลขพร้อมเพย์ในตั้งค่า > ช่องทางรับชำระ"
+            "promptpay_qr_upstream_failed", "promptpay_qr_upstream_not_image", "promptpay_qr_render_failed",
+            "promptpay_qr_unavailable", "promptpay_qr_invalid_image" ->
+                "ระบบสร้างภาพ QR ขัดข้อง กรุณาลองอีกครั้งหรือตรวจสอบฝั่ง CpIPOS"
+            "permission_denied", "forbidden" ->
+                "บัญชีพนักงานไม่มีสิทธิ์เปิด QR กรุณาตรวจสอบสิทธิ์ใน CpIPOS"
+            else -> "รหัสข้อผิดพลาด ${failure.code.take(48)} (HTTP ${failure.status})"
+        }
+        is IOException -> "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่"
+        is IllegalStateException -> "กรุณาตรวจสอบบัญชีรับโอนและ PromptPay ที่ตั้งค่าไว้"
+        else -> "ไม่สามารถสร้าง QR ได้ กรุณาลองใหม่และตรวจสอบการตั้งค่ารับชำระ"
+    }
+    return "ไม่สามารถแสดง QR ได้: $instruction"
 }
