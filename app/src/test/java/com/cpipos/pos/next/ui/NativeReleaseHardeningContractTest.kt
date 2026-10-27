@@ -93,6 +93,26 @@ class NativeReleaseHardeningContractTest {
     }
 
     @Test
+    fun androidDeveloperGuardUsesITTenantPolicyAndBlocksOperationalWorkers() {
+        val detector = source("src/main/java/com/cpipos/pos/next/core/security/NativeAndroidDeveloperGuard.kt")
+        val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
+        val live = source("src/main/java/com/cpipos/pos/next/ui/MobilePosLiveScreen.kt")
+        val dialog = source("src/main/java/com/cpipos/pos/next/ui/NativeDeveloperGuardDialog.kt")
+        assertTrue(detector.contains("Settings.Global.DEVELOPMENT_SETTINGS_ENABLED"))
+        assertTrue(detector.contains("Settings.Global.ADB_ENABLED"))
+        assertTrue(detector.contains("adb_wifi_enabled"))
+        assertTrue(detector.contains("policy:\" + tenantId"))
+        assertTrue(client.contains("/api/pos/android-security-policy"))
+        assertTrue(client.contains("android_security_policy_scope_mismatch"))
+        assertTrue(live.contains("developerGuardBlocked"))
+        assertTrue(live.contains("!developerGuardBlocked && !developerGuardPending"))
+        assertTrue(live.contains("NativePrintRuntime.stop()"))
+        assertTrue(live.contains("NativeQrBackgroundService.stop(ctx)"))
+        assertTrue(live.contains("NativeDeveloperGuardDialog(signals = developerSignals)"))
+        assertTrue(dialog.contains("dismissOnBackPress = false"))
+    }
+
+    @Test
     fun nativePrintPathStaysOnCanonicalQueueWithDedupe() {
         val runtime = source("src/main/java/com/cpipos/pos/next/core/print/NativePrintRuntime.kt")
         val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
