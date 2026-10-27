@@ -36,7 +36,7 @@ class NativeBillingLanguageContractTest {
         assertTrue(more.contains("\"billing\""))
         assertTrue(more.contains("ic_package_payment"))
         assertTrue(more.contains("if (menu.key == \"billing\") true"))
-        assertTrue(more.contains("bottom = 156.dp"))
+        assertTrue(more.contains("bottom = 212.dp"))
         assertTrue(more.contains("bottom = 150.dp"))
     }
 
@@ -90,7 +90,7 @@ class NativeBillingLanguageContractTest {
     fun settingsContentClearsRaisedBottomNavigation() {
         val hub = source("src/main/java/com/cpipos/pos/next/ui/NativeSettingsHubScreen.kt")
         val screens = source("src/main/java/com/cpipos/pos/next/ui/NativeSettingsManagementScreens.kt")
-        assertTrue(hub.contains("bottom = 156.dp"))
+        assertTrue(hub.contains("bottom = 212.dp"))
         assertTrue(screens.contains("bottom = 156.dp"))
     }
 }
