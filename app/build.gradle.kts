@@ -140,6 +140,7 @@ dependencies {
     testImplementation("org.json:json:20240303")
     // Executes real Compose semantics on an Android emulator; not a source-string check.
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:rules:1.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
