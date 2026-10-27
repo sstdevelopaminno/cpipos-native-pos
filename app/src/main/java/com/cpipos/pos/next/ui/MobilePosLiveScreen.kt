@@ -1344,7 +1344,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     // One app-wide listener survives switching tabs, sale screens and table modes.
     // The server owns QR order state; dismissing a food notification NEVER accepts an order.
     val verifiedForAlerts = session
-    if (verifiedForAlerts != null &&
+    if (verifiedForAlerts != null && !mdmLocked && subscriptionOperational &&
+        !developerGuardBlocked && !developerGuardPending &&
         step in setOf("shift", "review", "mode", "sale", "dine", "dine_order", "tab")) {
         NativeQrGlobalAlerts(
             client = client,
