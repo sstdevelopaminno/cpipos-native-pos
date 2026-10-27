@@ -1,62 +1,38 @@
-# CpIPOS Native POS 2.0
+# CpiPOS Native POS 2.x
 
-Native Android POS application for CUTTING POINT TECH CO., LTD.
+Native Android POS application by **CUTTING POINT INNOVATION CO., LTD. / บริษัท คัตติ้ง พอยท์ อินโนเวชั่น จำกัด**.
 
-## Project status
+## Distribution and source of truth (27 October 2026)
 
-This repository is the development line for **CpIPOS Native POS 2.x**.
+- **Native Mobile Android 2.0.0**: a signed APK is published by the existing CpIPOS release authority in [CpIPOS Releases](https://github.com/sstdevelopaminno/CpIPOS/releases/tag/native-mobile-v2.0.0). Its pinned source revision is `09c095232c9b2082fde73728f2fb34647788f09d` from this repository. Android 8.0+ (API 26).
+- **Android Tablet / legacy POS 1.0.25**: distributed separately from [CpIPOS Releases](https://github.com/sstdevelopaminno/CpIPOS/releases/tag/android-runtime-modern-1.0.25-print-health-auto-update). Do not confuse this with the Native Mobile APK.
+- [Company download center](https://www.cuttingpointinnovation.com/downloads) lists both Android variants; publish new URLs only after verifying the release assets and installer signatures.
+- **Development baseline:** `main`; use feature branches and CI to introduce changes. Older `feature/native-auth-phase1` is historical and is not the current release source.
+- **Existing CpIPOS Web POS + IT remain authoritative** for authentication, packages/renewals, permissions, shift scope, MDM, canonical billing and print-job dispatch. Native must reuse their authenticated APIs rather than create a second ledger or backend.
+- **Production database:** existing `CpiPOS-001`, never changed destructively from the APK.
 
-- Production Android `1.0.23` remains in the existing `sstdevelopaminno/CpIPOS` repository.
-- The current CpIPOS Web/Vercel backend remains authoritative during migration.
-- `CpiPOS-001` remains the production database. Native 2.0 does not embed service-role/database credentials and must not perform destructive schema changes from the APK.
-- Development app id is `com.cpipos.pos.next` (debug: `com.cpipos.pos.next.dev`) so it can coexist with production.
+## Native capabilities and QA
 
-## Current live path
+Current source includes authenticated Store Code/branch/employee/device entry, shift and sales flows, server-backed catalog and receipts, billing and payment-slip requests, Thai/English/Lao menu selection, subscription runtime lock/recovery, MDM command handling, and Android printer transports.
 
-On `feature/native-auth-phase1`, MainActivity enters one real native flow:
+**Source code and passing CI are not proof of customer readiness.** Verify on a registered physical Android device:
+1. Sign in with a test merchant/branch/device, open and close a shift, complete takeaway and dine-in transactions, verify server order/payment totals and safe retries.
+2. Print receipts on 58/80 mm printers (Bluetooth, USB, LAN as applicable), verify duplicate protection, reconnects, and print-job acknowledgements.
+3. Lock/unlock a device through IT and confirm immediate user-visible response; test offline/reconnect handling.
+4. Exercise subscription expiry -> runtime lock -> owner payment/IT confirmation -> entitlement recovery without bypassing lock on sale routes.
+5. Switch Thai, English and Lao through settings and reboot; check that translations persist and long text does not overlap bottom navigation.
+6. Verify Android release certificate identity, package name, versionCode, checksum, and actual install/upgrade behavior before publishing a new version.
 
-`Store Code → branch → employee code → registered cashier device → POS session → active shift → mode → product catalog → cart → cash checkout → server order/payment → receipt`
+## Build and previews
 
-The app uses the existing authenticated CpIPOS Web POS APIs. It does not turn a
-Supabase publishable key into a cashier session and does not ship administrative
-keys in the APK.
+- Workflow: `.github/workflows/native-foundation.yml` runs unit tests and builds a **debug** APK for PRs.
+- Signed public APK is generated from a pinned Native source SHA by the established [CpIPOS release authority workflow](https://github.com/sstdevelopaminno/CpIPOS/blob/main/.github/workflows/build-native-mobile-release.yml) using the existing stable Android signing certificate.
+- This repository also contains `native-mobile-release.yml`, but its repository-specific four signing secrets are independent. Do **not** assume they are configured merely because the CpIPOS release-authority workflow succeeds.
+- For local Windows/USB/ADB preview, see [Android device guide](docs/WINDOWS_VSCODE_ANDROID_DEVICE.md) and `scripts/android-device-preview.ps1`.
 
-Implemented live checkpoints include:
+## Security rules
 
-- real Store Code/branch/employee/device session entry;
-- active-shift validation/opening;
-- server-scoped products plus canonical product-media images;
-- native product grid/search/cart;
-- server-authoritative takeaway cash order and payment with stable idempotency IDs;
-- durable local uncertain-sale journal and Reconcile flow;
-- real receipt history/search (last 30 Bangkok days) via authenticated Web POS;
-- 58/80 mm Android PrintManager receipt/PDF rendering.
-
-Transfer settlement, barcode camera scanning, dine-in/Table Bill, close shift,
-direct ESC/POS printer transport, and fully wired offline sync remain incomplete.
-
-## VS Code + Android handset preview (Windows)
-
-Start at [Windows VS Code / USB Android setup](docs/WINDOWS_VSCODE_ANDROID_DEVICE.md).
-The checked-in `scripts/android-device-preview.ps1` builds a debug APK, installs
-`com.cpipos.pos.next.dev` through ADB and can open scrcpy.
-
-Use `feature/native-auth-phase1`, **not** the default `main` handoff branch.
-
-## Current implementation checkpoints
-
-- [Real-sale reconciliation + receipt history (2026-10-22)](docs/NATIVE_RECONCILE_RECEIPT_HISTORY_2026-10-22.md)
-- [Online cash/receipt integration (2026-09-25)](docs/NATIVE_ONLINE_CASH_RECEIPTS_2026-09-25.md)
-- [Offline/outbox foundation](docs/NATIVE_PHASE2_IMPLEMENTATION_2026-09-25.md)
-
-A CI build proves compile/unit-test/APK generation only. Field readiness still
-requires a registered merchant, employee/device permission, active shift, a
-controlled cash sale comparison against CpIPOS Web, and printer testing.
-
-## Safety rules
-
-1. Do not copy the legacy WebView POS runtime into this repository.
-2. Do not store Supabase service-role keys, database passwords, Android signing keys or other secrets in Git.
-3. Production Web compatibility changes must be isolated, reviewed and pass its own CI before deployment.
-4. Do not perform destructive CpiPOS-001 schema/data changes from ordinary Native application work.
-5. Server permissions, tenant/branch scope, active session/shift and idempotency remain authoritative; UI state is not a security boundary.
+- Never commit signing keys, Supabase service-role credentials, database passwords, or production secrets.
+- Native APK never grants additional server permissions. Authoritative checks must be applied server-side to tenant, branch, device, role, active shift, and package.
+- Preserve idempotency for payments/printing and leave uncertain-sale recovery available.
+- Do not publish a new Android release before CI, signature verification, and physical-device acceptance.
