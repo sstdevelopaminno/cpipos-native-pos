@@ -1113,6 +1113,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     if (session != null && developerGuardBlocked) {
         NativeDeveloperGuardDialog(signals = developerSignals)
     }
+    if (session != null && developerGuardPending) {
+        NativeDeveloperPolicyLoadingDialog()
+    }
 
     if (showSalePermissionDialog) {
         AlertDialog(
