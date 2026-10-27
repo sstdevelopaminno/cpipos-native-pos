@@ -61,6 +61,7 @@ import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import com.cpipos.pos.next.core.push.NativeFcmRegistration
 import com.cpipos.pos.next.core.push.NativeQrBackgroundService
 import com.cpipos.pos.next.core.print.NativePrintRuntime
+import com.cpipos.pos.next.core.security.NativeAndroidDeveloperGuard
 import com.cpipos.pos.next.core.mdm.NativeDeviceManagementRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -135,12 +136,19 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var tabRevision by remember { mutableStateOf(0) }
     val fcmNavigationRevision = NativeFcmRegistration.navigationRevision.intValue
     val mdmLocked by NativeDeviceManagementRuntime.deviceLocked.collectAsState()
+    var developerSignals by remember { mutableStateOf(NativeAndroidDeveloperGuard.inspect(ctx)) }
+    var developerPolicyEnabled by remember(session?.tenantId) {
+        mutableStateOf<Boolean?>(session?.tenantId?.let { NativeAndroidDeveloperGuard.cachedEnabled(ctx, it) })
+    }
+    val developerGuardBlocked = developerPolicyEnabled == true && developerSignals.detected
+    val developerGuardPending = session != null && developerPolicyEnabled == null
     val mdmRefreshRevision by NativeDeviceManagementRuntime.refreshRevision.collectAsState()
     // Fail closed for background operational workers until the subscription
     // lifecycle has been fetched and is confirmed usable. MDM and Billing stay
     // reachable so IT/payment recovery can still unlock the device.
     val subscriptionOperational =
-        subscriptionRuntime?.let { it.exempt || !it.locked } == true
+        subscriptionRuntime?.let { it.exempt || !it.locked } == true &&
+            !developerGuardBlocked && !developerGuardPending
 
     fun tabPackageAllowed(tab: String, access: WebPosEntitlements? = entitlements): Boolean {
         val snapshot = access ?: return true
@@ -332,6 +340,39 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
+    // Recheck developer settings periodically and after returning from Android Settings.
+    LaunchedEffect(ctx) {
+        while (true) {
+            developerSignals = NativeAndroidDeveloperGuard.inspect(ctx)
+            kotlinx.coroutines.delay(2_000L)
+        }
+    }
+    LaunchedEffect(client, session?.id, session?.tenantId) {
+        val active = session
+        if (active == null) {
+            developerPolicyEnabled = null
+            return@LaunchedEffect
+        }
+        developerPolicyEnabled = NativeAndroidDeveloperGuard.cachedEnabled(ctx, active.tenantId)
+        while (session?.id == active.id && session?.tenantId == active.tenantId) {
+            try {
+                val enabled = client.androidDeveloperPolicyEnabled(active)
+                if (session?.id == active.id && session?.tenantId == active.tenantId) {
+                    // Never invent a disabled state when the server is unavailable.
+                    developerPolicyEnabled = enabled
+                    withContext(Dispatchers.IO) {
+                        NativeAndroidDeveloperGuard.rememberEnabled(ctx, active.tenantId, enabled)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w("CpIPOSDeveloperGuard", "Policy refresh failed: " + failure.javaClass.simpleName)
+            }
+            kotlinx.coroutines.delay(15_000L)
+        }
+    }
+
     // Subscription lifecycle is a separate global lock from feature/menu
     // entitlements. Locked snapshots are never cached server-side, so payment
     // approval from CpIPOS/IT can unlock this device quickly without restart.
@@ -398,7 +439,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     // either worker until BOTH the MDM device gate and subscription lifecycle
     // gate are open. This prevents an expired/suspended package from claiming
     // queued print jobs while keeping Billing/MDM recovery available.
-    LaunchedEffect(mdmLocked, subscriptionOperational, session?.id) {
+    LaunchedEffect(mdmLocked, subscriptionOperational, developerGuardBlocked, developerGuardPending, session?.id) {
         val active = session ?: return@LaunchedEffect
         if (mdmLocked || !subscriptionOperational) {
             NativePrintRuntime.stop()
@@ -1068,6 +1109,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     )
     if (mdmLocked) {
         NativeMdmDeviceLockDialog()
+    }
+    if (session != null && developerGuardBlocked) {
+        NativeDeveloperGuardDialog(signals = developerSignals)
     }
 
     if (showSalePermissionDialog) {
