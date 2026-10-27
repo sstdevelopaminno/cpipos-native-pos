@@ -70,6 +70,8 @@ object NativePrintRuntime {
         private var lastSuccessAt: Long? = null
         private var lastHeartbeatAt = 0L
         private var idleIndex = 0
+        // Process-local fallback if persisting the dedupe ledger fails.
+        private val recentPrinted = LinkedHashMap<String, Long>()
         private val scopeKey =
             session.tenantId + ":" + session.branchId + ":" + session.deviceCode
 
@@ -265,6 +267,8 @@ object NativePrintRuntime {
 
         private fun wasPrinted(jobId: String): Boolean {
             val now = System.currentTimeMillis()
+            recentPrinted.entries.removeAll { now - it.value >= PRINTED_TTL_MS }
+            if (recentPrinted.containsKey(jobId)) return true
             val ledger = readLedger(now)
             val at = ledger.optLong(jobId, 0L)
             return at > 0L && now - at < PRINTED_TTL_MS
@@ -272,6 +276,11 @@ object NativePrintRuntime {
 
         private fun rememberPrinted(jobId: String): Boolean {
             val now = System.currentTimeMillis()
+            recentPrinted[jobId] = now
+            while (recentPrinted.size > 120) {
+                val oldest = recentPrinted.keys.firstOrNull() ?: break
+                recentPrinted.remove(oldest)
+            }
             val ledger = readLedger(now)
             ledger.put(jobId, now)
             val keys = ledger.keys().asSequence().toList()
