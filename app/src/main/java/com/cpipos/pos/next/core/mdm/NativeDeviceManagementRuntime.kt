@@ -48,8 +48,12 @@ object NativeDeviceManagementRuntime {
             val current = worker
             if (current?.sameSession(session) == true && current.running()) return
             current?.stop()
-            _deviceLocked.value = false
-            worker = Worker(context.applicationContext, client, session).also { it.start() }
+            worker = Worker(context.applicationContext, client, session).also {
+                // A delivered+ACKed disable command is no longer pending on the server.
+                // Restore its durable local state before any sales UI is shown.
+                _deviceLocked.value = it.restoreDeviceLock()
+                it.start()
+            }
         }
     }
 
@@ -74,6 +78,19 @@ object NativeDeviceManagementRuntime {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private var job: Job? = null
         private val failures = AtomicInteger(0)
+        private val lockStore = NativeDeviceLockStore(
+            context, session.tenantId, session.branchId, session.deviceCode
+        )
+
+        fun restoreDeviceLock(): Boolean = lockStore.isLocked()
+
+        private fun updateDeviceLock(locked: Boolean) {
+            val persisted = lockStore.setLocked(locked)
+            _deviceLocked.value = locked
+            if (!persisted) {
+                Log.e("CpIPOSMDM", "Device lock persistence failed; in-memory lock remains active")
+            }
+        }
 
         fun sameSession(other: WebPosSession): Boolean =
             other.id == session.id &&
@@ -101,7 +118,8 @@ object NativeDeviceManagementRuntime {
                         .getOrElse { JSONObject().put("running", false).put("last_error", "diagnostics_unavailable") }
                     val result = client.sendDeviceHeartbeat(session, installId, printer)
                     _lastHealth.value = result.status
-                    _deviceLocked.value = false
+                    // A successful health report is NOT an IT enable command.
+                    // The disable command was already consumed when ACKed.
                     failures.set(0)
                     if (result.pendingActions.isNotEmpty()) {
                         handle(result.pendingActions)
@@ -112,7 +130,7 @@ object NativeDeviceManagementRuntime {
                 } catch (failure: WebPosApiException) {
                     val blocked = failure.code == "device_or_session_blocked"
                     if (blocked) {
-                        _deviceLocked.value = true
+                        updateDeviceLock(true)
                         _lastHealth.value = "blocked"
                         // A remote IT enable command must become visible quickly.
                         // Do not exponentially back off while the device is
@@ -149,11 +167,11 @@ object NativeDeviceManagementRuntime {
             val results = actions.take(10).map { action ->
                 when (action.commandType) {
                     "disable_device" -> {
-                        _deviceLocked.value = true
+                        updateDeviceLock(true)
                         WebDeviceCommandAck(action.id, action.commandType, true)
                     }
                     "enable_device" -> {
-                        _deviceLocked.value = false
+                        updateDeviceLock(false)
                         WebDeviceCommandAck(action.id, action.commandType, true)
                     }
                     "reload_ui", "refresh_config" -> {
