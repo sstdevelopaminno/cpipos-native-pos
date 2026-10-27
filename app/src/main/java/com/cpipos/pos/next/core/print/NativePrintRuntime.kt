@@ -70,6 +70,7 @@ object NativePrintRuntime {
         private var lastTransport: String? = null
         private var lastSuccessAt: Long? = null
         private var lastHeartbeatAt = 0L
+        private var lastDeveloperPolicyCheckAt = 0L
         private var idleIndex = 0
         // Process-local fallback if persisting the dedupe ledger fails.
         private val recentPrinted = LinkedHashMap<String, Long>()
@@ -135,6 +136,17 @@ object NativePrintRuntime {
         private suspend fun tick(): Int {
             // The print worker can outlive MainActivity. Never rely solely on
             // Compose dialogs for tenant developer/ADB enforcement.
+            if (System.currentTimeMillis() - lastDeveloperPolicyCheckAt >= 15_000L) {
+                lastDeveloperPolicyCheckAt = System.currentTimeMillis()
+                try {
+                    val refreshed = client.androidDeveloperPolicyEnabled(session)
+                    NativeAndroidDeveloperGuard.rememberEnabled(context, session.tenantId, refreshed)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Keep the last verified IT decision, never invent an unlock.
+                }
+            }
             val policy = NativeAndroidDeveloperGuard.cachedEnabled(context, session.tenantId)
             if (policy == null || (policy && NativeAndroidDeveloperGuard.inspect(context).detected)) {
                 lastError = "android_developer_security_guard"
