@@ -110,6 +110,12 @@ class NativeReleaseHardeningContractTest {
         assertTrue(live.contains("NativeQrBackgroundService.stop(ctx)"))
         assertTrue(live.contains("NativeDeveloperGuardDialog(signals = developerSignals)"))
         assertTrue(dialog.contains("dismissOnBackPress = false"))
+        assertTrue(live.contains("NativeDeveloperPolicyLoadingDialog()"))
+        assertTrue(live.contains("verifiedForAlerts != null && !mdmLocked && subscriptionOperational"))
+        val printWorker = source("src/main/java/com/cpipos/pos/next/core/print/NativePrintRuntime.kt")
+        val backgroundQr = source("src/main/java/com/cpipos/pos/next/core/push/NativeQrBackgroundService.kt")
+        assertTrue(printWorker.contains("NativeAndroidDeveloperGuard.inspect(context).detected"))
+        assertTrue(backgroundQr.contains("NativeAndroidDeveloperGuard.inspect(this).detected"))
     }
 
     @Test
