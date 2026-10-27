@@ -2,6 +2,7 @@ package com.cpipos.pos.next.core.print
 
 import android.content.Context
 import com.cpipos.pos.next.core.push.NativeFcmRegistration
+import com.cpipos.pos.next.core.security.NativeAndroidDeveloperGuard
 import com.cpipos.pos.next.core.webpos.WebPosApiException
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.core.webpos.WebPosSession
@@ -132,6 +133,13 @@ object NativePrintRuntime {
         }
 
         private suspend fun tick(): Int {
+            // The print worker can outlive MainActivity. Never rely solely on
+            // Compose dialogs for tenant developer/ADB enforcement.
+            val policy = NativeAndroidDeveloperGuard.cachedEnabled(context, session.tenantId)
+            if (policy == null || (policy && NativeAndroidDeveloperGuard.inspect(context).detected)) {
+                lastError = "android_developer_security_guard"
+                return 0
+            }
             val agentKey = getOrBootstrapKey() ?: return 0
             if (System.currentTimeMillis() - lastHeartbeatAt >= 60_000L) {
                 try {
