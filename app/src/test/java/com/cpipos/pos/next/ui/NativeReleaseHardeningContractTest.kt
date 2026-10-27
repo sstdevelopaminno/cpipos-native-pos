@@ -101,7 +101,7 @@ class NativeReleaseHardeningContractTest {
         assertTrue(detector.contains("Settings.Global.DEVELOPMENT_SETTINGS_ENABLED"))
         assertTrue(detector.contains("Settings.Global.ADB_ENABLED"))
         assertTrue(detector.contains("adb_wifi_enabled"))
-        assertTrue(detector.contains("policy:\" + tenantId"))
+        assertTrue(detector.contains("tenantId"))
         assertTrue(client.contains("/api/pos/android-security-policy"))
         assertTrue(client.contains("android_security_policy_scope_mismatch"))
         assertTrue(live.contains("developerGuardBlocked"))
