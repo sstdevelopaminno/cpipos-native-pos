@@ -40,3 +40,15 @@ fun NativeDeveloperGuardDialog(signals: AndroidDeveloperSignals) {
         }
     )
 }
+
+/** No cashier transactions before the first authenticated IT policy read. */
+@Composable
+fun NativeDeveloperPolicyLoadingDialog() {
+    AlertDialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        title = { Text("กำลังตรวจสอบความปลอดภัย", fontWeight = FontWeight.Bold) },
+        text = { Text("กำลังอ่านนโยบาย Android ของร้านจาก CpIPOS / IT กรุณาตรวจสอบอินเทอร์เน็ต หากระบบยังไม่ตอบกลับ หน้าขายจะไม่เปิดเพื่อป้องกันการข้ามเงื่อนไขความปลอดภัย") },
+        confirmButton = {}
+    )
+}
