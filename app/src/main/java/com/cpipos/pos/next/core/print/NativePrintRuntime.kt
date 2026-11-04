@@ -64,6 +64,7 @@ object NativePrintRuntime {
             "cpipos_native_print_runtime_v2", Context.MODE_PRIVATE
         )
         private val wakeRequested = AtomicBoolean(false)
+        private val printBusy = AtomicBoolean(false)
         private var job: Job? = null
         private var lastError: String? = null
         private var lastJobId: String? = null
@@ -101,6 +102,7 @@ object NativePrintRuntime {
 
         fun diagnostics(): JSONObject = JSONObject()
             .put("running", isRunning())
+            .put("busy", printBusy.get())
             .put("device_code", session.deviceCode)
             .put("last_job_id", lastJobId)
             .put("last_transport", lastTransport)
@@ -170,6 +172,10 @@ object NativePrintRuntime {
                 if (failure.status == 401 || failure.status == 403) clearAgentKey()
                 throw failure
             }
+            // Reaching the authoritative queue successfully proves that an older
+            // transport/DNS/HTTP failure is no longer active. Any failure while
+            // processing the newly claimed rows below will set a fresh error.
+            lastError = null
             for (index in 0 until rows.length()) {
                 val row = rows.optJSONObject(index) ?: continue
                 process(agentKey, row)
@@ -211,8 +217,9 @@ object NativePrintRuntime {
             val attemptId = row.optString("agent_attempt_id").trim()
             if (jobId.isEmpty() || attemptId.isEmpty()) return
             lastJobId = jobId
-
-            if (wasPrinted(jobId)) {
+            printBusy.set(true)
+            try {
+                if (wasPrinted(jobId)) {
                 runCatching {
                     client.ackNativePrintJob(
                         agentKey, jobId, attemptId,
@@ -282,6 +289,9 @@ object NativePrintRuntime {
                         true
                     )
                 }
+            }
+            } finally {
+                printBusy.set(false)
             }
         }
 
