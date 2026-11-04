@@ -159,6 +159,23 @@ class NativeReleaseHardeningContractTest {
     }
 
     @Test
+    fun nativePrintTelemetrySeparatesWorkerLivenessFromActiveQueueWorkAndClearsStaleErrors() {
+        val runtime = source("src/main/java/com/cpipos/pos/next/core/print/NativePrintRuntime.kt")
+        val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
+        val heartbeat = functionBlock(client, "sendDeviceHeartbeat")
+
+        assertTrue(runtime.contains("private val printBusy = AtomicBoolean(false)"))
+        assertTrue(runtime.contains(".put(\"busy\", printBusy.get())"))
+        assertTrue(runtime.contains("printBusy.set(true)"))
+        assertTrue(runtime.contains("printBusy.set(false)"))
+        assertTrue(runtime.contains("// Reaching the authoritative queue successfully proves"))
+        assertTrue(runtime.contains("lastError = null"))
+        assertTrue(heartbeat.contains(".put(\"print_queue_busy\", printerDiagnostics.optBoolean(\"busy\", false))"))
+        assertTrue(heartbeat.contains(".put(\"native_print_runtime_running\", printerDiagnostics.optBoolean(\"running\", false))"))
+        assertFalse(heartbeat.contains(".put(\"print_queue_busy\", printerDiagnostics.optBoolean(\"running\", false))"))
+    }
+
+    @Test
     fun bluetoothPrintingHasBoundedConnectAndSettingsClearBottomNav() {
         val transport = source("src/main/java/com/cpipos/pos/next/core/print/NativePrinterTransport.kt")
         val printer = source("src/main/java/com/cpipos/pos/next/ui/NativePrinterSettingsScreen.kt")
