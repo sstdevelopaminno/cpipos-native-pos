@@ -2982,7 +2982,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                     .put("cpi_windows_runtime_running", false)
                     .put("local_bridge_online", false)
                     .put("bridge_version", "native-print-runtime-v2")
-                    .put("print_queue_busy", printerDiagnostics.optBoolean("running", false))
+                    .put("print_queue_busy", printerDiagnostics.optBoolean("busy", false))
                     .put("last_error", printerDiagnostics.optString("last_error").takeIf { it.isNotBlank() }))
                 .put("peripherals", JSONObject()
                     .put("printer", printerDiagnostics))
