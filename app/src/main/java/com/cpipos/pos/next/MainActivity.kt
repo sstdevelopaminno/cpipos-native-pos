@@ -12,14 +12,12 @@ import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.cpipos.pos.next.core.webpos.WebPosClient
 import com.cpipos.pos.next.ui.MobilePosLiveScreen
-import com.cpipos.pos.next.ui.NativeStableUpdateOverlay
 
 class MainActivity : ComponentActivity() {
     private val notificationPermission = registerForActivityResult(
@@ -64,10 +62,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     // One UI and one real auth/sales path; no second demo login or demo button.
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        MobilePosLiveScreen(client = webPosClient)
-                        NativeStableUpdateOverlay()
-                    }
+                    MobilePosLiveScreen(client = webPosClient)
                 }
             }
         }
