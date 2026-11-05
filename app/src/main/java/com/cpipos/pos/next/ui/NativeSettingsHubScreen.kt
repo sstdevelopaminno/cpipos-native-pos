@@ -108,11 +108,11 @@ internal fun NativeSettingsHubScreen(
     }
 
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
-        Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
             Column(
-                modifier = Modifier.fillMaxSize().statusBarsPadding()
+                modifier = Modifier.weight(1f).fillMaxWidth().statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 17.dp, end = 17.dp, top = 15.dp, bottom = 212.dp),
+                    .padding(start = 17.dp, end = 17.dp, top = 15.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
@@ -260,7 +260,6 @@ internal fun NativeSettingsHubScreen(
             }
 
             HomeBottomMenu(
-                modifier = Modifier.align(Alignment.BottomCenter),
                 selectedTab = "settings",
                 onMenuClick = ::routeBottom
             )

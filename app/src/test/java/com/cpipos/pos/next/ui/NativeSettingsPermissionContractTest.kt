@@ -64,15 +64,17 @@ class NativeSettingsPermissionContractTest {
     @Test
     fun supportCenterUsesNativePosSessionApi() {
         val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
-        val screens = source("src/main/java/com/cpipos/pos/next/ui/NativeSettingsManagementScreens.kt")
+        val support = source("src/main/java/com/cpipos/pos/next/ui/NativeHelpCenterScreen.kt")
 
         assertTrue(client.contains("/api/pos/support-chat/conversations"))
-        assertTrue(screens.contains("เริ่มแชทกับ IT Support"))
-        assertTrue(screens.contains("ส่งข้อความ"))
-        assertTrue(screens.contains("จบการสนทนา"))
+        assertTrue(support.contains("เริ่มแชทกับ IT Support"))
+        assertTrue(support.contains("support-message-composer"))
+        assertTrue(support.contains("support-send-button"))
+        assertTrue(support.contains("จบการสนทนา"))
+        assertTrue(support.contains("LazyColumn("))
         assertFalse(
             "Native help center must not depend on the browser-only CpIPOS support page",
-            screens.contains("/preview/pos/payments/support")
+            support.contains("/preview/pos/payments/support")
         )
     }
 }

@@ -167,11 +167,13 @@ internal fun NativeMoreScreen(
         MoreMenu("billing", R.drawable.ic_package_payment, nativeUiText("more.billing","ชำระแพ็กเกจ"), "ดูแพ็กเกจ ต่ออายุ แจ้งชำระด้วยสลิป และติดตามสถานะจาก CpIPOS / IT", null, "more.subscription_billing")
     )
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
-        Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            // Keep the list above the actual bottom navigation instead of
+            // letting menu cards show beneath the floating centre control.
             LazyColumn(
-                modifier = Modifier.fillMaxSize().statusBarsPadding()
-                    .padding(horizontal = 14.dp)
-                    .padding(top = 12.dp, bottom = 212.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth().statusBarsPadding()
+                    .padding(start = 14.dp, end = 14.dp, top = 12.dp),
+                contentPadding = PaddingValues(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 item {
@@ -246,7 +248,6 @@ internal fun NativeMoreScreen(
                 }
             }
             HomeBottomMenu(
-                modifier = Modifier.align(Alignment.BottomCenter),
                 selectedTab = "history",
                 onMenuClick = onTab
             )
@@ -2765,11 +2766,11 @@ private fun MoreScaffold(
     content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit
 ) {
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
-        Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().statusBarsPadding()
-                    .padding(horizontal = 13.dp)
-                    .padding(top = 8.dp, bottom = 150.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth().statusBarsPadding()
+                    .padding(start = 13.dp, end = 13.dp, top = 8.dp),
+                contentPadding = PaddingValues(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
                 content = {
                     item {
@@ -2786,7 +2787,6 @@ private fun MoreScaffold(
                 }
             )
             HomeBottomMenu(
-                modifier = Modifier.align(Alignment.BottomCenter),
                 selectedTab = "history",
                 onMenuClick = onTab
             )

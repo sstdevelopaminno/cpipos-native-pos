@@ -46,8 +46,11 @@ class NativeSettingsManagementContractTest {
             "Permission Role",
             "อายุ QR (นาที 15-1440)",
             "ชื่อรายการภาษี",
-            "ส่งออเดอร์เข้าครัวอัตโนมัติ",
-            "CpIPOS Support Chat"
+            "ส่งออเดอร์เข้าครัวอัตโนมัติ"
         ).forEach { field -> assertTrue("Missing canonical mobile form field: $field", source.contains(field)) }
+
+        val support = source("src/main/java/com/cpipos/pos/next/ui/NativeHelpCenterScreen.kt")
+        assertTrue(support.contains("แชทกับทีม CpIPOS Support"))
+        assertTrue(support.contains("SupportActiveChatPanel("))
     }
 }
