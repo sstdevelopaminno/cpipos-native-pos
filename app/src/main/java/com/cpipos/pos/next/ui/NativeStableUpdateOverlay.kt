@@ -20,12 +20,17 @@ import kotlinx.coroutines.delay
  * This overlay does not change, re-send, or settle a cashier's active transaction.
  */
 @Composable
-internal fun NativeStableUpdateOverlay() {
+internal fun NativeStableUpdateOverlay(allowPrompt: Boolean) {
     val context = LocalContext.current
     val update by NativeApkUpdateManager.state.collectAsState()
     var postponedVersion by remember { mutableStateOf("") }
 
-    LaunchedEffect(Unit) { NativeApkUpdateManager.checkAndStart(context.applicationContext) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            NativeApkUpdateManager.checkAndStart(context.applicationContext)
+            delay(6 * 60 * 60 * 1000L)
+        }
+    }
 
     LaunchedEffect(update.phase) {
         if (update.phase == "downloading") {
@@ -37,7 +42,7 @@ internal fun NativeStableUpdateOverlay() {
         }
     }
 
-    if (update.phase == "ready" && update.versionName != postponedVersion) {
+    if (allowPrompt && update.phase == "ready" && update.versionName != postponedVersion) {
         AlertDialog(
             onDismissRequest = { postponedVersion = update.versionName },
             title = { Text("CpiPOS Mobile มีเวอร์ชันใหม่") },
