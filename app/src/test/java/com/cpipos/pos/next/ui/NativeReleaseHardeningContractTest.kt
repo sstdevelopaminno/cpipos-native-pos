@@ -79,6 +79,21 @@ class NativeReleaseHardeningContractTest {
     }
 
     @Test
+    fun itCanRequestSafeNativeReleaseCheckButCannotSilentlyInstall() {
+        val mdm = source("src/main/java/com/cpipos/pos/next/core/mdm/NativeDeviceManagementRuntime.kt")
+        val updater = source("src/main/java/com/cpipos/pos/next/core/update/NativeApkUpdateManager.kt")
+        assertTrue(mdm.contains("\"check_update\" ->"))
+        assertTrue(mdm.contains("NativeApkUpdateManager.checkAndStart(context)"))
+        assertTrue(mdm.contains("native_release_only"))
+        assertTrue(updater.contains("EXPECTED_CERT"))
+        assertTrue(updater.contains("verifyApk(appContext, file, offer)"))
+        assertTrue(updater.contains("Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES"))
+        assertTrue(updater.contains("context.startActivity(intent)"))
+        assertFalse(mdm.contains("native_update_check_not_interactive"))
+        assertFalse(mdm.contains("openSystemInstaller"))
+    }
+
+    @Test
     fun mdmITDisableCannotBeUndoneByRoutineHeartbeatAndSurvivesRestart() {
         val mdm = source("src/main/java/com/cpipos/pos/next/core/mdm/NativeDeviceManagementRuntime.kt")
         val store = source("src/main/java/com/cpipos/pos/next/core/mdm/NativeDeviceLockStore.kt")
