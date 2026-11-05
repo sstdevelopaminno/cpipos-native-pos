@@ -3735,6 +3735,59 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
 
 
     /**
+     * Save configured table items through the same server-authoritative pricing
+     * contract as configured takeaway. Never remove line metadata or silently
+     * merge same-product selections; refresh the table before every mutation.
+     */
+    suspend fun saveConfiguredDiningOrder(
+        session: WebPosSession, tableId: String, base: WebDiningBill,
+        lines: List<DemoReceiptLine>, requestId: String,
+        discount: Satang = base.discount
+    ): String {
+        require(UUID.fromString(tableId).toString() == tableId)
+        require(UUID.fromString(requestId).toString() == requestId)
+        requireSameLiveSession(session)
+        require(session.shiftId != null && session.canSell && base.editable)
+        require(lines.isNotEmpty() && lines.size <= 100 &&
+            lines.all { it.quantity in 1..999 && it.unitPrice >= Satang.ZERO })
+        val subtotal = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
+        require(discount >= Satang.ZERO && discount < subtotal)
+        val current = diningBill(session, tableId)
+        if (!current.editable || current.fingerprint() != base.fingerprint()) {
+            throw WebPosApiException("table_bill_changed_refresh_required", 409)
+        }
+        val items = JSONArray()
+        lines.forEachIndexed { index, line ->
+            require(runCatching { UUID.fromString(line.productId) }.isSuccess)
+            val selection = line.nativeChoiceJson?.let { JSONObject(it) }
+                ?: JSONObject()
+                    .put("cart_line_id", line.cartLineId ?: line.productId + ":" + index)
+                    .put("price_kind", "regular")
+                    .put("modifier_option_ids", JSONArray())
+                    .put("note", "")
+            items.put(JSONObject()
+                .put("product_id", line.productId)
+                .put("quantity", line.quantity)
+                .put("unit_price", BigDecimal(line.unitPrice.bahtText()))
+                .put("native_selection", selection))
+        }
+        val payload = JSONObject()
+            .put("native_mobile", true)
+            .put("shift_id", session.shiftId)
+            .put("order_type", "dine_in")
+            .put("channel", "pos")
+            .put("table_id", tableId)
+            .put("app_total_amount", BigDecimal(subtotal.bahtText()))
+            .put("discount_amount", BigDecimal(discount.bahtText()))
+            .put("items", items)
+        base.orderId?.let { payload.put("order_id", it) }
+        val result = call("POST", "/api/pos/sales", payload, requestId)
+        return result.optString("id").ifBlank { result.optString("order_id") }
+            .takeIf { it.isNotBlank() }
+            ?: throw WebPosApiException("configured_table_order_acknowledgement_missing", 503)
+    }
+
+    /**
      * Settle the ORIGINAL dine-in order through the tablet's payment API.
      * Its atomic payment transaction protects idempotency, and backend closes
      * the table bill session and releases the dining table.
