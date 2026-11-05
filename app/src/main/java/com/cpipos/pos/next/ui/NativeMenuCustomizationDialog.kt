@@ -1,5 +1,6 @@
 package com.cpipos.pos.next.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -92,7 +93,10 @@ internal fun NativeMenuCustomizationDialog(
                     Text(group.name + if (group.required) " (ต้องเลือก)" else " (ไม่บังคับ)")
                     group.options.forEach { option ->
                         val active = option.id in selected
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { toggle(group, option.id) },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             if (group.selectionType == "single") {
                                 RadioButton(selected = active, onClick = { toggle(group, option.id) })
                             } else {
