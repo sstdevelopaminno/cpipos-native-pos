@@ -1560,7 +1560,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
      * Read canonical modifier/recipe definitions for the CURRENT cashier branch.
      * Nothing here authorizes payment, changes inventory, or overrides order prices.
      */
-    suspend fun productOptions(
+    internal suspend fun productOptions(
         session: WebPosSession,
         productIds: List<String>
     ): Map<String, NativeProductOptionConfig> {
