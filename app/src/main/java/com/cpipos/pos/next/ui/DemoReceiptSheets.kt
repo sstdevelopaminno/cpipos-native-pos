@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -177,7 +178,7 @@ internal fun SavedDemoReceiptSheet(
                         ReceiptTotalRow("วันที่", paidDate(receipt.createdAtMs))
                         ReceiptDashedDivider()
                     }
-                    items(receipt.lines, key = { it.productId }) { item ->
+                    itemsIndexed(receipt.lines, key = { index, item -> item.cartLineId ?: (item.productId + ":" + index) }) { _, item ->
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
