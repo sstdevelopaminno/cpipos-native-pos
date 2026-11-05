@@ -1556,6 +1556,30 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         return current
     }
 
+    /**
+     * Read canonical modifier/recipe definitions for the CURRENT cashier branch.
+     * Nothing here authorizes payment, changes inventory, or overrides order prices.
+     */
+    suspend fun productOptions(
+        session: WebPosSession,
+        productIds: List<String>
+    ): Map<String, NativeProductOptionConfig> {
+        requireSameLiveSession(session)
+        require(session.canSell && session.shiftId != null)
+        val ids = productIds.distinct()
+        require(ids.size in 1..250 && ids.all {
+            runCatching { UUID.fromString(it).toString() == it }.getOrDefault(false)
+        })
+        val response = call(
+            "GET",
+            "/api/pos/recipe-products?product_ids=" + queryValue(ids.joinToString(","))
+        )
+        check(response.has("modifier_groups_by_product")) {
+            "server_modifier_contract_unavailable"
+        }
+        return ids.associateWith { id -> parseNativeProductOptions(id, response) }
+    }
+
     suspend fun products(session: WebPosSession): List<WebPosProduct> {
         check(session.shiftId != null && session.canSell) { "An authorized open shift is required" }
         val d = call("GET", "/api/pos/products")
