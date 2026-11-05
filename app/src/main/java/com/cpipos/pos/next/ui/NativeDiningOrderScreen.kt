@@ -206,9 +206,15 @@ internal fun NativeDiningOrderScreen(
     val configuredCartEntries = draft.configuredSelections.mapNotNull { (id, choice) ->
         val original = entries.firstOrNull { it.id == choice.productId }
         val unitPrice = draft.configuredPrices[id]
-        if (original == null || unitPrice == null) null else original.copy(
-            id = id, name = original.name + " (ตัวเลือก)", price = unitPrice
-        )
+        if (original == null || unitPrice == null) null else {
+            val label = optionConfigs[choice.productId]?.let { choice.receiptDescription(it) }
+                ?.takeIf { it.isNotBlank() }
+            original.copy(
+                id = id,
+                name = original.name + (label?.let { " ($it)" } ?: ""),
+                price = unitPrice
+            )
+        }
     }
     val cartEntries = entries + configuredCartEntries
     val categories = listOf("ทั้งหมด") + entries.map { it.category }.distinct()
@@ -303,7 +309,9 @@ internal fun NativeDiningOrderScreen(
                             productId, product.name, qty, Satang.of(price),
                             cartLineId = id,
                             nativeChoiceJson = choice?.toJson()?.toString(),
-                            notes = choice?.note
+                            notes = choice?.let { selected ->
+                                optionConfigs[selected.productId]?.let { selected.receiptDescription(it) }
+                            } ?: choice?.note
                         )
                     }
                     client.saveConfiguredDiningOrder(
