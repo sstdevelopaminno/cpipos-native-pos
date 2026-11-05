@@ -297,7 +297,7 @@ internal fun NativeDiningOrderScreen(
                         val choice = draft.configuredSelections[id]
                         val productId = choice?.productId ?: id
                         val product = products.firstOrNull { it.id == productId }
-                            ?: error("product_removed_refresh_table")
+                            ?: throw IllegalStateException("product_removed_refresh_table")
                         val price = choice?.let { draft.configuredPrices[id] } ?: product.price.value
                         DemoReceiptLine(
                             productId, product.name, qty, Satang.of(price),
@@ -685,7 +685,17 @@ internal fun NativeDiningOrderScreen(
                             onAdd = {
                                 if (existing?.editable == true && !draft.uncertain &&
                                     !stale && !draft.busy && !custom) {
-                                    draft.items[product.id] = (draft.items[product.id] ?: 0) + 1
+                                    val original = products.firstOrNull { it.id == product.id }
+                                    val configured = optionConfigs[product.id]
+                                    if (optionsLoading) error = "กำลังโหลดตัวเลือกสินค้า"
+                                    else if (optionsError || original == null || configured == null) {
+                                        error = "โหลดตัวเลือกสินค้าจาก CpIPOS หลักไม่ได้"
+                                    } else if (configured.groups.isNotEmpty() ||
+                                        configured.baseRecipe.isNotEmpty() || original.specialPrice != null) {
+                                        editingProductId = product.id
+                                    } else {
+                                        draft.items[product.id] = (draft.items[product.id] ?: 0) + 1
+                                    }
                                 }
                             })
                     }
@@ -755,23 +765,53 @@ internal fun NativeDiningOrderScreen(
             showDiscount = false
         }
     )
+    editingProductId?.let { productId ->
+        val original = products.firstOrNull { it.id == productId }
+        val config = optionConfigs[productId]
+        if (original != null && config != null) {
+            NativeMenuCustomizationDialog(
+                product = original,
+                config = config,
+                onDismiss = { editingProductId = null },
+                onConfirm = { choice -> addConfiguredChoice(choice) }
+            )
+        }
+    }
     if (cartOpen) PreviewCartBottomSheet(
-        products = entries, cart = combinedCart,
+        products = cartEntries, cart = combinedCart,
         quantity = combinedCount, total = combinedTotal,
         onDismiss = { cartOpen = false },
-        onAdd = {
+        onAdd = { id ->
             if (existing?.editable == true && !draft.uncertain && !draft.busy &&
                 !stale && !custom) {
-                draft.items[it] = (draft.items[it] ?: 0) + 1
+                val original = products.firstOrNull { it.id == id }
+                val config = optionConfigs[id]
+                if (original != null && config != null &&
+                    (config.groups.isNotEmpty() || config.baseRecipe.isNotEmpty() ||
+                        original.specialPrice != null)) {
+                    editingProductId = id
+                } else if (draft.configuredSelections.containsKey(id) || original != null) {
+                    draft.items[id] = (draft.items[id] ?: 0) + 1
+                }
             }
         },
         onRemove = {
             if (!draft.uncertain && !draft.busy && !stale && !custom) {
                 val value = (draft.items[it] ?: 0) - 1
-                if (value <= 0) draft.items.remove(it) else draft.items[it] = value
+                if (value <= 0) {
+                    draft.items.remove(it)
+                    draft.configuredSelections.remove(it)
+                    draft.configuredPrices.remove(it)
+                } else draft.items[it] = value
             }
         },
-        onDelete = { if (!draft.uncertain && !draft.busy && !stale && !custom) draft.items.remove(it) },
+        onDelete = { id ->
+            if (!draft.uncertain && !draft.busy && !stale && !custom) {
+                draft.items.remove(id)
+                draft.configuredSelections.remove(id)
+                draft.configuredPrices.remove(id)
+            }
+        },
         onCancelBill = {
             cartOpen = false
             if (bill?.sessionId != null && bill?.editable == true &&
