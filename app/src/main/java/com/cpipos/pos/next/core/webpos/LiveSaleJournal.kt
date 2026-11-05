@@ -38,7 +38,10 @@ data class LiveSaleAttempt(
                     productId = row.getString("product_id"),
                     name = row.getString("name"),
                     quantity = row.getInt("quantity"),
-                    unitPrice = Satang.of(row.getLong("unit_price_satang"))
+                    unitPrice = Satang.of(row.getLong("unit_price_satang")),
+                    cartLineId = row.optString("cart_line_id").takeIf { it.isNotBlank() },
+                    nativeChoiceJson = row.optString("native_choice_json").takeIf { it.isNotBlank() },
+                    notes = row.optString("notes").takeIf { it.isNotBlank() }
                 )
             }
         }.getOrNull()
@@ -177,6 +180,9 @@ class LiveSaleJournal(context: Context) : SQLiteOpenHelper(
                                 .put("name", line.name)
                                 .put("quantity", line.quantity)
                                 .put("unit_price_satang", line.unitPrice.value)
+                                .put("cart_line_id", line.cartLineId ?: JSONObject.NULL)
+                                .put("native_choice_json", line.nativeChoiceJson ?: JSONObject.NULL)
+                                .put("notes", line.notes ?: JSONObject.NULL)
                         )
                     }
                 }
