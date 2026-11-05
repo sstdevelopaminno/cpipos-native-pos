@@ -216,9 +216,7 @@ internal fun NativeDiningOrderScreen(
         (category == "ทั้งหมด" || it.category == category) &&
             (search.isBlank() || it.name.contains(search.trim(), ignoreCase = true))
     }
-    val count = draft.items.values.sum() + draft.configuredSelections.keys.sumOf {
-        draft.items[it] ?: 0
-    }
+    val count = draft.items.values.sum()
     val subtotal = cartEntries.sumOf { it.price * (draft.items[it.id] ?: 0) }
     val existing = bill
     val storedQuantities = existing?.let(::billQuantities).orEmpty()
