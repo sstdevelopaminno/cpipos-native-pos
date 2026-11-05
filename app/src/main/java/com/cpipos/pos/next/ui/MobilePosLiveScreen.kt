@@ -986,7 +986,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 canManageTable = { tableId ->
                     val draft = dineWorkspace.drafts[tableId]
                     draft == null || (!draft.busy && !draft.uncertain &&
-                        draft.items.isEmpty() && draft.pendingQuantities.isEmpty() &&
+                        draft.items.isEmpty() && draft.configuredSelections.isEmpty() &&
+                        draft.pendingQuantities.isEmpty() &&
                         draft.paymentMethod == null && draft.paymentRequestId == null)
                 }
             )
