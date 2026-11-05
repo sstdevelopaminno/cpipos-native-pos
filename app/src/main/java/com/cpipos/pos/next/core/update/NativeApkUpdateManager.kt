@@ -47,14 +47,14 @@ internal object NativeApkUpdateManager {
         if (!json.optBoolean("ok") || !json.optBoolean("updateAvailable")) return false
         val url = json.optString("apkUrl")
         val sha = json.optString("apkSha256")
-        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
         val name = json.optString("versionName")
         val code = json.optLong("versionCode", 0)
         val expectedPath = "/sstdevelopaminno/CpIPOS/releases/download/" +
             "native-mobile-v" + name + "/CpIPOS-Native-Mobile-" + name + ".apk"
-        return !BuildConfig.DEBUG && code > installedCode &&
+        return code > installedCode &&
             name.matches(Regex("\\d+\\.\\d+\\.\\d+")) &&
-            uri.scheme == "https" && uri.host == "github.com" && uri.path == expectedPath &&
+            uri.scheme == "https" && uri.host == "github.com" && uri.rawPath == expectedPath && uri.rawQuery == null && uri.rawFragment == null &&
             sha.matches(Regex("[0-9a-f]{64}")) &&
             json.optString("signingCertSha256").lowercase() == EXPECTED_CERT &&
             json.optString("packageName") == "com.cpipos.pos.next"
@@ -198,8 +198,9 @@ internal object NativeApkUpdateManager {
 
     private fun certificateHashes(context: Context, path: String): Set<String> {
         val manager = context.packageManager
+        @Suppress("DEPRECATION")
         val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
-            else @Suppress("DEPRECATION") PackageManager.GET_SIGNATURES
+            else PackageManager.GET_SIGNATURES
         val info = if (path == context.packageName) {
             manager.getPackageInfo(path, flags)
         } else {
