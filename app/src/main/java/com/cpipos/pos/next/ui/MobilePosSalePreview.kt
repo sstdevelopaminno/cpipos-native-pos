@@ -305,9 +305,15 @@ internal fun MobilePosSalePreview(
     val cartProducts = products + configuredSelections.mapNotNull { (key, choice) ->
         val original = products.firstOrNull { it.id == choice.productId }
         val price = configuredPrices[key]
-        if (original == null || price == null) null else original.copy(
-            id = key, name = original.name + " (ตัวเลือก)", price = price
-        )
+        if (original == null || price == null) null else {
+            val label = optionConfigs[choice.productId]?.let { choice.receiptDescription(it) }
+                ?.takeIf { it.isNotBlank() }
+            original.copy(
+                id = key,
+                name = original.name + (label?.let { " ($it)" } ?: ""),
+                price = price
+            )
+        }
     }
     val categories = if (liveSession == null) saleCategories
         else listOf("ทั้งหมด") + products.map { it.category }.distinct()
@@ -416,7 +422,9 @@ internal fun MobilePosSalePreview(
                 unitPrice = Satang.of(item.price),
                 cartLineId = if (hasConfiguredItems) item.id else null,
                 nativeChoiceJson = nativeChoice,
-                notes = choice?.note
+                notes = choice?.let { selected ->
+                    optionConfigs[selected.productId]?.let { selected.receiptDescription(it) }
+                } ?: choice?.note
             )
         }
     }
