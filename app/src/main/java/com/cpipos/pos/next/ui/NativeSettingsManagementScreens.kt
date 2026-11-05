@@ -36,11 +36,11 @@ private fun SettingsManagementShell(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
-        Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
             Column(
-                modifier = Modifier.fillMaxSize().statusBarsPadding()
+                modifier = Modifier.weight(1f).fillMaxWidth().statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 156.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -53,7 +53,6 @@ private fun SettingsManagementShell(
                 content()
             }
             HomeBottomMenu(
-                modifier = Modifier.align(Alignment.BottomCenter),
                 selectedTab = "settings",
                 onMenuClick = onTab
             )
