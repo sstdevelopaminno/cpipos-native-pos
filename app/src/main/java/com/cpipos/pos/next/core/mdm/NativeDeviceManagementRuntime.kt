@@ -2,6 +2,8 @@ package com.cpipos.pos.next.core.mdm
 
 import android.content.Context
 import android.util.Log
+import com.cpipos.pos.next.BuildConfig
+import com.cpipos.pos.next.core.update.NativeApkUpdateManager
 import com.cpipos.pos.next.core.print.NativePrintRuntime
 import com.cpipos.pos.next.core.push.NativeFcmRegistration
 import com.cpipos.pos.next.core.webpos.WebDeviceAction
@@ -197,12 +199,28 @@ object NativeDeviceManagementRuntime {
                             errorMessage = testResult.exceptionOrNull()?.message
                         )
                     }
-                    "check_update" ->
-                        WebDeviceCommandAck(
-                            action.id, action.commandType, false,
-                            errorCode = "native_update_check_not_interactive",
-                            errorMessage = "Signed release updates are managed by the Native Mobile release channel."
-                        )
+                    "check_update" -> {
+                        // IT may request a safe stable-release lookup, not a silent
+                        // install. The signed APK is checked by NativeApkUpdateManager;
+                        // Android still requires the cashier to confirm installation.
+                        if (BuildConfig.DEBUG || context.packageName != "com.cpipos.pos.next") {
+                            WebDeviceCommandAck(
+                                action.id, action.commandType, false,
+                                errorCode = "native_release_only",
+                                errorMessage = "Stable update checks require the signed production app."
+                            )
+                        } else {
+                            val check = runCatching { NativeApkUpdateManager.checkAndStart(context) }
+                            WebDeviceCommandAck(
+                                action.id, action.commandType, check.isSuccess,
+                                phase = "executed",
+                                errorCode = if (check.isSuccess) null else "native_update_lookup_failed",
+                                errorMessage = if (check.isSuccess)
+                                    "Stable update check requested; Android install confirmation is required."
+                                else "Unable to request signed stable update check."
+                            )
+                        }
+                    }
                     "restart_app" ->
                         WebDeviceCommandAck(
                             action.id, action.commandType, false,
