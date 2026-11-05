@@ -39,9 +39,9 @@ data class LiveSaleAttempt(
                     name = row.getString("name"),
                     quantity = row.getInt("quantity"),
                     unitPrice = Satang.of(row.getLong("unit_price_satang")),
-                    cartLineId = row.optString("cart_line_id").takeIf { it.isNotBlank() },
-                    nativeChoiceJson = row.optString("native_choice_json").takeIf { it.isNotBlank() },
-                    notes = row.optString("notes").takeIf { it.isNotBlank() }
+                    cartLineId = row.optString("cart_line_id").takeIf { it.isNotBlank() && it != "null" },
+                    nativeChoiceJson = row.optString("native_choice_json").takeIf { it.isNotBlank() && it != "null" },
+                    notes = row.optString("notes").takeIf { it.isNotBlank() && it != "null" }
                 )
             }
         }.getOrNull()
