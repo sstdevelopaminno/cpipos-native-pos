@@ -20,7 +20,9 @@ import java.time.ZoneId
  * count in business reports or disguise these as actual customer receipts.
  */
 data class DemoReceiptLine(
-    val productId: String, val name: String, val quantity: Int, val unitPrice: Satang
+    val productId: String, val name: String, val quantity: Int, val unitPrice: Satang,
+    val cartLineId: String? = null, val nativeChoiceJson: String? = null,
+    val notes: String? = null
 ) {
     val amount: Satang get() = unitPrice * quantity
 }

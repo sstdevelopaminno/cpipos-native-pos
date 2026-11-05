@@ -412,6 +412,9 @@ internal fun NativeCatalogManagementScreen(
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.ExtraBold
                                                 )
+                                                item.specialPrice?.let {
+                                                    Text("พิเศษ ฿" + it.bahtText(), color = Color(0xFF18864F), fontSize = 10.sp)
+                                                }
                                                 Text("ขาย " + (item.sold30d?.toString() ?: "—"), color = catalogMuted, fontSize = 10.sp)
                                             }
                                         } else {
@@ -537,7 +540,7 @@ internal fun NativeCatalogManagementScreen(
             branchName = selectedBranch.name,
             saving = saving,
             onDismiss = { if (!saving) editing = null },
-            onSave = { name, skuUnit, category, price, recommended ->
+            onSave = { name, skuUnit, category, price, recommended, specialPrice ->
                 saving = true
                 operationError = null
                 scope.launch {
@@ -551,7 +554,8 @@ internal fun NativeCatalogManagementScreen(
                             skuOrUnit = skuUnit,
                             category = category,
                             priceText = price,
-                            recommended = recommended
+                            recommended = recommended,
+                            specialPriceText = specialPrice
                         )
                         editing = null
                         reload += 1
@@ -694,6 +698,7 @@ private fun CreateProductDialog(
     var name by remember { mutableStateOf("") }
     var stock by remember { mutableStateOf("0") }
     var storePrice by remember { mutableStateOf("0") }
+    var specialPrice by remember { mutableStateOf("") }
     var recommended by remember { mutableStateOf(false) }
     var deliveryPrice by remember { mutableStateOf("0") }
     var useRecipe by remember { mutableStateOf(false) }
@@ -763,6 +768,16 @@ private fun CreateProductDialog(
                     value = storePrice,
                     onValueChange = { storePrice = it.filter { ch -> ch.isDigit() || ch == '.' }.take(16) },
                     label = { Text("4. ราคาหน้าร้าน") },
+                    prefix = { Text("฿") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = !saving
+                )
+
+                OutlinedTextField(
+                    value = specialPrice,
+                    onValueChange = { specialPrice = it.filter { ch -> ch.isDigit() || ch == '.' }.take(16) },
+                    label = { Text("ราคาพิเศษ (เว้นว่างหากไม่มี)") },
                     prefix = { Text("฿") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
@@ -904,6 +919,7 @@ private fun CreateProductDialog(
                                 stockValue == null || stockValue < 0 -> formError = "จำนวนสินค้าต้องเป็น 0 หรือมากกว่า"
                                 storePrice.toBigDecimalOrNull() == null -> formError = "กรุณากรอกราคาหน้าร้าน"
                                 deliveryPrice.toBigDecimalOrNull() == null -> formError = "กรุณากรอกราคาเดลิเวอรี่"
+                                specialPrice.isNotBlank() && (specialPrice.toDoubleOrNull()?.let { it >= 0 && it <= 99999999 } != true) -> formError = "ราคาพิเศษไม่ถูกต้อง"
                                 useRecipe && selectedRecipes.isEmpty() -> formError = "กรุณาเลือกวัตถุดิบอย่างน้อย 1 รายการ"
                                 else -> {
                                     formError = null
@@ -918,6 +934,7 @@ private fun CreateProductDialog(
                                                 stockQuantity = stockValue,
                                                 storePriceText = storePrice,
                                                 deliveryPriceText = deliveryPrice,
+                                                specialPriceText = specialPrice,
                                                 recommended = recommended,
                                                 useIngredientRecipe = useRecipe,
                                                 ingredientLines = selectedRecipes
@@ -1200,12 +1217,13 @@ private fun EditCatalogDialog(
     branchName: String,
     saving: Boolean,
     onDismiss: () -> Unit,
-    onSave: (String, String, String, String, Boolean) -> Unit
+    onSave: (String, String, String, String, Boolean, String) -> Unit
 ) {
     var name by remember(item.id) { mutableStateOf(item.name) }
     var skuUnit by remember(item.id) { mutableStateOf(if (ingredient) item.baseUnit else item.sku) }
     var category by remember(item.id) { mutableStateOf(item.category) }
     var price by remember(item.id) { mutableStateOf(if (ingredient) "" else item.price.bahtText()) }
+    var specialPrice by remember(item.id) { mutableStateOf(item.specialPrice?.bahtText().orEmpty()) }
     var recommended by remember(item.id) { mutableStateOf(item.recommended) }
 
     AlertDialog(
@@ -1241,6 +1259,13 @@ private fun EditCatalogDialog(
                         prefix = { Text("฿") },
                         singleLine = true
                     )
+                    OutlinedTextField(
+                        value = specialPrice,
+                        onValueChange = { specialPrice = it.filter { ch -> ch.isDigit() || ch == '.' }.take(16) },
+                        label = { Text("ราคาพิเศษ (เว้นว่างเพื่อยกเลิก)") },
+                        prefix = { Text("฿") },
+                        singleLine = true
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = recommended, onCheckedChange = { recommended = it })
                         Text("สินค้าแนะนำ", fontSize = 12.sp)
@@ -1266,8 +1291,9 @@ private fun EditCatalogDialog(
         confirmButton = {
             Button(
                 enabled = !saving && name.isNotBlank() && skuUnit.isNotBlank() &&
-                    (ingredient || (category.isNotBlank() && price.toBigDecimalOrNull() != null)),
-                onClick = { onSave(name, skuUnit, category, price, recommended) }
+                    (ingredient || (category.isNotBlank() && price.toBigDecimalOrNull() != null &&
+                        (specialPrice.isBlank() || specialPrice.toDoubleOrNull()?.let { it >= 0 && it <= 99999999 } == true))),
+                onClick = { onSave(name, skuUnit, category, price, recommended, specialPrice) }
             ) { Text("บันทึก") }
         },
         dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("ยกเลิก") } }

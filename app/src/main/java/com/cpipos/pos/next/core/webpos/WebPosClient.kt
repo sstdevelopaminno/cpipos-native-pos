@@ -348,7 +348,8 @@ data class WebPosProduct(
     val sku: String,
     val category: String,
     val price: Satang,
-    val imageUrl: String? = null
+    val imageUrl: String? = null,
+    val specialPrice: Satang? = null
 )
 /**
  * POS Web keeps product photos in /api/pos/product-media, not in /api/pos/products.
@@ -637,6 +638,14 @@ data class WebCatalogBranch(
     val code: String = "",
     val role: String = ""
 )
+/** Optional server-owned price: absent, invalid or null means the normal unit price. */
+internal fun parseOptionalSpecialPrice(raw: Any?): Satang? {
+    val value = raw?.takeUnless { it == JSONObject.NULL }?.toString()
+        ?.takeUnless { it.isBlank() || it == "null" } ?: return null
+    return runCatching { Satang.fromBaht(value) }.getOrNull()
+        ?.takeIf { it >= Satang.ZERO }
+}
+
 data class WebCatalogRow(
     val id: String, val name: String, val sku: String = "",
     val category: String = "", val price: Satang = Satang.ZERO,
@@ -645,6 +654,7 @@ data class WebCatalogRow(
     val avgUnitCost: Double = 0.0, val lastPurchaseUnitCost: Double = 0.0,
     val mode: String = "unit_only", val active: Boolean = true,
     val recommended: Boolean = false,
+    val specialPrice: Satang? = null,
     val updatedAt: String = ""
 )
 data class WebCatalogPage(
@@ -1546,6 +1556,30 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         return current
     }
 
+    /**
+     * Read canonical modifier/recipe definitions for the CURRENT cashier branch.
+     * Nothing here authorizes payment, changes inventory, or overrides order prices.
+     */
+    internal suspend fun productOptions(
+        session: WebPosSession,
+        productIds: List<String>
+    ): Map<String, NativeProductOptionConfig> {
+        requireSameLiveSession(session)
+        require(session.canSell && session.shiftId != null)
+        val ids = productIds.distinct()
+        require(ids.size in 1..250 && ids.all {
+            runCatching { UUID.fromString(it).toString() == it }.getOrDefault(false)
+        })
+        val response = call(
+            "GET",
+            "/api/pos/recipe-products?strict_native=1&product_ids=" + queryValue(ids.joinToString(","))
+        )
+        check(response.has("modifier_groups_by_product")) {
+            "server_modifier_contract_unavailable"
+        }
+        return ids.associateWith { id -> parseNativeProductOptions(id, response) }
+    }
+
     suspend fun products(session: WebPosSession): List<WebPosProduct> {
         check(session.shiftId != null && session.canSell) { "An authorized open shift is required" }
         val d = call("GET", "/api/pos/products")
@@ -1564,7 +1598,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 sku = item.optString("sku"),
                 category = item.optString("category"),
                 price = amount,
-                imageUrl = productImageUrlFrom(item)
+                imageUrl = productImageUrlFrom(item),
+                specialPrice = parseOptionalSpecialPrice(item.opt("special_price"))
             )
         }
     }
@@ -2063,6 +2098,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 mode = item.optString("stock_deduction_mode", "unit_only"),
                 active = item.optBoolean("is_active", true),
                 recommended = item.optBoolean("is_recommended", false),
+                specialPrice = parseOptionalSpecialPrice(item.opt("special_price"))
+                    ?: parseOptionalSpecialPrice(item.optJSONObject("metadata")?.opt("special_price")),
                 updatedAt = item.optString("updated_at")
             )
         }
@@ -2108,7 +2145,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         deliveryPriceText: String,
         recommended: Boolean,
         useIngredientRecipe: Boolean,
-        ingredientLines: List<WebCatalogRecipeDraft>
+        ingredientLines: List<WebCatalogRecipeDraft>,
+        specialPriceText: String? = null
     ) {
         requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
@@ -2116,6 +2154,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         require(stockQuantity >= 0.0)
         val storePrice = Satang.fromBaht(storePriceText)
         val deliveryPrice = Satang.fromBaht(deliveryPriceText)
+        val specialPrice = specialPriceText?.takeIf { it.isNotBlank() }?.let(Satang::fromBaht)
+        require(specialPrice == null || specialPrice >= Satang.ZERO)
         require(storePrice >= Satang.ZERO && deliveryPrice >= Satang.ZERO)
         if (useIngredientRecipe) require(ingredientLines.isNotEmpty())
 
@@ -2138,6 +2178,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             .put("stock_quantity", stockQuantity)
             .put("store_price", BigDecimal(storePrice.bahtText()))
             .put("delivery_price", BigDecimal(deliveryPrice.bahtText()))
+            .put("special_price", specialPrice?.let { BigDecimal(it.bahtText()) } ?: JSONObject.NULL)
             .put("is_recommended", recommended)
             .put("use_ingredient_recipe", useIngredientRecipe)
             .put("ingredient_lines", recipe)
@@ -2182,7 +2223,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         skuOrUnit: String,
         category: String,
         priceText: String,
-        recommended: Boolean = item.recommended
+        recommended: Boolean = item.recommended,
+        specialPriceText: String? = item.specialPrice?.bahtText()
     ) {
         requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
@@ -2198,10 +2240,12 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         } else {
             require(category.isNotBlank())
             val price = Satang.fromBaht(priceText)
-            require(price >= Satang.ZERO)
+            val specialPrice = specialPriceText?.takeIf { it.isNotBlank() }?.let(Satang::fromBaht)
+            require(price >= Satang.ZERO && (specialPrice == null || specialPrice >= Satang.ZERO))
             payload.put("sku", skuOrUnit.trim())
                 .put("category", category.trim())
                 .put("price", BigDecimal(price.bahtText()))
+                .put("special_price", specialPrice?.let { BigDecimal(it.bahtText()) } ?: JSONObject.NULL)
                 .put("is_recommended", recommended)
         }
         call("POST", "/api/pos/catalog-management", payload)
@@ -3691,6 +3735,59 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
 
 
     /**
+     * Save configured table items through the same server-authoritative pricing
+     * contract as configured takeaway. Never remove line metadata or silently
+     * merge same-product selections; refresh the table before every mutation.
+     */
+    suspend fun saveConfiguredDiningOrder(
+        session: WebPosSession, tableId: String, base: WebDiningBill,
+        lines: List<DemoReceiptLine>, requestId: String,
+        discount: Satang = base.discount
+    ): String {
+        require(UUID.fromString(tableId).toString() == tableId)
+        require(UUID.fromString(requestId).toString() == requestId)
+        requireSameLiveSession(session)
+        require(session.shiftId != null && session.canSell && base.editable)
+        require(lines.isNotEmpty() && lines.size <= 100 &&
+            lines.all { it.quantity in 1..999 && it.unitPrice >= Satang.ZERO })
+        val subtotal = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
+        require(discount >= Satang.ZERO && discount < subtotal)
+        val current = diningBill(session, tableId)
+        if (!current.editable || current.fingerprint() != base.fingerprint()) {
+            throw WebPosApiException("table_bill_changed_refresh_required", 409)
+        }
+        val items = JSONArray()
+        lines.forEachIndexed { index, line ->
+            require(runCatching { UUID.fromString(line.productId) }.isSuccess)
+            val selection = line.nativeChoiceJson?.let { JSONObject(it) }
+                ?: JSONObject()
+                    .put("cart_line_id", line.cartLineId ?: line.productId + ":" + index)
+                    .put("price_kind", "regular")
+                    .put("modifier_option_ids", JSONArray())
+                    .put("note", "")
+            items.put(JSONObject()
+                .put("product_id", line.productId)
+                .put("quantity", line.quantity)
+                .put("unit_price", BigDecimal(line.unitPrice.bahtText()))
+                .put("native_selection", selection))
+        }
+        val payload = JSONObject()
+            .put("native_mobile", true)
+            .put("shift_id", session.shiftId)
+            .put("order_type", "dine_in")
+            .put("channel", "pos")
+            .put("table_id", tableId)
+            .put("app_total_amount", BigDecimal(subtotal.bahtText()))
+            .put("discount_amount", BigDecimal(discount.bahtText()))
+            .put("items", items)
+        base.orderId?.let { payload.put("order_id", it) }
+        val result = call("POST", "/api/pos/sales", payload, requestId)
+        return result.optString("id").ifBlank { result.optString("order_id") }
+            .takeIf { it.isNotBlank() }
+            ?: throw WebPosApiException("configured_table_order_acknowledgement_missing", 503)
+    }
+
+    /**
      * Settle the ORIGINAL dine-in order through the tablet's payment API.
      * Its atomic payment transaction protects idempotency, and backend closes
      * the table bill session and releases the dining table.
@@ -4223,13 +4320,62 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         expectedTotal: Satang = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
     ): WebCreatedOrder {
         require(lines.isNotEmpty() && lines.all { it.quantity in 1..9999 })
-        require(lines.map { it.productId }.distinct().size == lines.size)
+        if (lines.none { it.nativeChoiceJson != null }) {
+            require(lines.map { it.productId }.distinct().size == lines.size)
+        }
         require(session.canSell && session.shiftId != null)
         require(UUID.fromString(saleId).toString() == saleId)
         requireSameLiveSession(session)
         val subtotal = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
         require(expectedTotal > Satang.ZERO && expectedTotal <= subtotal)
         val discountTotal = subtotal - expectedTotal
+        val configured = lines.any { it.nativeChoiceJson != null }
+        if (configured) {
+            // Only the server may authorize special price, modifier selections,
+            // and the final total. Price/stock rejection leaves the journal intact.
+            require(lines.all { it.cartLineId != null })
+            val payloadLines = JSONArray().apply {
+                lines.forEach { line ->
+                    require(runCatching { UUID.fromString(line.productId) }.isSuccess)
+                    val choice = line.nativeChoiceJson?.let { JSONObject(it) }
+                        ?: JSONObject()
+                            .put("cart_line_id", line.cartLineId)
+                            .put("price_kind", "regular")
+                            .put("modifier_option_ids", JSONArray())
+                            .put("note", line.notes ?: "")
+                    put(JSONObject()
+                        .put("product_id", line.productId)
+                        .put("quantity", line.quantity)
+                        .put("unit_price", BigDecimal(line.unitPrice.bahtText()))
+                        .put("native_selection", choice))
+                }
+            }
+            val result = call(
+                "POST", "/api/pos/sales",
+                JSONObject()
+                    .put("native_mobile", true)
+                    .put("shift_id", session.shiftId)
+                    .put("order_type", "takeaway")
+                    .put("channel", "pos")
+                    .put("app_total_amount", BigDecimal(subtotal.bahtText()))
+                    .put("discount_amount", BigDecimal(discountTotal.bahtText()))
+                    .put("items", payloadLines),
+                saleId
+            )
+            val serverTotal = Satang.fromBaht(
+                result.opt("grand_total")?.toString()?.takeIf { it != "null" }
+                    ?: result.get("total_amount").toString()
+            )
+            if (serverTotal != expectedTotal) {
+                throw WebPosApiException("native_order_total_changed_review", 409)
+            }
+            return WebCreatedOrder(
+                id = result.getString("id"),
+                orderNo = result.optString("order_no").ifBlank { result.getString("id") },
+                status = result.optString("status"),
+                total = serverTotal
+            )
+        }
         val items = JSONArray()
         lines.forEach { line ->
             require(runCatching { UUID.fromString(line.productId) }.isSuccess)

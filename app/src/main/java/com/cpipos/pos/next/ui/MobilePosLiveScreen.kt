@@ -986,7 +986,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 canManageTable = { tableId ->
                     val draft = dineWorkspace.drafts[tableId]
                     draft == null || (!draft.busy && !draft.uncertain &&
-                        draft.items.isEmpty() && draft.pendingQuantities.isEmpty() &&
+                        draft.items.isEmpty() && draft.configuredSelections.isEmpty() &&
+                        draft.pendingQuantities.isEmpty() &&
                         draft.paymentMethod == null && draft.paymentRequestId == null)
                 }
             )
@@ -1340,6 +1341,17 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             onDone = { recoveredReceipt = null }
         )
     }
+
+    // Do not interrupt an ongoing sale, payment, uncertain bill, or table mutation
+    // with an APK installer prompt. Download and verification can happen quietly.
+    NativeStableUpdateOverlay(
+        allowPrompt = !busy &&
+            step in setOf("store", "branch", "shift", "mode") &&
+            !takeaway.saving.value &&
+            dineWorkspace.drafts.values.none { it.busy || it.uncertain } &&
+            !showLogoutConfirm && unresolvedSaleCount != null &&
+            (unresolvedSaleCount ?: 0) == 0
+    )
 
     // One app-wide listener survives switching tabs, sale screens and table modes.
     // The server owns QR order state; dismissing a food notification NEVER accepts an order.
