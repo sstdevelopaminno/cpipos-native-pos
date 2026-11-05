@@ -1572,7 +1572,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         })
         val response = call(
             "GET",
-            "/api/pos/recipe-products?product_ids=" + queryValue(ids.joinToString(","))
+            "/api/pos/recipe-products?strict_native=1&product_ids=" + queryValue(ids.joinToString(","))
         )
         check(response.has("modifier_groups_by_product")) {
             "server_modifier_contract_unavailable"
