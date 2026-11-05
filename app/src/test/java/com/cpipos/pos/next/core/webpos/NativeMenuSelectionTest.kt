@@ -28,4 +28,18 @@ class NativeMenuSelectionTest {
         val line = NativeMenuSelection("coffee", 1, true, emptySet(), "")
         assertNull(line.displayPrice(product, config))
     }
+
+    @Test fun receiptDescriptionKeepsOptionNamesSpecialModeAndNote() {
+        val config = NativeProductOptionConfig(
+            productId = "coffee",
+            groups = listOf(NativeModifierGroup(
+                id = "milk", name = "Milk", selectionType = "single",
+                required = true, minSelect = 1, maxSelect = 1,
+                options = listOf(NativeModifierOption("oat", "นมโอ๊ต", Satang.ZERO, true))
+            )),
+            baseRecipe = emptyList()
+        )
+        val chosen = NativeMenuSelection("coffee", 1, true, setOf("oat"), "หวานน้อย")
+        assertEquals("ราคาพิเศษ, นมโอ๊ต, หวานน้อย", chosen.receiptDescription(config))
+    }
 }

@@ -37,6 +37,17 @@ internal data class NativeMenuSelection(
         .put("modifier_option_ids", JSONArray(selectedOptionIds.sorted()))
         .put("note", note.trim())
 
+    /** Printed/menu-preview snapshot: never rely on changing catalog names for old receipts. */
+    fun receiptDescription(config: NativeProductOptionConfig): String {
+        if (config.productId != productId) return ""
+        val optionNames = config.groups.flatMap { group ->
+            group.options.filter { it.id in selectedOptionIds }.map { it.name }
+        }
+        return (listOfNotNull(if (useSpecialPrice) "ราคาพิเศษ" else null) +
+            optionNames + listOfNotNull(note.trim().takeIf { it.isNotBlank() }))
+            .joinToString(", ")
+    }
+
     fun displayPrice(product: WebPosProduct, config: NativeProductOptionConfig): Satang? {
         if (product.id != productId) return null
         val base = if (useSpecialPrice) product.specialPrice ?: return null else product.price
