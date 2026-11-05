@@ -1,6 +1,8 @@
 package com.cpipos.pos.next.core.webpos
 
 import com.cpipos.pos.next.core.pos.Satang
+import org.json.JSONArray
+import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
@@ -28,6 +30,12 @@ internal data class NativeMenuSelection(
         ).take(16).joinToString("") { "%02x".format(it.toInt() and 0xff) }
         return "$productId:$sha"
     }
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("cart_line_id", cartLineId)
+        .put("price_kind", if (useSpecialPrice) "special" else "regular")
+        .put("modifier_option_ids", JSONArray(selectedOptionIds.sorted()))
+        .put("note", note.trim())
 
     fun displayPrice(product: WebPosProduct, config: NativeProductOptionConfig): Satang? {
         if (product.id != productId) return null
