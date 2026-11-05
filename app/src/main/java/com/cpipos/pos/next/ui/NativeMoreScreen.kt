@@ -172,7 +172,7 @@ internal fun NativeMoreScreen(
             // letting menu cards show beneath the floating centre control.
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth().statusBarsPadding()
-                    .padding(horizontal = 14.dp, top = 12.dp),
+                    .padding(start = 14.dp, end = 14.dp, top = 12.dp),
                 contentPadding = PaddingValues(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
@@ -2769,7 +2769,7 @@ private fun MoreScaffold(
         Column(Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth().statusBarsPadding()
-                    .padding(horizontal = 13.dp, top = 8.dp),
+                    .padding(start = 13.dp, end = 13.dp, top = 8.dp),
                 contentPadding = PaddingValues(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
                 content = {
