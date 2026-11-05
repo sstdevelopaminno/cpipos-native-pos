@@ -348,7 +348,8 @@ data class WebPosProduct(
     val sku: String,
     val category: String,
     val price: Satang,
-    val imageUrl: String? = null
+    val imageUrl: String? = null,
+    val specialPrice: Satang? = null
 )
 /**
  * POS Web keeps product photos in /api/pos/product-media, not in /api/pos/products.
@@ -637,6 +638,14 @@ data class WebCatalogBranch(
     val code: String = "",
     val role: String = ""
 )
+/** Optional server-owned price: absent, invalid or null means the normal unit price. */
+internal fun parseOptionalSpecialPrice(raw: Any?): Satang? {
+    val value = raw?.takeUnless { it == JSONObject.NULL }?.toString()
+        ?.takeUnless { it.isBlank() || it == "null" } ?: return null
+    return runCatching { Satang.fromBaht(value) }.getOrNull()
+        ?.takeIf { it >= Satang.ZERO }
+}
+
 data class WebCatalogRow(
     val id: String, val name: String, val sku: String = "",
     val category: String = "", val price: Satang = Satang.ZERO,
@@ -645,6 +654,7 @@ data class WebCatalogRow(
     val avgUnitCost: Double = 0.0, val lastPurchaseUnitCost: Double = 0.0,
     val mode: String = "unit_only", val active: Boolean = true,
     val recommended: Boolean = false,
+    val specialPrice: Satang? = null,
     val updatedAt: String = ""
 )
 data class WebCatalogPage(
@@ -1564,7 +1574,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 sku = item.optString("sku"),
                 category = item.optString("category"),
                 price = amount,
-                imageUrl = productImageUrlFrom(item)
+                imageUrl = productImageUrlFrom(item),
+                specialPrice = parseOptionalSpecialPrice(item.opt("special_price"))
             )
         }
     }
@@ -2063,6 +2074,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 mode = item.optString("stock_deduction_mode", "unit_only"),
                 active = item.optBoolean("is_active", true),
                 recommended = item.optBoolean("is_recommended", false),
+                specialPrice = parseOptionalSpecialPrice(item.opt("special_price"))
+                    ?: parseOptionalSpecialPrice(item.optJSONObject("metadata")?.opt("special_price")),
                 updatedAt = item.optString("updated_at")
             )
         }
@@ -2108,7 +2121,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         deliveryPriceText: String,
         recommended: Boolean,
         useIngredientRecipe: Boolean,
-        ingredientLines: List<WebCatalogRecipeDraft>
+        ingredientLines: List<WebCatalogRecipeDraft>,
+        specialPriceText: String? = null
     ) {
         requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
@@ -2116,6 +2130,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         require(stockQuantity >= 0.0)
         val storePrice = Satang.fromBaht(storePriceText)
         val deliveryPrice = Satang.fromBaht(deliveryPriceText)
+        val specialPrice = specialPriceText?.takeIf { it.isNotBlank() }?.let(Satang::fromBaht)
+        require(specialPrice == null || specialPrice >= Satang.ZERO)
         require(storePrice >= Satang.ZERO && deliveryPrice >= Satang.ZERO)
         if (useIngredientRecipe) require(ingredientLines.isNotEmpty())
 
@@ -2138,6 +2154,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             .put("stock_quantity", stockQuantity)
             .put("store_price", BigDecimal(storePrice.bahtText()))
             .put("delivery_price", BigDecimal(deliveryPrice.bahtText()))
+            .put("special_price", specialPrice?.let { BigDecimal(it.bahtText()) } ?: JSONObject.NULL)
             .put("is_recommended", recommended)
             .put("use_ingredient_recipe", useIngredientRecipe)
             .put("ingredient_lines", recipe)
@@ -2182,7 +2199,8 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         skuOrUnit: String,
         category: String,
         priceText: String,
-        recommended: Boolean = item.recommended
+        recommended: Boolean = item.recommended,
+        specialPriceText: String? = item.specialPrice?.bahtText()
     ) {
         requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
@@ -2198,10 +2216,12 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         } else {
             require(category.isNotBlank())
             val price = Satang.fromBaht(priceText)
-            require(price >= Satang.ZERO)
+            val specialPrice = specialPriceText?.takeIf { it.isNotBlank() }?.let(Satang::fromBaht)
+            require(price >= Satang.ZERO && (specialPrice == null || specialPrice >= Satang.ZERO))
             payload.put("sku", skuOrUnit.trim())
                 .put("category", category.trim())
                 .put("price", BigDecimal(price.bahtText()))
+                .put("special_price", specialPrice?.let { BigDecimal(it.bahtText()) } ?: JSONObject.NULL)
                 .put("is_recommended", recommended)
         }
         call("POST", "/api/pos/catalog-management", payload)
