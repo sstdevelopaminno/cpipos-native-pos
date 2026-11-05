@@ -80,11 +80,13 @@ internal fun NativeMenuCustomizationDialog(
             ) {
                 if (product.specialPrice != null) {
                     Text("เลือกราคาขาย")
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.fillMaxWidth().clickable { useSpecialPrice = false },
+                        verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = !useSpecialPrice, onClick = { useSpecialPrice = false })
                         Text("ราคาปกติ ฿" + product.price.bahtText())
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.fillMaxWidth().clickable { useSpecialPrice = true },
+                        verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = useSpecialPrice, onClick = { useSpecialPrice = true })
                         Text("ราคาพิเศษ ฿" + product.specialPrice.bahtText())
                     }
