@@ -479,12 +479,7 @@ internal fun MobilePosSalePreview(
                     saving = true
                     paymentFeedback = "saving"
                     saveError = null
-                    val snapshot = products.mapNotNull { item ->
-                        val count = cart[item.id] ?: 0
-                        if (count > 0) DemoReceiptLine(
-                            item.id, item.name, count, Satang.of(item.price)
-                        ) else null
-                    }
+                    val snapshot = immutableCheckoutLines()
                     val billId = activeBillId
                     val paid = CashTenderInput.money(cashInput)
                     scope.launch {
@@ -548,6 +543,8 @@ internal fun MobilePosSalePreview(
                                 activeHeldId = null
                             }
                             cart.clear()
+                            configuredSelections.clear()
+                            configuredPrices.clear()
                             discount = PosDiscount()
                             activeBillId = UUID.randomUUID().toString()
                             showCart = false
@@ -606,12 +603,7 @@ internal fun MobilePosSalePreview(
                     saving = true
                     paymentFeedback = "saving"
                     saveError = null
-                    val snapshot = products.mapNotNull { item ->
-                        val count = cart[item.id] ?: 0
-                        if (count > 0) {
-                            DemoReceiptLine(item.id, item.name, count, Satang.of(item.price))
-                        } else null
-                    }
+                    val snapshot = immutableCheckoutLines()
                     val billId = activeBillId
                     scope.launch {
                         try {
@@ -666,6 +658,8 @@ internal fun MobilePosSalePreview(
                                 activeHeldId = null
                             }
                             cart.clear()
+                            configuredSelections.clear()
+                            configuredPrices.clear()
                             discount = PosDiscount()
                             activeBillId = UUID.randomUUID().toString()
                             showCart = false
@@ -965,7 +959,21 @@ internal fun MobilePosSalePreview(
                             DemoProductCard(
                                 product = product,
                                 quantity = cart[product.id] ?: 0,
-                                onAdd = { add(product.id) }
+                                onAdd = {
+                                    if (liveSession == null) {
+                                        add(product.id)
+                                    } else {
+                                        val config = optionConfigs[product.id]
+                                        val canonical = liveProducts?.firstOrNull { it.id == product.id }
+                                        if (optionsLoading) notice = "กำลังโหลดตัวเลือกสินค้า"
+                                        else if (optionLoadError || config == null || canonical == null) {
+                                            notice = "ตรวจสอบตัวเลือกสินค้าจาก CpIPOS หลักไม่ได้ กรุณาลองอีกครั้ง"
+                                        } else if (config.groups.isNotEmpty() ||
+                                            config.baseRecipe.isNotEmpty() || canonical.specialPrice != null) {
+                                            editingProductId = product.id
+                                        } else add(product.id)
+                                    }
+                                }
                             )
                         }
                     }
@@ -978,6 +986,19 @@ internal fun MobilePosSalePreview(
             )
         }
     }
+    editingProductId?.let { productId ->
+        val original = liveProducts?.firstOrNull { it.id == productId }
+        val options = optionConfigs[productId]
+        if (original != null && options != null) {
+            NativeMenuCustomizationDialog(
+                product = original,
+                config = options,
+                onDismiss = { editingProductId = null },
+                onConfirm = { choice -> addConfiguredChoice(choice) }
+            )
+        }
+    }
+
     if (showScannerNotice) {
         AlertDialog(
             onDismissRequest = { showScannerNotice = false },
@@ -989,7 +1010,7 @@ internal fun MobilePosSalePreview(
 
     if (showCart) {
         PreviewCartBottomSheet(
-            products = products,
+            products = cartProducts,
             cart = cart,
             quantity = quantity,
             total = total,
@@ -1014,7 +1035,9 @@ internal fun MobilePosSalePreview(
             discountAmount = discountAmount,
             onHoldBill = if (liveSession == null) null else {
                 {
-                    if (!saving && !heldIoBusy && quantity > 0 && liveJournal != null) {
+                    if (configuredSelections.isNotEmpty()) {
+                        notice = "บิลที่เลือกวัตถุดิบ/ราคาพิเศษต้องจบรายการก่อนพักบิล"
+                    } else if (!saving && !heldIoBusy && quantity > 0 && liveJournal != null) {
                         val session = liveSession
                         val journal = liveJournal
                         val cartSnapshot = cart.toMap()
@@ -1207,6 +1230,8 @@ internal fun MobilePosSalePreview(
                                 heldDrafts = drafts
                             }
                             cart.clear()
+                            configuredSelections.clear()
+                            configuredPrices.clear()
                             discount = PosDiscount()
                             activeBillId = UUID.randomUUID().toString()
                             showCancelBillConfirm = false
