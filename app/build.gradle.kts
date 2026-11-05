@@ -34,6 +34,28 @@ val releaseSigningEnabled = listOf(
     releaseKeyPassword
 ).all { it.isNotBlank() }
 
+// Never ship a signed customer APK with an empty Supabase connection or
+// Vercel's login-protected *.vercel.app hostname. Debug/unit CI remains offline-safe.
+val releaseRequested = gradle.startParameter.taskNames.any { task ->
+    task.contains("assembleRelease", ignoreCase = true) ||
+    task.contains("bundleRelease", ignoreCase = true) ||
+    task.contains("packageRelease", ignoreCase = true)
+}
+if (releaseRequested) {
+    val backend = localProperty("CPIPOS_WEB_POS_API_URL")
+    val supabaseUrl = localProperty("CPIPOS_SUPABASE_URL")
+    val publishableKey = localProperty("CPIPOS_SUPABASE_PUBLISHABLE_KEY")
+    require(backend == "https://pos.cuttingpointinnovation.com") {
+        "Release API host must be the verified public CpIPOS production domain"
+    }
+    require(supabaseUrl == "https://deejlitaivfnsbwqdugy.supabase.co") {
+        "Release Supabase URL must point to production CpiPOS-001"
+    }
+    require(publishableKey.startsWith("sb_publishable_") && publishableKey.length > 30) {
+        "Release requires a real Supabase public publishable key (never service_role)"
+    }
+}
+
 val resolvedVersionCode = providers.gradleProperty("CPIPOS_RELEASE_VERSION_CODE")
     .orNull?.toIntOrNull() ?: 2000000
 val resolvedVersionName = providers.gradleProperty("CPIPOS_RELEASE_VERSION_NAME")
@@ -57,7 +79,7 @@ android {
             "String",
             "WEB_POS_API_URL",
             quoted(localProperty("CPIPOS_WEB_POS_API_URL")
-                .ifBlank { "https://cp-ipos-web.vercel.app" })
+                .ifBlank { "https://pos.cuttingpointinnovation.com" })
         )
         buildConfigField(
             "String",
