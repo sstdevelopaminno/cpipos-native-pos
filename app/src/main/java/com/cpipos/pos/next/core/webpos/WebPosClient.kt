@@ -4267,13 +4267,62 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         expectedTotal: Satang = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
     ): WebCreatedOrder {
         require(lines.isNotEmpty() && lines.all { it.quantity in 1..9999 })
-        require(lines.map { it.productId }.distinct().size == lines.size)
+        if (lines.none { it.nativeChoiceJson != null }) {
+            require(lines.map { it.productId }.distinct().size == lines.size)
+        }
         require(session.canSell && session.shiftId != null)
         require(UUID.fromString(saleId).toString() == saleId)
         requireSameLiveSession(session)
         val subtotal = lines.fold(Satang.ZERO) { sum, line -> sum + line.amount }
         require(expectedTotal > Satang.ZERO && expectedTotal <= subtotal)
         val discountTotal = subtotal - expectedTotal
+        val configured = lines.any { it.nativeChoiceJson != null }
+        if (configured) {
+            // Only the server may authorize special price, modifier selections,
+            // and the final total. Price/stock rejection leaves the journal intact.
+            require(lines.all { it.cartLineId != null })
+            val payloadLines = JSONArray().apply {
+                lines.forEach { line ->
+                    require(runCatching { UUID.fromString(line.productId) }.isSuccess)
+                    val choice = line.nativeChoiceJson?.let { JSONObject(it) }
+                        ?: JSONObject()
+                            .put("cart_line_id", line.cartLineId)
+                            .put("price_kind", "regular")
+                            .put("modifier_option_ids", JSONArray())
+                            .put("note", line.notes ?: "")
+                    put(JSONObject()
+                        .put("product_id", line.productId)
+                        .put("quantity", line.quantity)
+                        .put("unit_price", BigDecimal(line.unitPrice.bahtText()))
+                        .put("native_selection", choice))
+                }
+            }
+            val result = call(
+                "POST", "/api/pos/sales",
+                JSONObject()
+                    .put("native_mobile", true)
+                    .put("shift_id", session.shiftId)
+                    .put("order_type", "takeaway")
+                    .put("channel", "pos")
+                    .put("app_total_amount", BigDecimal(subtotal.bahtText()))
+                    .put("discount_amount", BigDecimal(discountTotal.bahtText()))
+                    .put("items", payloadLines),
+                saleId
+            )
+            val serverTotal = Satang.fromBaht(
+                result.opt("grand_total")?.toString()?.takeIf { it != "null" }
+                    ?: result.get("total_amount").toString()
+            )
+            if (serverTotal != expectedTotal) {
+                throw WebPosApiException("native_order_total_changed_review", 409)
+            }
+            return WebCreatedOrder(
+                id = result.getString("id"),
+                orderNo = result.optString("order_no").ifBlank { result.getString("id") },
+                status = result.optString("status"),
+                total = serverTotal
+            )
+        }
         val items = JSONArray()
         lines.forEach { line ->
             require(runCatching { UUID.fromString(line.productId) }.isSuccess)
