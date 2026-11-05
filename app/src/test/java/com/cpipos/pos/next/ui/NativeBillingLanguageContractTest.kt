@@ -36,8 +36,12 @@ class NativeBillingLanguageContractTest {
         assertTrue(more.contains("\"billing\""))
         assertTrue(more.contains("ic_package_payment"))
         assertTrue(more.contains("if (menu.key == \"billing\") true"))
-        assertTrue(more.contains("bottom = 212.dp"))
-        assertTrue(more.contains("bottom = 150.dp"))
+        // More pages reserve the bottom navigation as a real layout child.
+        // No card may remain visible behind the floating navigation shoulder.
+        assertTrue(more.contains("Modifier.weight(1f).fillMaxWidth().statusBarsPadding()"))
+        assertTrue(more.contains("contentPadding = PaddingValues(bottom = 24.dp)"))
+        assertFalse(more.contains("bottom = 212.dp"))
+        assertFalse(more.contains("bottom = 150.dp"))
     }
 
     @Test
@@ -90,7 +94,11 @@ class NativeBillingLanguageContractTest {
     fun settingsContentClearsRaisedBottomNavigation() {
         val hub = source("src/main/java/com/cpipos/pos/next/ui/NativeSettingsHubScreen.kt")
         val screens = source("src/main/java/com/cpipos/pos/next/ui/NativeSettingsManagementScreens.kt")
-        assertTrue(hub.contains("bottom = 212.dp"))
-        assertTrue(screens.contains("bottom = 156.dp"))
+        assertTrue(hub.contains("Modifier.weight(1f).fillMaxWidth().statusBarsPadding()"))
+        assertTrue(screens.contains("Modifier.weight(1f).fillMaxWidth().statusBarsPadding()"))
+        assertTrue(hub.contains("HomeBottomMenu("))
+        assertTrue(screens.contains("HomeBottomMenu("))
+        assertFalse(hub.contains("bottom = 212.dp"))
+        assertFalse(screens.contains("bottom = 156.dp"))
     }
 }
