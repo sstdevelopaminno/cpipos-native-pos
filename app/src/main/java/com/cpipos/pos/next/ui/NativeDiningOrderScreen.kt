@@ -30,6 +30,7 @@ import com.cpipos.pos.next.core.pos.Satang
 import com.cpipos.pos.next.core.webpos.DiningMutationJournal
 import com.cpipos.pos.next.core.webpos.*
 import com.cpipos.pos.next.core.offline.DemoSaleReceipt
+import com.cpipos.pos.next.core.offline.DemoReceiptLine
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import com.cpipos.pos.next.core.print.NativePrintRuntime
 import kotlinx.coroutines.CancellationException
@@ -47,6 +48,8 @@ internal class DiningWorkspace {
 }
 internal class DiningDraft {
     val items = mutableStateMapOf<String, Int>()
+    val configuredSelections = mutableStateMapOf<String, NativeMenuSelection>()
+    val configuredPrices = mutableStateMapOf<String, Long>()
     var uncertain by mutableStateOf(false)
     var busy by mutableStateOf(false)
     var pendingQuantities by mutableStateOf<Map<String, Int>>(emptyMap())
@@ -94,6 +97,31 @@ internal fun NativeDiningOrderScreen(
     var paymentNoticeBusy by remember(session.id, table.id) { mutableStateOf(false) }
     var drawerAvailable by remember(session.id) { mutableStateOf(false) }
     var drawerOpening by remember(session.id) { mutableStateOf(false) }
+    var optionConfigs by remember(session.id) {
+        mutableStateOf<Map<String, NativeProductOptionConfig>>(emptyMap())
+    }
+    var optionsLoading by remember(session.id) { mutableStateOf(true) }
+    var optionsError by remember(session.id) { mutableStateOf(false) }
+    var editingProductId by remember(session.id, table.id) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(client, session.id, products) {
+        optionsLoading = true
+        optionsError = false
+        try {
+            val configs = mutableMapOf<String, NativeProductOptionConfig>()
+            products.map { it.id }.chunked(60).forEach { ids ->
+                configs.putAll(client.productOptions(session, ids))
+            }
+            optionConfigs = configs
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            optionConfigs = emptyMap()
+            optionsError = true
+        } finally {
+            optionsLoading = false
+        }
+    }
 
     LaunchedEffect(client, session.id) {
         while (true) {
@@ -112,7 +140,8 @@ internal fun NativeDiningOrderScreen(
         try {
             val remote = client.diningBill(session, table.id)
             if (bill != null && remote.fingerprint() != bill?.fingerprint() &&
-                (draft.items.isNotEmpty() || draft.discount != null) && !accept) {
+                (draft.items.isNotEmpty() || draft.configuredSelections.isNotEmpty() ||
+                    draft.discount != null) && !accept) {
                 stale = true
                 error = "บิลบน POS หลักเปลี่ยนแล้ว ต้องรีเฟรชก่อนบันทึกรายการ"
             } else {
@@ -121,9 +150,11 @@ internal fun NativeDiningOrderScreen(
                 error = null
             }
             if (!remote.editable) {
-                if (draft.items.isNotEmpty() || draft.pendingQuantities.isNotEmpty()) draft.uncertain = true
+                if (draft.items.isNotEmpty() || draft.configuredSelections.isNotEmpty() ||
+                    draft.pendingQuantities.isNotEmpty()) draft.uncertain = true
                 if (remote.paid || remote.sessionStatus in listOf("closed", "cancelled")) {
-                    if (draft.items.isEmpty() && draft.pendingQuantities.isEmpty() &&
+                    if (draft.items.isEmpty() && draft.configuredSelections.isEmpty() &&
+                        draft.pendingQuantities.isEmpty() &&
                         mutationJournal.pending(session, table.id) == null) {
                         onTables()
                     } else {
@@ -172,13 +203,23 @@ internal fun NativeDiningOrderScreen(
                 ?.uppercase(Locale.forLanguageTag("th-TH")) ?: "?",
             Color(0xFF79B6EE), it.imageUrl)
     }
+    val configuredCartEntries = draft.configuredSelections.mapNotNull { (id, choice) ->
+        val original = entries.firstOrNull { it.id == choice.productId }
+        val unitPrice = draft.configuredPrices[id]
+        if (original == null || unitPrice == null) null else original.copy(
+            id = id, name = original.name + " (ตัวเลือก)", price = unitPrice
+        )
+    }
+    val cartEntries = entries + configuredCartEntries
     val categories = listOf("ทั้งหมด") + entries.map { it.category }.distinct()
     val shown = entries.filter {
         (category == "ทั้งหมด" || it.category == category) &&
             (search.isBlank() || it.name.contains(search.trim(), ignoreCase = true))
     }
-    val count = draft.items.values.sum()
-    val subtotal = entries.sumOf { it.price * (draft.items[it.id] ?: 0) }
+    val count = draft.items.values.sum() + draft.configuredSelections.keys.sumOf {
+        draft.items[it] ?: 0
+    }
+    val subtotal = cartEntries.sumOf { it.price * (draft.items[it.id] ?: 0) }
     val existing = bill
     val storedQuantities = existing?.let(::billQuantities).orEmpty()
     val combinedCart = storedQuantities.toMutableMap().apply {
