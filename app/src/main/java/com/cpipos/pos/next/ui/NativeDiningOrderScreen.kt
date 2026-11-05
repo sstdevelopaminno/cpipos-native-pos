@@ -239,16 +239,36 @@ internal fun NativeDiningOrderScreen(
     val canSubmit = existing?.editable == true && !custom && !stale &&
         !draft.busy && !draft.uncertain && discountValid &&
         (count > 0 || discountChanged)
+    // Even if the original table order contains custom items, settling its
+    // server-owned price is safe. Only re-editing such an order is blocked.
     val canPayExisting = existing?.editable == true && existing.orderId != null &&
-        existing.total > Satang.ZERO && !custom && !stale &&
+        existing.total > Satang.ZERO && !stale &&
         !draft.busy && !draft.uncertain && !discountChanged && count == 0
     val canCheckout = canSubmit || canPayExisting
+
+    fun addConfiguredChoice(choice: NativeMenuSelection) {
+        val product = products.firstOrNull { it.id == choice.productId } ?: return
+        val config = optionConfigs[choice.productId] ?: return
+        val price = choice.displayPrice(product, config)
+        if (price == null) {
+            error = "เลือกวัตถุดิบไม่ครบหรือราคาสินค้าเปลี่ยน"
+            return
+        }
+        val key = choice.cartLineId
+        draft.configuredSelections[key] = choice.copy(quantity = 1)
+        draft.configuredPrices[key] = price.value
+        draft.items[key] = (draft.items[key] ?: 0) + choice.quantity
+        editingProductId = null
+    }
 
     fun save(thenCheckout: Boolean = true) {
         val initial = bill ?: return
         if (!canSubmit) return
         val desired = billQuantities(initial).toMutableMap()
-        draft.items.forEach { (id, qty) -> desired[id] = (desired[id] ?: 0) + qty }
+        draft.items.forEach { (id, qty) ->
+            val productId = draft.configuredSelections[id]?.productId ?: id
+            desired[productId] = (desired[productId] ?: 0) + qty
+        }
         val requestedDiscount = targetDiscount
         val requestId = UUID.randomUUID().toString()
         try {
@@ -267,8 +287,33 @@ internal fun NativeDiningOrderScreen(
         error = null
         scope.launch {
             try {
-                client.saveDiningOrder(session, table.id, initial, desired, products,
-                    requireNotNull(draft.requestId), Satang.of(requestedDiscount))
+                if (draft.configuredSelections.isNotEmpty()) {
+                    // Variant lines retain configured prices and option IDs;
+                    // ordinary lines are still validated against server catalog.
+                    val existingLines = initial.lines.map { row ->
+                        DemoReceiptLine(row.productId, row.name, row.quantity, row.unitPrice)
+                    }
+                    val newLines = draft.items.map { (id, qty) ->
+                        val choice = draft.configuredSelections[id]
+                        val productId = choice?.productId ?: id
+                        val product = products.firstOrNull { it.id == productId }
+                            ?: error("product_removed_refresh_table")
+                        val price = choice?.let { draft.configuredPrices[id] } ?: product.price.value
+                        DemoReceiptLine(
+                            productId, product.name, qty, Satang.of(price),
+                            cartLineId = id,
+                            nativeChoiceJson = choice?.toJson()?.toString(),
+                            notes = choice?.note
+                        )
+                    }
+                    client.saveConfiguredDiningOrder(
+                        session, table.id, initial, existingLines + newLines,
+                        requireNotNull(draft.requestId), Satang.of(requestedDiscount)
+                    )
+                } else {
+                    client.saveDiningOrder(session, table.id, initial, desired, products,
+                        requireNotNull(draft.requestId), Satang.of(requestedDiscount))
+                }
                 val verified = client.diningBill(session, table.id)
                 if (billQuantities(verified) != desired ||
                     verified.discount.value != requestedDiscount ||
@@ -279,6 +324,8 @@ internal fun NativeDiningOrderScreen(
                 // Items are saved, but the table has NOT been paid.
                 // Show the green success check only after actual settlement.
                 draft.items.clear()
+                draft.configuredSelections.clear()
+                draft.configuredPrices.clear()
                 draft.discount = null
                 draft.pendingQuantities = emptyMap()
                 draft.requestId = null
