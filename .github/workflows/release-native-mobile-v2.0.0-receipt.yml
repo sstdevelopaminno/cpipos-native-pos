@@ -1,0 +1,159 @@
+name: Release Native Mobile v2.0.0 Receipt Fix
+
+on:
+  push:
+    branches:
+      - "release/native-mobile-v2.0.0-receipt"
+
+permissions:
+  contents: write
+
+env:
+  VERSION_NAME: "2.0.0"
+  VERSION_CODE: "2000000"
+  RELEASE_TAG: "native-mobile-v2.0.0"
+  APK_NAME: "CpIPOS-Native-Mobile-2.0.0.apk"
+  SHA_NAME: "CpIPOS-Native-Mobile-2.0.0.sha256"
+  MANIFEST_NAME: "CpIPOS-Native-Mobile-2.0.0.manifest.json"
+
+jobs:
+  signed-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-37.0 build-tools;37.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.5.0"
+
+      - name: Validate release configuration and signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          PUBLISHABLE_KEY_PRIMARY: ${{ secrets.CPIPOS_SUPABASE_PUBLISHABLE_KEY }}
+          PUBLISHABLE_KEY_ALT: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          PUBLISHABLE_KEY_ANON: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          for value in "$KEYSTORE_BASE64" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD"; do
+            if [ -z "$value" ]; then
+              echo "::error::Android production signing secrets are not configured."
+              exit 1
+            fi
+          done
+          PUBLISHABLE_KEY="$PUBLISHABLE_KEY_PRIMARY"
+          if [ -z "$PUBLISHABLE_KEY" ]; then PUBLISHABLE_KEY="$PUBLISHABLE_KEY_ALT"; fi
+          if [ -z "$PUBLISHABLE_KEY" ]; then PUBLISHABLE_KEY="$PUBLISHABLE_KEY_ANON"; fi
+          if [ -z "$PUBLISHABLE_KEY" ]; then
+            echo "::error::Supabase publishable key secret is not configured for release."
+            exit 1
+          fi
+          if [[ "$PUBLISHABLE_KEY" != sb_publishable_* ]]; then
+            echo "::error::Release requires a Supabase publishable key."
+            exit 1
+          fi
+          {
+            echo "CPIPOS_WEB_POS_API_URL=https://pos.cuttingpointinnovation.com"
+            echo "CPIPOS_SUPABASE_URL=https://deejlitaivfnsbwqdugy.supabase.co"
+            printf 'CPIPOS_SUPABASE_PUBLISHABLE_KEY=%s\n' "$PUBLISHABLE_KEY"
+          } > local.properties
+          chmod 600 local.properties
+
+      - name: Materialize production keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/cpipos-native-release.jks"
+          chmod 600 "$RUNNER_TEMP/cpipos-native-release.jks"
+
+      - name: Test and build signed release APK
+        env:
+          ANDROID_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/cpipos-native-release.jks
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          gradle :app:testDebugUnitTest :app:assembleRelease --stacktrace \
+            -PCPIPOS_RELEASE_VERSION_NAME="$VERSION_NAME" \
+            -PCPIPOS_RELEASE_VERSION_CODE="$VERSION_CODE"
+
+      - name: Verify signed production APK
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          apksignerPath="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          aaptPath="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$apksignerPath"
+          test -n "$aaptPath"
+          "$apksignerPath" verify --verbose --print-certs "$APK"
+          badging="$("$aaptPath" dump badging "$APK" | head -n 1)"
+          echo "$badging" | grep -q "package: name='com.cpipos.pos.next'" || { echo "::error::APK package mismatch"; exit 1; }
+          echo "$badging" | grep -q "versionCode='$VERSION_CODE'" || { echo "::error::APK versionCode mismatch"; exit 1; }
+          echo "$badging" | grep -q "versionName='$VERSION_NAME'" || { echo "::error::APK versionName mismatch"; exit 1; }
+          if "$aaptPath" dump badging "$APK" | grep -q "^application-debuggable"; then
+            echo "::error::Release APK must not be debuggable"
+            exit 1
+          fi
+          mkdir -p release
+          cp "$APK" "release/$APK_NAME"
+          sha256sum "release/$APK_NAME" | tee "release/$SHA_NAME"
+          certSha="$("$apksignerPath" verify --print-certs "$APK" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          apkSha="$(sha256sum "release/$APK_NAME" | awk '{print $1}')"
+          cat > "release/$MANIFEST_NAME" <<JSON
+          {
+            "channel": "stable",
+            "version_name": "$VERSION_NAME",
+            "version_code": $VERSION_CODE,
+            "package_name": "com.cpipos.pos.next",
+            "asset_name": "$APK_NAME",
+            "sha256": "$apkSha",
+            "signing_cert_sha256": "$certSha",
+            "min_sdk": 26,
+            "receipt_layout": "canonical_html_v1"
+          }
+          JSON
+
+      - name: Upload signed release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpipos-native-mobile-2.0.0-signed
+          path: |
+            release/${{ env.APK_NAME }}
+            release/${{ env.SHA_NAME }}
+            release/${{ env.MANIFEST_NAME }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publish stable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "release/$APK_NAME" "release/$SHA_NAME" "release/$MANIFEST_NAME" --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              "release/$APK_NAME" "release/$SHA_NAME" "release/$MANIFEST_NAME" \
+              --target "$GITHUB_SHA" \
+              --title "CpIPOS Native Mobile v$VERSION_NAME" \
+              --notes "Signed Android Native POS release with canonical CpIPOS receipt HTML layout for 58/80 mm printing. Minimum Android version: 8.0 (API 26)."
+          fi
