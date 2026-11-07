@@ -71,6 +71,7 @@ class NativePrinterTransport(context: Context) {
     private val appContext = context.applicationContext
     private val usbManager = appContext.getSystemService(UsbManager::class.java)
     private val bluetoothManager = appContext.getSystemService(BluetoothManager::class.java)
+    private val htmlRasterizer = HtmlReceiptRasterizer(appContext)
 
     fun parseJob(row: JSONObject): NativePrintJob {
         val printer = when (val value = row.opt("printer_profiles")) {
@@ -123,10 +124,14 @@ class NativePrinterTransport(context: Context) {
         if (command == "open_cash_drawer" || job.payloadText.trim() == "OPEN_CASH_DRAWER") {
             return byteArrayOf(0x1B, 0x70, 0x00, 0x19, 0x7D)
         }
+        val html = job.metadata.optString("payload_html", "").trim()
+        if (html.isNotEmpty()) {
+            return htmlRasterizer.render(html, job.printer.paperWidthMm)
+        }
         if (job.payloadText.isBlank()) {
             throw NativePrintException(
                 "print_payload_missing", false,
-                "งานพิมพ์นี้ไม่มีข้อความ ESC/POS สำหรับ Android Native"
+                "งานพิมพ์นี้ไม่มี HTML หรือข้อความ ESC/POS สำหรับ Android Native"
             )
         }
         val charsetName = job.printer.metadata.optString(
