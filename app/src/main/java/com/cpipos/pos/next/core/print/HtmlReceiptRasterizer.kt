@@ -16,6 +16,7 @@ import android.print.CpiposPrintDocumentAdapterCallbacks
 import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.cpipos.pos.next.BuildConfig
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.CountDownLatch
@@ -222,7 +223,7 @@ internal class HtmlReceiptRasterizer(context: Context) {
                 }
 
                 view.loadDataWithBaseURL(
-                    BuildConfig.CPIPOS_API_BASE_URL,
+                    BuildConfig.WEB_POS_API_URL,
                     normalizeHtmlForRaster(html),
                     "text/html",
                     "UTF-8",
