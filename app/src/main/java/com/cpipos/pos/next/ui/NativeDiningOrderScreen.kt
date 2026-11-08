@@ -266,6 +266,14 @@ internal fun NativeDiningOrderScreen(
             error = "เลือกวัตถุดิบไม่ครบหรือราคาสินค้าเปลี่ยน"
             return
         }
+        if (!choice.useSpecialPrice && choice.selectedOptionIds.isEmpty() &&
+            choice.note.isBlank() && config.groups.isEmpty()) {
+            // Ordinary recipe sales must keep working through the existing
+            // POS table endpoint outside the atomic menu pilot.
+            draft.items[product.id] = (draft.items[product.id] ?: 0) + choice.quantity
+            editingProductId = null
+            return
+        }
         val key = choice.cartLineId
         draft.configuredSelections[key] = choice.copy(quantity = 1)
         draft.configuredPrices[key] = price.value
@@ -760,11 +768,9 @@ internal fun NativeDiningOrderScreen(
                                     if (optionsLoading) error = "กำลังโหลดตัวเลือกสินค้า"
                                     else if (optionsError || original == null || configured == null) {
                                         error = "โหลดตัวเลือกสินค้าจาก CpIPOS หลักไม่ได้"
-                                    } else if (configured.groups.isNotEmpty() ||
-                                        configured.baseRecipe.isNotEmpty() || original.specialPrice != null) {
-                                        editingProductId = product.id
                                     } else {
-                                        draft.items[product.id] = (draft.items[product.id] ?: 0) + 1
+                                        // Product card always opens one editable dialog.
+                                        editingProductId = product.id
                                     }
                                 }
                             })
