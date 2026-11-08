@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.cpipos.pos.next.core.webpos.NativeMenuSelection
 import com.cpipos.pos.next.core.webpos.NativeModifierGroup
 import com.cpipos.pos.next.core.webpos.NativeProductOptionConfig
+import com.cpipos.pos.next.core.webpos.composeNativeRecipeKitchenNote
 import com.cpipos.pos.next.core.webpos.WebPosProduct
 
 /**
@@ -69,10 +70,7 @@ internal fun NativeMenuCustomizationDialog(
         selected = next
     }
 
-    val recipeInstructions = config.baseRecipe.filter { it.id in excludedRecipeIds }
-        .map { "ไม่ใส่" + it.name }
-    val fullNote = (recipeInstructions + listOf(note.trim()).filter { it.isNotBlank() })
-        .joinToString(" | ")
+    val fullNote = composeNativeRecipeKitchenNote(config, excludedRecipeIds, note)
     val noteTooLong = fullNote.length > 160
     val draft = remember(product.id, quantity, useSpecialPrice, selected, fullNote) {
         NativeMenuSelection(product.id, quantity, useSpecialPrice, selected, fullNote.take(160))
