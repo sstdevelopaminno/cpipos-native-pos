@@ -1131,6 +1131,7 @@ internal fun HomeBottomMenu(
     onMenuClick: (String) -> Unit = {}
 ) {
     val density = LocalDensity.current
+    val restrictedStaff = isNativeStaff(LocalNativePosRole.current)
     val flatTopPx = with(density) { 17.dp.toPx() }
     // Square side edges let the navigation surface meet both screen edges.
     val cornerPx = with(density) { 0.dp.toPx() }
@@ -1205,13 +1206,15 @@ internal fun HomeBottomMenu(
                 onClick = { onMenuClick("sale") },
                 modifier = Modifier.weight(1f)
             )
-            BottomMenuItem(
-                iconRes = R.drawable.ic_nav_report,
-                label = nativeUiText("nav.report", stringResource(R.string.pos_nav_report)),
-                selected = selectedTab == "report",
-                onClick = { onMenuClick("report") },
-                modifier = Modifier.weight(1f)
-            )
+            if (!restrictedStaff) {
+                BottomMenuItem(
+                    iconRes = R.drawable.ic_nav_report,
+                    label = nativeUiText("nav.report", stringResource(R.string.pos_nav_report)),
+                    selected = selectedTab == "report",
+                    onClick = { onMenuClick("report") },
+                    modifier = Modifier.weight(1f)
+                )
+            } else Spacer(Modifier.weight(1f))
             Spacer(modifier = Modifier.weight(1f))
             BottomMenuItem(
                 iconRes = R.drawable.ic_nav_more,
@@ -1220,13 +1223,15 @@ internal fun HomeBottomMenu(
                 onClick = { onMenuClick("history") },
                 modifier = Modifier.weight(1f)
             )
-            BottomMenuItem(
-                iconRes = R.drawable.ic_nav_setting,
-                label = nativeUiText("nav.settings", stringResource(R.string.pos_nav_setting)),
-                selected = selectedTab == "settings",
-                onClick = { onMenuClick("settings") },
-                modifier = Modifier.weight(1f)
-            )
+            if (!restrictedStaff) {
+                BottomMenuItem(
+                    iconRes = R.drawable.ic_nav_setting,
+                    label = nativeUiText("nav.settings", stringResource(R.string.pos_nav_setting)),
+                    selected = selectedTab == "settings",
+                    onClick = { onMenuClick("settings") },
+                    modifier = Modifier.weight(1f)
+                )
+            } else Spacer(Modifier.weight(1f))
         }
 
         // White halo + gentle elevation creates the raised central button.

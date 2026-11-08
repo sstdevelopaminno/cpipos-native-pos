@@ -967,6 +967,17 @@ internal fun MobilePosSalePreview(
                             DemoProductCard(
                                 product = product,
                                 quantity = cart[product.id] ?: 0,
+                                onDetails = {
+                                    if (liveSession == null) {
+                                        notice = "รายละเอียดสินค้าใช้งานได้เมื่อเข้าสู่ระบบร้านค้า"
+                                    } else if (optionsLoading) {
+                                        notice = "กำลังโหลดตัวเลือกสินค้า"
+                                    } else if (optionLoadError || optionConfigs[product.id] == null) {
+                                        notice = "ตรวจสอบข้อมูลวัตถุดิบจาก CpIPOS หลักไม่ได้ กรุณาลองใหม่"
+                                    } else {
+                                        editingProductId = product.id
+                                    }
+                                },
                                 onAdd = {
                                     if (liveSession == null) {
                                         add(product.id)
@@ -1028,7 +1039,13 @@ internal fun MobilePosSalePreview(
             onDelete = { id ->
                 setCartItems(cart.toMutableMap().apply { remove(id) })
             },
-            onCancelBill = { showCart = false; showCancelBillConfirm = true },
+            onCancelBill = {
+                if (liveSession == null || nativeCanModifyBills(liveSession.role)) {
+                    showCart = false
+                    showCancelBillConfirm = true
+                }
+            },
+            allowCancelBill = liveSession == null || nativeCanModifyBills(liveSession.role),
             onCheckout = {
                 if (!heldIoBusy && quantity > 0 && total > 0L) {
                     selectedMethod = PreviewPayment.Cash
@@ -1209,7 +1226,8 @@ internal fun MobilePosSalePreview(
         )
     }
 
-    if (showCancelBillConfirm && liveSession != null && liveClient != null) {
+    if (showCancelBillConfirm && liveSession != null && liveClient != null &&
+        nativeCanModifyBills(liveSession.role)) {
         NativeCancelBillPinDialog(
             title = "อนุมัติยกเลิกบิลกลับบ้าน",
             busy = saving,
@@ -1568,7 +1586,8 @@ private fun PaymentMethodTile(
 internal fun DemoProductCard(
     product: DemoMenuItem,
     quantity: Int,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
+    onDetails: (() -> Unit)? = null
 ) {
     Card(
         modifier = Modifier
@@ -1595,6 +1614,15 @@ internal fun DemoProductCard(
                     markerFontSize = 48.sp,
                     modifier = Modifier.fillMaxSize()
                 )
+                onDetails?.let { showDetails ->
+                    TextButton(
+                        onClick = showDetails,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp)
+                            .background(Color.White.copy(alpha = 0.94f), RoundedCornerShape(12.dp))
+                    ) {
+                        Text("รายละเอียด", fontSize = 11.sp, color = saleBlue)
+                    }
+                }
                 if (quantity > 0) {
                     Box(
                         modifier = Modifier
@@ -1664,6 +1692,8 @@ internal fun PreviewCartBottomSheet(
     checkoutLabel: String = "ชำระเงิน",
     tableMode: Boolean = false,
     checkoutEnabled: Boolean = true,
+    allowCancelBill: Boolean = true,
+    allowDiscount: Boolean = true,
     lockedQuantities: Map<String, Int> = emptyMap(),
     discountAmount: Long = 0L,
     onHoldBill: (() -> Unit)? = null
@@ -1831,7 +1861,7 @@ internal fun PreviewCartBottomSheet(
             }
 
             Spacer(modifier = Modifier.height(9.dp))
-            Row(
+            if (allowDiscount) Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(15.dp))
@@ -1880,7 +1910,7 @@ internal fun PreviewCartBottomSheet(
                     modifier = Modifier.weight(1f),
                     onClick = { if (onHoldBill != null) onHoldBill() else onFeatureClick("พิมพ์บิล") }
                 )
-                CartSecondaryButton(
+                if (allowCancelBill) CartSecondaryButton(
                     title = "ยกเลิกบิล",
                     modifier = Modifier.weight(1f),
                     onClick = onCancelBill,

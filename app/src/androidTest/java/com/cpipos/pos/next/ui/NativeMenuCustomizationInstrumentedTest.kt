@@ -3,6 +3,9 @@ package com.cpipos.pos.next.ui
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -61,6 +64,43 @@ class NativeMenuCustomizationInstrumentedTest {
             assertEquals(setOf("o1"), choice.selectedOptionIds)
             assertTrue(choice.useSpecialPrice)
             assertEquals(Satang.of(4500), choice.displayPrice(product, config))
+        }
+    }
+
+    @Test
+    fun ordinaryProductCanEnterFreeFormNoteWithoutModifierGroups() {
+        var selected: NativeMenuSelection? = null
+        compose.setContent {
+            NativeMenuCustomizationDialog(
+                product = product.copy(specialPrice = null),
+                config = NativeProductOptionConfig(product.id, emptyList(), emptyList()),
+                onDismiss = {}, onConfirm = { selected = it }
+            )
+        }
+        compose.onNodeWithTag("native-item-details-note").performTextInput("ไม่ใส่น้ำตาล")
+        compose.onNodeWithText("เพิ่มลงตะกร้า").performClick()
+        compose.runOnIdle {
+            assertEquals("ไม่ใส่น้ำตาล", requireNotNull(selected).note)
+            assertTrue(requireNotNull(selected).selectedOptionIds.isEmpty())
+        }
+    }
+
+    @Test
+    fun productDetailsActionDoesNotAccidentallyAddItem() {
+        var details = 0
+        var adds = 0
+        compose.setContent {
+            DemoProductCard(
+                product = DemoMenuItem("p1", "ชาเย็น", "drink", 3500, "ชา", Color.Blue),
+                quantity = 0,
+                onAdd = { adds++ },
+                onDetails = { details++ }
+            )
+        }
+        compose.onNodeWithText("รายละเอียด").performClick()
+        compose.runOnIdle {
+            assertEquals(1, details)
+            assertEquals(0, adds)
         }
     }
 

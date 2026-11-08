@@ -2,9 +2,9 @@
 
 Native Android POS application by **CUTTING POINT INNOVATION CO., LTD. / บริษัท คัตติ้ง พอยท์ อินโนเวชั่น จำกัด**.
 
-## Distribution and source of truth (27 October 2026)
+## Distribution and source of truth (verified 8 November 2026)
 
-- **Native Mobile Android 2.0.0**: a signed APK is published by the existing CpIPOS release authority in [CpIPOS Releases](https://github.com/sstdevelopaminno/CpIPOS/releases/tag/native-mobile-v2.0.0). Its pinned source revision is `09c095232c9b2082fde73728f2fb34647788f09d` from this repository. Android 8.0+ (API 26).
+- **Native Mobile Android 2.1.0**: latest confirmed signed Stable APK, published 5 November 2026 by the [CpIPOS release authority](https://github.com/sstdevelopaminno/CpIPOS/releases/tag/native-mobile-v2.1.0). It includes automatic verified Stable APK download and Android user-confirmed installer; Android 8.0+ (API 26). **This version does not include the 8 November kitchen/item-details fixes.**
 - **Android Tablet / legacy POS 1.0.25**: distributed separately from [CpIPOS Releases](https://github.com/sstdevelopaminno/CpIPOS/releases/tag/android-runtime-modern-1.0.25-print-health-auto-update). Do not confuse this with the Native Mobile APK.
 - [Company download center](https://www.cuttingpointinnovation.com/downloads) lists both Android variants; publish new URLs only after verifying the release assets and installer signatures.
 - **Development baseline:** `main`; use feature branches and CI to introduce changes. Older `feature/native-auth-phase1` is historical and is not the current release source.
@@ -36,3 +36,23 @@ Current source includes authenticated Store Code/branch/employee/device entry, s
 - Native APK never grants additional server permissions. Authoritative checks must be applied server-side to tenant, branch, device, role, active shift, and package.
 - Preserve idempotency for payments/printing and leave uncertain-sale recovery available.
 - Do not publish a new Android release before CI, signature verification, and physical-device acceptance.
+
+## 8 November 2026 — Mobile dine-in kitchen and item detail QA
+
+A follow-up branch adds a per-product **รายละเอียด** action for free-text item notes in both takeaway and dine-in and a non-blocking central kitchen dispatch/repair check after an acknowledged dine-in order. This branch is **not yet a released APK**. See [dine-in kitchen and modifier QA matrix](docs/NATIVE_DINE_IN_KITCHEN_ITEM_DETAILS_QA_2026-11-08.md).
+
+**Known blockers:** Existing customized table bills remain locked against unsafe full-cart edits; raw recipe ingredient changes do not yet have a supported structured selection contract; physical KDS/printer evidence is pending. The central backend's `NATIVE_ATOMIC_MENU_SALES_ENABLED` release flag must be verified and approved before any customer rollout. The Native repo's separate signing workflow has missing secret configuration; use the central CpIPOS release authority for final signed builds.
+
+
+### Customer self-update (candidate, 8 November 2026)
+
+The next Native candidate adds **เพิ่มเติม → อัปเดตแอป CpiPOS** so an employee can explicitly check Stable releases, watch download status and start the Android installer only when there are no unresolved sales or local drafts. The automatic 6-hour Stable check remains available. Updates require the same package name and exact Android signing certificate; **never uninstall or clear app data**. Android must obtain user confirmation to install a sideloaded APK. Do not distribute this unreleased branch to customers.
+
+
+## 8 November 2026 — Customer-requested product photos and employee isolation
+
+- Product catalog **เพิ่มสินค้า** and **แก้ไขสินค้า** now include camera capture and Android file/gallery selection. Image bytes are oriented, optimized into JPEG display/thumbnail and uploaded to the **existing CpIPOS /api/pos/product-media** contract. Owner/manager only; backend performs the authoritative branch/tenant/quota check. New product is created first, then its returned server product UUID receives the image. Failed image upload reports that the product has already been created — never retry product creation blindly.
+- Authenticated `staff` sees only **เปิด/ปิดกะ** inside More; the bottom navigation hides Reports and Settings and rejects internal attempts to enter them. The employee sale/stock screens remain available according to the existing backend feature/role scopes. No photo editing for staff.
+- The sales-history bill delete gesture/PIN dialog is unavailable to staff. The CpIPOS backend already checks owner/manager/IT role on `/api/pos/sales-list` PATCH/DELETE; the Android UI is a second protective layer, not the authorization boundary.
+- Employee shift flow stays accessible, including the global Stable update notification. The new manual update menu under More is **not** visible to staff by request; owner/manager can use it.
+- This source remains an **unreleased** APK candidate until CI, physical camera, product-media quota, staff-account, printed receipt, kitchen and upgrade acceptance.

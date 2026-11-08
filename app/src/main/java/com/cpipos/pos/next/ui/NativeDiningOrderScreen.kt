@@ -57,6 +57,7 @@ internal class DiningDraft {
     var paymentRequestId by mutableStateOf<String?>(null)
     var paymentMethod by mutableStateOf<PreviewPayment?>(null)
     var cashInput by mutableStateOf("")
+    var pendingKitchenOrderId by mutableStateOf<String?>(null)
     var discount by mutableStateOf<PosDiscount?>(null)
 }
 private fun billQuantities(bill: WebDiningBill): Map<String, Int> =
@@ -231,9 +232,13 @@ internal fun NativeDiningOrderScreen(
     }
     val combinedCount = combinedCart.values.sum()
     val gross = diningDiscountBase(existing, subtotal)
-    val targetDiscount = draft.discount?.amount(gross)
-        ?: (existing?.discount?.value ?: 0L)
-    val discountChanged = draft.discount != null &&
+    val canChangeExistingDiscount = !isNativeStaff(session.role) || existing?.orderId == null
+    val targetDiscount = if (canChangeExistingDiscount) {
+        draft.discount?.amount(gross) ?: (existing?.discount?.value ?: 0L)
+    } else {
+        existing?.discount?.value ?: 0L
+    }
+    val discountChanged = canChangeExistingDiscount && draft.discount != null &&
         targetDiscount != (existing?.discount?.value ?: 0L)
     val discountValid = targetDiscount >= 0L && targetDiscount < gross
     val combinedTotal = (gross - targetDiscount).coerceAtLeast(0L)
@@ -249,7 +254,8 @@ internal fun NativeDiningOrderScreen(
     // server-owned price is safe. Only re-editing such an order is blocked.
     val canPayExisting = existing?.editable == true && existing.orderId != null &&
         existing.total > Satang.ZERO && !stale &&
-        !draft.busy && !draft.uncertain && !discountChanged && count == 0
+        !draft.busy && !draft.uncertain && !discountChanged && count == 0 &&
+        draft.pendingKitchenOrderId == null
     val canCheckout = canSubmit || canPayExisting
 
     fun addConfiguredChoice(choice: NativeMenuSelection) {
@@ -293,7 +299,7 @@ internal fun NativeDiningOrderScreen(
         error = null
         scope.launch {
             try {
-                if (draft.configuredSelections.isNotEmpty()) {
+                val savedOrderId = if (draft.configuredSelections.isNotEmpty()) {
                     // Variant lines retain configured prices and option IDs;
                     // ordinary lines are still validated against server catalog.
                     val existingLines = initial.lines.map { row ->
@@ -325,10 +331,17 @@ internal fun NativeDiningOrderScreen(
                 val verified = client.diningBill(session, table.id)
                 if (billQuantities(verified) != desired ||
                     verified.discount.value != requestedDiscount ||
-                    verified.orderId.isNullOrBlank())
+                    verified.orderId.isNullOrBlank() || verified.orderId != savedOrderId)
                     throw IllegalStateException("table_order_acknowledgement_not_confirmed")
                 mutationJournal.confirmed(session, table.id, requestId)
                 bill = verified
+                // Kitchen dispatch failure is independent of the committed sale.
+                // Never resubmit the bill or claim that the sale failed if KDS is offline.
+                val kitchenWarning = try {
+                    client.ensureDiningKitchenDispatch(session, requireNotNull(verified.orderId))
+                } catch (failure: Exception) {
+                    "บันทึกบิลโต๊ะแล้ว แต่ยืนยันการส่งครัวไม่ได้ กรุณาตรวจครัวใน CpIPOS หลัก"
+                }
                 // Items are saved, but the table has NOT been paid.
                 // Show the green success check only after actual settlement.
                 draft.items.clear()
@@ -340,7 +353,10 @@ internal fun NativeDiningOrderScreen(
                 draft.uncertain = false
                 stale = false
                 feedback = "idle"
-                if (thenCheckout) showMethods = true else onTables()
+                draft.pendingKitchenOrderId = if (kitchenWarning == null) null else verified.orderId
+                error = kitchenWarning
+                if (thenCheckout && kitchenWarning == null) showMethods = true
+                else if (!thenCheckout && kitchenWarning == null) onTables()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -424,6 +440,7 @@ internal fun NativeDiningOrderScreen(
     }
 
     fun cancelBillWithPin(pin: String) {
+        if (!nativeCanModifyBills(session.role)) return
         val base = bill ?: return
         if (draft.busy || draft.uncertain || !base.editable || base.paid ||
             base.sessionId == null ||
@@ -597,7 +614,7 @@ internal fun NativeDiningOrderScreen(
                     DiningTopAction(R.drawable.ic_nav_qr_table, "QR โต๊ะ", !draft.busy) {
                         showTableQr = true
                     }
-                    DiningTopAction(R.drawable.ic_nav_move_table, "ย้ายโต๊ะ",
+                    if (nativeCanModifyBills(session.role)) DiningTopAction(R.drawable.ic_nav_move_table, "ย้ายโต๊ะ",
                         !draft.busy && session.canManageTables) {
                         showMoveTable = true
                     }
@@ -639,8 +656,10 @@ internal fun NativeDiningOrderScreen(
                         count = combinedCount
                     ) { cartOpen = true }
                 }
-                if (error != null || custom || draft.uncertain || stale) {
-                    Text(error ?: if (custom)
+                if (error != null || custom || draft.uncertain || stale || draft.pendingKitchenOrderId != null) {
+                    Text(error ?: if (draft.pendingKitchenOrderId != null)
+                        "บันทึกบิลแล้ว แต่ยังไม่ยืนยันว่ารายการไปถึงห้องครัว"
+                    else if (custom)
                         "รายการพิเศษ/ราคาไม่ตรง กรุณาแก้บิลนี้ใน POS Web"
                     else "บิลถูกเปลี่ยนแปลง ต้องรีเฟรช", color = Color(0xFFAE454A),
                         fontSize = 12.sp)
@@ -651,6 +670,24 @@ internal fun NativeDiningOrderScreen(
                             else scope.launch { loading = true; refresh(true) }
                         }
                     ) { Text(if (draft.uncertain) "ตรวจบิลเดิม" else "รีเฟรชบิล", fontSize = 12.sp) }
+                    draft.pendingKitchenOrderId?.let { pendingId ->
+                        OutlinedButton(
+                            enabled = !draft.busy && !draft.uncertain &&
+                                bill?.orderId == pendingId && bill?.paid != true,
+                            onClick = {
+                                draft.busy = true
+                                scope.launch {
+                                    try {
+                                        val warning = client.ensureDiningKitchenDispatch(session, pendingId)
+                                        draft.pendingKitchenOrderId = if (warning == null) null else pendingId
+                                        error = warning
+                                    } catch (failure: Exception) {
+                                        error = "ยังยืนยันการส่งครัวไม่ได้ ตรวจบิลใน CpIPOS หลักก่อนส่งซ้ำ"
+                                    } finally { draft.busy = false }
+                                }
+                            }
+                        ) { Text("ตรวจและส่งครัวอีกครั้ง", fontSize = 12.sp) }
+                    }
                 }
                 OutlinedTextField(
                     value = search, onValueChange = { search = it }, singleLine = true,
@@ -690,6 +727,18 @@ internal fun NativeDiningOrderScreen(
                 ) {
                     items(shown, key = { it.id }) { product ->
                         DemoProductCard(product, draft.items[product.id] ?: 0,
+                            onDetails = {
+                                if (existing?.editable != true || draft.uncertain ||
+                                    stale || draft.busy || custom) {
+                                    error = "ยังแก้รายละเอียดบิลนี้ไม่ได้ โปรดตรวจสถานะบิลโต๊ะใน CpIPOS หลัก"
+                                } else if (optionsLoading) {
+                                    error = "กำลังโหลดตัวเลือกสินค้า"
+                                } else if (optionsError || optionConfigs[product.id] == null) {
+                                    error = "โหลดวัตถุดิบและตัวเลือกสินค้าจาก CpIPOS หลักไม่ได้"
+                                } else {
+                                    editingProductId = product.id
+                                }
+                            },
                             onAdd = {
                                 if (existing?.editable == true && !draft.uncertain &&
                                     !stale && !draft.busy && !custom) {
@@ -762,7 +811,7 @@ internal fun NativeDiningOrderScreen(
         PaymentFeedbackOverlay(feedback)
         return
     }
-    if (showDiscount) NativeDiscountDialog(
+    if (showDiscount && canChangeExistingDiscount) NativeDiscountDialog(
         subtotal = gross,
         current = draft.discount ?: PosDiscount(
             "amount", existing?.discount?.bahtText().orEmpty()
@@ -820,9 +869,12 @@ internal fun NativeDiningOrderScreen(
                 draft.configuredPrices.remove(id)
             }
         },
+        allowCancelBill = nativeCanModifyBills(session.role),
+        allowDiscount = canChangeExistingDiscount,
         onCancelBill = {
             cartOpen = false
-            if (bill?.sessionId != null && bill?.editable == true &&
+            if (nativeCanModifyBills(session.role) &&
+                bill?.sessionId != null && bill?.editable == true &&
                 !draft.busy && !draft.uncertain &&
                 (if (bill?.orderId != null) session.canSell else session.canManageTables)) {
                 cancelPinError = null
@@ -838,7 +890,7 @@ internal fun NativeDiningOrderScreen(
                 else showMethods = true
             }
         },
-        onFeatureClick = { if (it == "ส่วนลด") showDiscount = true },
+        onFeatureClick = { if (it == "ส่วนลด" && canChangeExistingDiscount) showDiscount = true },
         onHoldBill = {
             cartOpen = false
             if (canSubmit) save(thenCheckout = false)
@@ -850,7 +902,7 @@ internal fun NativeDiningOrderScreen(
         checkoutEnabled = canCheckout,
         lockedQuantities = storedQuantities
     )
-    if (showCancelPin) NativeCancelBillPinDialog(
+    if (showCancelPin && nativeCanModifyBills(session.role)) NativeCancelBillPinDialog(
         title = "ยกเลิกบิลโต๊ะ " + table.name,
         busy = draft.busy,
         error = cancelPinError,
@@ -862,7 +914,7 @@ internal fun NativeDiningOrderScreen(
         },
         onApprove = { pin -> cancelBillWithPin(pin) }
     )
-    if (showMoveTable) {
+    if (showMoveTable && nativeCanModifyBills(session.role)) {
         NativeTableMoveDialog(
             client = client,
             session = session,
