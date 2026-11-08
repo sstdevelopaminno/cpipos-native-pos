@@ -104,8 +104,9 @@ internal fun NativeMoreScreen(
 ) {
     var page by remember(session.id, initialPage) { mutableStateOf(initialPage) }
     var packageLockTarget by remember(session.id) { mutableStateOf<String?>(null) }
+    val effectivePage = if (nativeMoreVisible(session.role, page)) page else "hub"
 
-    when (page) {
+    when (effectivePage) {
         "updates" -> {
             NativeManualUpdateScreen(
                 allowInstall = allowApkInstall,
@@ -176,6 +177,7 @@ internal fun NativeMoreScreen(
         MoreMenu("billing", R.drawable.ic_package_payment, nativeUiText("more.billing","ชำระแพ็กเกจ"), "ดูแพ็กเกจ ต่ออายุ แจ้งชำระด้วยสลิป และติดตามสถานะจาก CpIPOS / IT", null, "more.subscription_billing"),
         MoreMenu("updates", R.drawable.ic_package_payment, "อัปเดตแอป CpiPOS", "ตรวจสอบ APK รุ่นล่าสุดและกดยืนยันติดตั้งผ่าน Android ด้วยตนเอง", null, "more.updates")
     )
+    val visibleMenus = if (isNativeStaff(session.role)) menus.filter { it.key == "shift" } else menus
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Column(Modifier.fillMaxSize()) {
             // Keep the list above the actual bottom navigation instead of
@@ -191,7 +193,7 @@ internal fun NativeMoreScreen(
                     Text(session.branchName + " · " + session.deviceCode, fontSize = 11.sp, color = moreMuted)
                     Spacer(Modifier.height(9.dp))
                 }
-                items(menus, key = { it.key }) { menu ->
+                items(visibleMenus, key = { it.key }) { menu ->
                     // Billing must stay reachable even when a package/menu entitlement
                     // is locked, otherwise a customer could be blocked from renewing service.
                     val allowed = if (menu.key == "billing") true else if (menu.key == "updates") true else entitlements?.allows(
