@@ -3788,6 +3788,32 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     }
 
     /**
+     * Native dine-in kitchen delivery recovery after the sale is confirmed by CpIPOS.
+     * The central POS remains authoritative: this endpoint deduplicates existing
+     * tickets before considering a new queue event. One deterministic event key
+     * per order prevents retries from issuing a second kitchen ticket.
+     * Returning a warning must NOT roll back or retry an already confirmed sale.
+     */
+    suspend fun ensureDiningKitchenDispatch(session: WebPosSession, orderId: String): String? {
+        requireSameLiveSession(session)
+        require(UUID.fromString(orderId).toString() == orderId)
+        val policy = orderKitchenPolicy(session)
+        if (!policy.effectiveKitchenAutoSendEnabled) {
+            return "บันทึกบิลแล้ว แต่ CpIPOS ส่วนกลางปิดส่งครัวอัตโนมัติในสาขานี้"
+        }
+        val data = call(
+            "POST", "/api/pos/orders/$orderId/kitchen-dispatch",
+            JSONObject().put("action", "new")
+                .put("event_key", "native-mobile:dine-in:$orderId:new"),
+            readTimeoutMs = 12000
+        )
+        if (data.optInt("routed_zone_count", 0) <= 0) {
+            return "บันทึกบิลแล้ว แต่ยังไม่พบคิวครัว กรุณาตรวจ Kitchen Zone ใน CpIPOS หลัก"
+        }
+        return null
+    }
+
+    /**
      * Settle the ORIGINAL dine-in order through the tablet's payment API.
      * Its atomic payment transaction protects idempotency, and backend closes
      * the table bill session and releases the dining table.
