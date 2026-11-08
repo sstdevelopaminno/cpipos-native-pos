@@ -47,6 +47,7 @@ internal fun NativeCatalogManagementScreen(
     onTab: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
     var ingredients by remember { mutableStateOf(false) }
     var branches by remember(session.id) {
         mutableStateOf(listOf(WebCatalogBranch(session.branchId, session.branchName, role = "owner")))
