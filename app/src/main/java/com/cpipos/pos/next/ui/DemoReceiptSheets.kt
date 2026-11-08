@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cpipos.pos.next.core.offline.DemoSaleReceipt
 import com.cpipos.pos.next.core.offline.DemoReceiptLine
+import com.cpipos.pos.next.core.print.printableReceiptItemNotes
 import com.cpipos.pos.next.core.pos.Satang
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
@@ -191,6 +192,10 @@ internal fun SavedDemoReceiptSheet(
                                     fontSize = 10.sp,
                                     color = Color(0xFF506078)
                                 )
+                                printableReceiptItemNotes(item.notes)?.let { note ->
+                                    Text(note, fontSize = 10.sp, lineHeight = 13.sp,
+                                        color = Color(0xFF506078))
+                                }
                             }
                             Text(
                                 item.quantity.toString(),
@@ -248,15 +253,19 @@ internal fun SavedDemoReceiptSheet(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = onPrint,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = receiptBlue)
-            ) {
-                Text("▣  พิมพ์ใบเสร็จ / บันทึก PDF", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            // A successful sale is auto-spooled by the server/device print agent.
+            // Manual receipt access is reserved for the history workflow.
+            if (historyMode) {
+                Button(
+                    onClick = onPrint,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = receiptBlue)
+                ) {
+                    Text("▣  พิมพ์ใบเสร็จย้อนหลัง / บันทึก PDF", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                Spacer(Modifier.height(9.dp))
             }
-            Spacer(Modifier.height(9.dp))
             OutlinedButton(
                 onClick = onDone,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
