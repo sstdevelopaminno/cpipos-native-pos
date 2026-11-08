@@ -34,6 +34,9 @@ import com.cpipos.pos.next.core.offline.DemoReceiptLine
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import com.cpipos.pos.next.core.print.NativePrintRuntime
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -105,13 +108,23 @@ internal fun NativeDiningOrderScreen(
     var optionsError by remember(session.id) { mutableStateOf(false) }
     var editingProductId by remember(session.id, table.id) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(client, session.id, products) {
+    // Media/image refreshes may replace product objects; the modifier contract
+    // changes only when product IDs change. Do not block ordering by refetching
+    // all modifiers whenever product thumbnails arrive.
+    val optionProductIds = remember(products) { products.map { it.id }.distinct().sorted() }
+    LaunchedEffect(client, session.id, optionProductIds) {
         optionsLoading = true
         optionsError = false
         try {
             val configs = mutableMapOf<String, NativeProductOptionConfig>()
-            products.map { it.id }.chunked(60).forEach { ids ->
-                configs.putAll(client.productOptions(session, ids))
+            // Bound concurrent catalog requests so a slow last page does not
+            // stall every product card, while avoiding a request flood.
+            coroutineScope {
+                optionProductIds.chunked(60).chunked(3).forEach { group ->
+                    group.map { ids ->
+                        async { client.productOptions(session, ids) }
+                    }.awaitAll().forEach { configs.putAll(it) }
+                }
             }
             optionConfigs = configs
         } catch (cancelled: CancellationException) {
@@ -185,7 +198,10 @@ internal fun NativeDiningOrderScreen(
         }
         refresh(true)
         while (true) {
-            delay(6000L)
+            // A local unsent cart is not a shared server order. Avoid
+            // excessive full-bill reads while employees configure its items;
+            // every actual save still performs a fresh server preflight.
+            delay(if (draft.items.isNotEmpty()) 12_000L else 6_000L)
             if (!draft.busy) refresh(false)
         }
     }
@@ -363,6 +379,11 @@ internal fun NativeDiningOrderScreen(
                 feedback = "idle"
                 draft.pendingKitchenOrderId = if (kitchenWarning == null) null else verified.orderId
                 error = kitchenWarning
+                if (kitchenWarning == null) {
+                    Toast.makeText(context,
+                        "บันทึกบิลโต๊ะและส่งเข้าครัวแล้ว",
+                        Toast.LENGTH_SHORT).show()
+                }
                 if (thenCheckout && kitchenWarning == null) showMethods = true
                 else if (!thenCheckout && kitchenWarning == null) onTables()
             } catch (cancelled: CancellationException) {
@@ -677,6 +698,14 @@ internal fun NativeDiningOrderScreen(
                         count = combinedCount
                     ) { cartOpen = true }
                 }
+                if (draft.items.isNotEmpty() && !draft.uncertain && !draft.busy) {
+                    Text(
+                        "มีสินค้าในเครื่อง ${draft.items.values.sum()} รายการ ยังไม่ส่งไป POS หลักหรือห้องครัว " +
+                            "กรุณากด «บันทึก/ส่งครัว» ในตะกร้า",
+                        color = Color(0xFF9F5C10), fontSize = 12.sp,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                }
                 if (error != null || custom || draft.uncertain || stale || draft.pendingKitchenOrderId != null) {
                     Text(error ?: if (draft.pendingKitchenOrderId != null)
                         "บันทึกบิลแล้ว แต่ยังไม่ยืนยันว่ารายการไปถึงห้องครัว"
@@ -917,6 +946,10 @@ internal fun NativeDiningOrderScreen(
             else error = "ไม่สามารถพักบิลที่ยังตรวจสอบสถานะไม่สำเร็จ"
         },
         discountAmount = targetDiscount,
+        cartHint = if (count > 0) "ยังไม่ส่ง POS หลัก/ครัว · กดบันทึก/ส่งครัว"
+            else if (existing?.orderId != null) "บิลนี้บันทึกอยู่ใน POS หลักแล้ว"
+            else null,
+        holdLabel = if (count > 0) "บันทึก/ส่งครัว" else "พักบิล",
         checkoutLabel = "ชำระเงิน", tableMode = true,
         checkoutEnabled = canCheckout,
         lockedQuantities = storedQuantities
