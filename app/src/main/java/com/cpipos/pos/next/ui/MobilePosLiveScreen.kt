@@ -1416,4 +1416,5 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             }
         )
     }
+    }
 }
