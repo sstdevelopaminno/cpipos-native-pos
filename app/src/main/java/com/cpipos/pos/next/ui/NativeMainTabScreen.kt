@@ -47,7 +47,8 @@ internal fun NativeMainTabScreen(
     onTab: (String) -> Unit,
     onSessionChanged: (WebPosSession) -> Unit = {},
     entitlements: WebPosEntitlements? = null,
-    moreInitialPage: String = "hub"
+    moreInitialPage: String = "hub",
+    allowApkInstall: Boolean = false
 ) {
     if (tab == "settings") {
         NativeSettingsHubScreen(
@@ -70,7 +71,8 @@ internal fun NativeMainTabScreen(
             onTab = onTab,
             onSessionChanged = onSessionChanged,
             entitlements = entitlements,
-            initialPage = moreInitialPage
+            initialPage = moreInitialPage,
+            allowApkInstall = allowApkInstall
         )
         return
     }
