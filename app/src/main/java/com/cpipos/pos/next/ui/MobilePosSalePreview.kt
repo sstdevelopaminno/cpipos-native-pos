@@ -395,6 +395,16 @@ internal fun MobilePosSalePreview(
             notice = "ตัวเลือกยังไม่ครบหรือราคาเปลี่ยน กรุณาเลือกใหม่"
             return
         }
+        if (!choice.useSpecialPrice && choice.selectedOptionIds.isEmpty() &&
+            choice.note.isBlank() && config.groups.isEmpty()) {
+            // Keep ordinary stock-safe POS sales on the legacy canonical
+            // endpoint; the configured atomic release gate is pilot-only.
+            setCartItems(cart.toMutableMap().apply {
+                put(product.id, (get(product.id) ?: 0) + choice.quantity)
+            })
+            editingProductId = null
+            return
+        }
         if (activeHeldId != null) {
             notice = "ไม่สามารถเพิ่มตัวเลือกพิเศษในบิลพักเดิม กรุณาจบบิลพักก่อน"
             return
