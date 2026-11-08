@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
@@ -52,7 +54,8 @@ internal fun NativeManualUpdateScreen(
         Box(Modifier.fillMaxSize()) {
             Column(
                 Modifier.fillMaxWidth().statusBarsPadding()
-                    .padding(horizontal = 18.dp, vertical = 22.dp),
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 128.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 OutlinedButton(onClick = onBack) { Text("กลับไปเมนูเพิ่มเติม") }
@@ -120,7 +123,6 @@ internal fun NativeManualUpdateScreen(
                         "ห้ามถอนแอปหรือล้างข้อมูลก่อนอัปเดต",
                     color = Color(0xFF64778F)
                 )
-                Spacer(Modifier.height(96.dp))
             }
             HomeBottomMenu(
                 modifier = Modifier.align(Alignment.BottomCenter),
