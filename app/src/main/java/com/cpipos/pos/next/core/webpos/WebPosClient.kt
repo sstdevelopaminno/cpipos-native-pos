@@ -1,6 +1,7 @@
 package com.cpipos.pos.next.core.webpos
 
 import android.content.Context
+import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import com.cpipos.pos.next.BuildConfig
@@ -2024,6 +2025,120 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         return invoiceNo
     }
 
+    /**
+     * Android uses exactly the same authenticated, tenant-scoped product-media
+     * endpoints and storage assets as CpIPOS Web, never a second image database.
+     */
+    suspend fun catalogPhotoUrls(
+        session: WebPosSession,
+        branchId: String,
+        productIds: List<String>
+    ): Map<String, String> {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(runCatching { UUID.fromString(branchId) }.isSuccess)
+        if (productIds.isEmpty()) return emptyMap()
+        val ids = productIds.distinct().take(50)
+        require(ids.all { runCatching { UUID.fromString(it) }.isSuccess })
+        val data = call(
+            "GET", "/api/pos/product-media?branch_id=" + queryValue(branchId) +
+                "&product_ids=" + queryValue(ids.joinToString(","))
+        )
+        require(data.optString("branch_id") == branchId) { "product_media_branch_scope_mismatch" }
+        val imageMap = data.optJSONObject("images") ?: return emptyMap()
+        return ids.mapNotNull { id ->
+            val asset = imageMap.optJSONObject(id)
+            val url = asset?.optString("thumbnail_url")?.takeIf { it.startsWith("https://") }
+                ?: asset?.optString("image_url")?.takeIf { it.startsWith("https://") }
+            url?.let { id to it }
+        }.toMap()
+    }
+
+    suspend fun uploadCatalogProductPhoto(
+        session: WebPosSession,
+        context: Context,
+        branchId: String,
+        productId: String,
+        source: Uri
+    ) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(session.role in setOf("owner", "manager")) { "product_media_manage_forbidden" }
+        require(runCatching { UUID.fromString(branchId) }.isSuccess)
+        require(runCatching { UUID.fromString(productId) }.isSuccess)
+        require(source.scheme == "content") { "product_photo_source_invalid" }
+        withContext(Dispatchers.IO) {
+            val optimized = NativeCatalogPhotoEncoder.encode(context.applicationContext, source)
+            val url = URL(base + "/api/pos/product-media/" + productId)
+            val connection = url.openConnection() as HttpURLConnection
+            val boundary = "CpIPOSProductPhoto" + UUID.randomUUID().toString().replace("-", "")
+            try {
+                connection.instanceFollowRedirects = false
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 35_000
+                connection.requestMethod = "POST"
+                connection.doOutput = true
+                connection.setChunkedStreamingMode(8192)
+                connection.setRequestProperty("Accept", "application/json")
+                connection.setRequestProperty("User-Agent", "CpIPOS-Native-Android/2")
+                connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+                cookieManager.get(url.toURI(), emptyMap()).forEach { (header, values) ->
+                    if (header.equals("Cookie", ignoreCase = true)) {
+                        connection.setRequestProperty("Cookie", values.joinToString("; "))
+                    }
+                }
+                connection.outputStream.buffered().use { out ->
+                    fun write(value: String) = out.write(value.toByteArray(Charsets.UTF_8))
+                    fun textPart(name: String, value: String) {
+                        write("--$boundary\r\n")
+                        write("Content-Disposition: form-data; name=\"$name\"\r\n\r\n")
+                        write(value)
+                        write("\r\n")
+                    }
+                    fun jpegPart(name: String, bytes: ByteArray) {
+                        write("--$boundary\r\n")
+                        write("Content-Disposition: form-data; name=\"$name\"; filename=\"$name.jpg\"\r\n")
+                        write("Content-Type: image/jpeg\r\n\r\n")
+                        out.write(bytes)
+                        write("\r\n")
+                    }
+                    textPart("branch_id", branchId)
+                    textPart("display_width", optimized.displayWidth.toString())
+                    textPart("display_height", optimized.displayHeight.toString())
+                    textPart("thumbnail_width", optimized.thumbnailWidth.toString())
+                    textPart("thumbnail_height", optimized.thumbnailHeight.toString())
+                    jpegPart("display", optimized.display)
+                    jpegPart("thumbnail", optimized.thumbnail)
+                    write("--$boundary--\r\n")
+                }
+                val status = connection.responseCode
+                val newCookies = connection.headerFields.filterKeys {
+                    it?.equals("Set-Cookie", ignoreCase = true) == true
+                }
+                if (newCookies.isNotEmpty()) {
+                    cookieManager.put(url.toURI(), newCookies)
+                    runCatching { secureSessionStore?.save(newCookies.values.flatten()) }
+                }
+                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText().take(12000) }.orEmpty()
+                val response = runCatching { JSONObject(body) }.getOrElse {
+                    throw WebPosApiException("product_media_invalid_response", status)
+                }
+                if (status !in 200..299 || !response.isNull("error")) {
+                    val code = response.optJSONObject("error")?.optString("code")
+                        ?.takeIf { it.isNotBlank() } ?: "product_media_upload_http_$status"
+                    throw WebPosApiException(code, status)
+                }
+                val data = response.optJSONObject("data")
+                    ?: throw WebPosApiException("product_media_ack_missing", 503)
+                if (data.optString("product_id") != productId ||
+                    data.optJSONObject("asset") == null) {
+                    throw WebPosApiException("product_media_scope_or_asset_mismatch", 503)
+                }
+            } finally {
+                connection.disconnect()
+            }
+        }
+    }
+
     /** POS-cookie catalog bridge backed by the same CpIPOS products/ingredients tables. */
     suspend fun catalogBranches(session: WebPosSession): List<WebCatalogBranch> {
         requireSameLiveSession(session, requireShift = false, requireSell = false)
@@ -2182,7 +2297,12 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
             .put("is_recommended", recommended)
             .put("use_ingredient_recipe", useIngredientRecipe)
             .put("ingredient_lines", recipe)
-        call("POST", "/api/pos/catalog-management", payload)
+        val data = call("POST", "/api/pos/catalog-management", payload)
+        val id = data.optJSONObject("product")?.optString("id").orEmpty()
+        if (runCatching { UUID.fromString(id) }.isFailure) {
+            throw WebPosApiException("catalog_created_without_product_id", 503)
+        }
+        return id
     }
 
     suspend fun restockCatalogIngredient(
