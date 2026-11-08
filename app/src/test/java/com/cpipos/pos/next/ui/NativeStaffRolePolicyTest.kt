@@ -23,6 +23,19 @@ class NativeStaffRolePolicyTest {
         assertTrue(nativeTabVisible("staff", "history"))
     }
 
+    @Test fun unknownAndEmployeeCardRolesNeverAcquireOwnerScreens() {
+        listOf("", "staff", "STAFF", "cashier", "employee", "waiter", "kitchen",
+            "chef", "unrecognized", "owner_helper").forEach { role ->
+            assertTrue("Must restrict $role", isNativeStaff(role))
+            assertFalse(nativeTabVisible(role, "settings"))
+            assertFalse(nativeTabVisible(role, "report"))
+            assertFalse(nativeMoreVisible(role, "updates"))
+            assertFalse(nativeMoreVisible(role, "billing"))
+            assertFalse(nativeCanModifyBills(role))
+            assertTrue(nativeMoreVisible(role, "shift"))
+        }
+    }
+
     @Test fun staffShiftPageHidesSalesMetricsAndExistingBillControls() {
         val more = java.io.File("src/main/java/com/cpipos/pos/next/ui/NativeMoreScreen.kt").readText()
         val dining = java.io.File("src/main/java/com/cpipos/pos/next/ui/NativeDiningOrderScreen.kt").readText()
