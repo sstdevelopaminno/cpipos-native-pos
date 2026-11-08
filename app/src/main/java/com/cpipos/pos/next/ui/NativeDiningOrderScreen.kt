@@ -690,6 +690,18 @@ internal fun NativeDiningOrderScreen(
                 ) {
                     items(shown, key = { it.id }) { product ->
                         DemoProductCard(product, draft.items[product.id] ?: 0,
+                            onDetails = {
+                                if (existing?.editable != true || draft.uncertain ||
+                                    stale || draft.busy || custom) {
+                                    error = "ยังแก้รายละเอียดบิลนี้ไม่ได้ โปรดตรวจสถานะบิลโต๊ะใน CpIPOS หลัก"
+                                } else if (optionsLoading) {
+                                    error = "กำลังโหลดตัวเลือกสินค้า"
+                                } else if (optionsError || optionConfigs[product.id] == null) {
+                                    error = "โหลดวัตถุดิบและตัวเลือกสินค้าจาก CpIPOS หลักไม่ได้"
+                                } else {
+                                    editingProductId = product.id
+                                }
+                            },
                             onAdd = {
                                 if (existing?.editable == true && !draft.uncertain &&
                                     !stale && !draft.busy && !custom) {
