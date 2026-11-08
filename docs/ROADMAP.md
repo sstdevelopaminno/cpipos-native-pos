@@ -1,3 +1,5 @@
+**Release/update note (8 Nov 2026):** Customer Stable = Native Mobile 2.1.0. Candidate includes self-update under More and safe-install gating. Next signed APK must have **versionCode above 2010000** and the same approved certificate. Do not publish before kitchen, order, notes/stock, receipt and upgrade acceptance. Central backend PR #424 merged; PR #425 pending tests. 
+
 ## Update 2026-11-08 — current P0 gates (not completed)
 
 1. Native plain-item notes and configured modifier popup UI are proposed for Android; still require server gate and real device acceptance.
