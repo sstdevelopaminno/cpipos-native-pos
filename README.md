@@ -47,3 +47,12 @@ A follow-up branch adds a per-product **รายละเอียด** action 
 ### Customer self-update (candidate, 8 November 2026)
 
 The next Native candidate adds **เพิ่มเติม → อัปเดตแอป CpiPOS** so an employee can explicitly check Stable releases, watch download status and start the Android installer only when there are no unresolved sales or local drafts. The automatic 6-hour Stable check remains available. Updates require the same package name and exact Android signing certificate; **never uninstall or clear app data**. Android must obtain user confirmation to install a sideloaded APK. Do not distribute this unreleased branch to customers.
+
+
+## 8 November 2026 — Customer-requested product photos and employee isolation
+
+- Product catalog **เพิ่มสินค้า** and **แก้ไขสินค้า** now include camera capture and Android file/gallery selection. Image bytes are oriented, optimized into JPEG display/thumbnail and uploaded to the **existing CpIPOS /api/pos/product-media** contract. Owner/manager only; backend performs the authoritative branch/tenant/quota check. New product is created first, then its returned server product UUID receives the image. Failed image upload reports that the product has already been created — never retry product creation blindly.
+- Authenticated `staff` sees only **เปิด/ปิดกะ** inside More; the bottom navigation hides Reports and Settings and rejects internal attempts to enter them. The employee sale/stock screens remain available according to the existing backend feature/role scopes. No photo editing for staff.
+- The sales-history bill delete gesture/PIN dialog is unavailable to staff. The CpIPOS backend already checks owner/manager/IT role on `/api/pos/sales-list` PATCH/DELETE; the Android UI is a second protective layer, not the authorization boundary.
+- Employee shift flow stays accessible, including the global Stable update notification. The new manual update menu under More is **not** visible to staff by request; owner/manager can use it.
+- This source remains an **unreleased** APK candidate until CI, physical camera, product-media quota, staff-account, printed receipt, kitchen and upgrade acceptance.
