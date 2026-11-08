@@ -1,5 +1,6 @@
 package com.cpipos.pos.next.ui
 
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithText
@@ -86,7 +87,7 @@ class NativeMenuCustomizationInstrumentedTest {
     }
 
     @Test
-    fun productDetailsActionDoesNotAccidentallyAddItem() {
+    fun tappingProductCardUsesSingleProductEditorActionWithoutOverlaidDetails() {
         var details = 0
         var adds = 0
         compose.setContent {
@@ -97,10 +98,34 @@ class NativeMenuCustomizationInstrumentedTest {
                 onDetails = { details++ }
             )
         }
-        compose.onNodeWithText("รายละเอียด").performClick()
+        compose.onNodeWithText("รายละเอียด").assertDoesNotExist()
+        compose.onNodeWithText("ชาเย็น").performClick()
         compose.runOnIdle {
-            assertEquals(1, details)
-            assertEquals(0, adds)
+            assertEquals(0, details)
+            assertEquals(1, adds)
+        }
+    }
+
+    @Test
+    fun tappingRecipeCheckboxCreatesExplicitKitchenExclusionNote() {
+        var selected: NativeMenuSelection? = null
+        compose.setContent {
+            NativeMenuCustomizationDialog(
+                product = product.copy(specialPrice = null),
+                config = NativeProductOptionConfig(
+                    product.id, emptyList(),
+                    listOf(com.cpipos.pos.next.core.webpos.NativeRecipeIngredient(
+                        "egg", "ไข่", "gram", 1.0
+                    ))
+                ),
+                onDismiss = {},
+                onConfirm = { selected = it }
+            )
+        }
+        compose.onNodeWithText("ไข่ 1.0 gram").performClick()
+        compose.onNodeWithText("เพิ่มลงตะกร้า").performClick()
+        compose.runOnIdle {
+            assertEquals("ไม่ใส่ไข่", requireNotNull(selected).note)
         }
     }
 
