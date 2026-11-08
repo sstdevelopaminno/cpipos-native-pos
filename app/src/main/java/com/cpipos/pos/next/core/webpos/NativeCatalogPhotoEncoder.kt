@@ -29,8 +29,9 @@ internal object NativeCatalogPhotoEncoder {
     fun encode(context: Context, uri: Uri): NativeEncodedCatalogPhoto {
         val resolver = context.contentResolver
         val info = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, info) }
+        val boundsStream = resolver.openInputStream(uri)
             ?: throw IllegalArgumentException("product_photo_unreadable")
+        boundsStream.use { BitmapFactory.decodeStream(it, null, info) }
         require(info.outWidth in 1..20_000 && info.outHeight in 1..20_000) {
             "product_photo_invalid_dimensions"
         }
