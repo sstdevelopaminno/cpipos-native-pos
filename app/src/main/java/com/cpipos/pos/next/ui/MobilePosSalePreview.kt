@@ -439,6 +439,19 @@ internal fun MobilePosSalePreview(
         }
     }
 
+    suspend fun resolveKnownPrewriteRejection(
+        failure: Exception, session: WebPosSession, journal: LiveSaleJournal, billId: String
+    ): Boolean {
+        val api = failure as? WebPosApiException ?: return false
+        if (api.code != "native_atomic_menu_release_gate_not_enabled" || api.status != 503)
+            return false
+        // Server returns this error before invoking the order/stock RPC.
+        // Only a journal entry in 'prepared' with no order may be cleared.
+        return withContext(Dispatchers.IO) {
+            runCatching { journal.rejectedBeforeWrite(session, billId) }.isSuccess
+        }
+    }
+
     fun loadLiveReceiptHistory() {
         val client = liveClient ?: return
         val session = liveSession ?: return
@@ -573,21 +586,36 @@ internal fun MobilePosSalePreview(
                             if (!saved.isDemo) NativePrintRuntime.wake()
                             notice = if (saved.isDemo) "บันทึกบิลทดลองในเครื่องแล้ว: ${saved.billNo}" else "บันทึกยอดขายจริงแล้ว: ${saved.billNo}"
                         } catch (error: Exception) {
+                            if (error is CancellationException) throw error
                             paymentFeedback = "idle"
-                            if (liveSession != null && liveJournal != null) {
-                                runCatching {
-                                    withContext(Dispatchers.IO) {
-                                        if (liveJournal.unresolved(liveSession).any { it.id == billId }) {
-                                            liveJournal.review(liveSession, billId)
+                            val refusedBeforeWrite = liveSession != null && liveJournal != null &&
+                                resolveKnownPrewriteRejection(error, liveSession, liveJournal, billId)
+                            if (refusedBeforeWrite) {
+                                // Do not strand the cashier in 'requires_review'
+                                // when the server explicitly rejected the sale.
+                                activeBillId = UUID.randomUUID().toString()
+                                payment = null
+                                showMethods = false
+                                showCart = true
+                                saveError = null
+                                notice = "ระบบส่วนกลางยังไม่เปิดบิลแบบตัวเลือกสินค้า " +
+                                    "สินค้ายังอยู่ในตะกร้าและยังไม่เกิดยอดขาย"
+                            } else {
+                                if (liveSession != null && liveJournal != null) {
+                                    runCatching {
+                                        withContext(Dispatchers.IO) {
+                                            if (liveJournal.unresolved(liveSession).any { it.id == billId }) {
+                                                liveJournal.review(liveSession, billId)
+                                            }
                                         }
                                     }
                                 }
+                                saveError = if (liveSession != null)
+                                    "ยังไม่ยืนยันจบบิลจริง ห้ามขายซ้ำจนกว่าจะตรวจสอบบิลใน POS Web: " +
+                                    (error.localizedMessage ?: "เครือข่ายขัดข้อง").take(64)
+                                else "บันทึกไม่สำเร็จ ตะกร้ายังอยู่ครบ: " +
+                                    (error.localizedMessage ?: "กรุณาลองอีกครั้ง").take(80)
                             }
-                            saveError = if (liveSession != null)
-                                "ยังไม่ยืนยันจบบิลจริง ห้ามขายซ้ำจนกว่าจะตรวจสอบบิลใน POS Web: " +
-                                (error.localizedMessage ?: "เครือข่ายขัดข้อง").take(64)
-                            else "บันทึกไม่สำเร็จ ตะกร้ายังอยู่ครบ: " +
-                                (error.localizedMessage ?: "กรุณาลองอีกครั้ง").take(80)
                         } finally {
                             saving = false
                             paymentFeedback = "idle"
@@ -687,17 +715,27 @@ internal fun MobilePosSalePreview(
                             NativePrintRuntime.wake()
                             notice = "บันทึกเงินโอนที่ตรวจสอบแล้ว: ${paid.receipt.billNo}"
                         } catch (failure: Exception) {
+                            if (failure is CancellationException) throw failure
                             paymentFeedback = "idle"
-                            runCatching {
-                                withContext(Dispatchers.IO) {
-                                    if (liveJournal.unresolved(liveSession).any { it.id == billId }) {
-                                        liveJournal.review(liveSession, billId)
+                            if (resolveKnownPrewriteRejection(failure, liveSession, liveJournal, billId)) {
+                                activeBillId = UUID.randomUUID().toString()
+                                payment = null
+                                showMethods = false
+                                showCart = true
+                                saveError = null
+                                notice = "คำขอขายถูกปฏิเสธก่อนสร้างบิล สินค้ายังอยู่ในตะกร้า"
+                            } else {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        if (liveJournal.unresolved(liveSession).any { it.id == billId }) {
+                                            liveJournal.review(liveSession, billId)
+                                        }
                                     }
                                 }
+                                saveError = "ยังไม่ทราบผลการจบบิล ห้ามขายซ้ำ " +
+                                    "กรุณากลับหน้าเลือกโหมดและ Reconcile บิลเดิม: " +
+                                    (failure.localizedMessage ?: "เชื่อมต่อไม่สำเร็จ").take(55)
                             }
-                            saveError = "ยังไม่ทราบผลการจบบิล ห้ามขายซ้ำ " +
-                                "กรุณากลับหน้าเลือกโหมดและ Reconcile บิลเดิม: " +
-                                (failure.localizedMessage ?: "เชื่อมต่อไม่สำเร็จ").take(55)
                         } finally {
                             saving = false
                             paymentFeedback = "idle"
