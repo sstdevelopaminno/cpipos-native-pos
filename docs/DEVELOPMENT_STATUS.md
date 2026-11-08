@@ -1,3 +1,5 @@
+**8 Nov update:** Latest customer Stable is **2.1.0**, published from central CpIPOS Releases 5 Nov 2026. Follow-up Native branch adds manual customer update menu and safe-install guard, not yet released. Central CpIPOS PR #424 merged (read-only effective kitchen setting); follow-up PR #425 adds a fail-closed Native atomic-sale fallback guard (CI required). Backend production env still lacks `NATIVE_ATOMIC_MENU_SALES_ENABLED`; no approval to activate until integration and physical QA.
+
 ## Current review: 2026-11-08 (supplements the 2026-10-22 historical snapshot)
 
 - `main` contains the November 7 canonical HTML receipt rasterization change, but the subsequent native-repository signed release failed at the signing-secret validation step.
