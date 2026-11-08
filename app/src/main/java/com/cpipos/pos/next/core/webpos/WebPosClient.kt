@@ -3797,9 +3797,16 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         val order = data.optJSONObject("order")
         val rows = data.optJSONArray("items") ?: JSONArray()
         val payments = data.optJSONArray("payments") ?: JSONArray()
-        val lines = (0 until rows.length()).map { i ->
+        // POS Web keeps cancelled/zero-quantity items for the audit trail.
+        // A Native editable table must not replay those historical lines into
+        // the next full-bill replacement or display them in the cashier cart.
+        val lines = (0 until rows.length()).mapNotNull { i ->
             val row = rows.getJSONObject(i)
             val details = row.optJSONObject("metadata")
+            if (row.optInt("quantity", 0) <= 0 ||
+                details?.optString("bill_line_state") == "cancelled") {
+                return@mapNotNull null
+            }
             val product = row.optJSONObject("products")
             WebDiningLine(
                 productId = row.optString("product_id"),
