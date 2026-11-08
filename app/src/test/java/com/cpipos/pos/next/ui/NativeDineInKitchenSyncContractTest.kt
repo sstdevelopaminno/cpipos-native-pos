@@ -32,8 +32,8 @@ class NativeDineInKitchenSyncContractTest {
         assertTrue(screen.contains("client.ensureDiningKitchenDispatch(session, requireNotNull(verified.orderId))"))
         assertTrue(screen.contains("draft.pendingKitchenOrderId = if (kitchenWarning == null) null else verified.orderId"))
         assertTrue(screen.contains("บันทึกบิลโต๊ะและส่งเข้าครัวแล้ว"))
-        assertTrue(client.contains("GET\", \"/api/pos/tables/$tableId/bill?refresh=1"))
-        assertTrue(client.contains("/api/pos/orders/$orderId/kitchen-dispatch"))
+        assertTrue(client.contains("GET\", \"/api/pos/tables/\$tableId/bill?refresh=1"))
+        assertTrue(client.contains("/api/pos/orders/\$orderId/kitchen-dispatch"))
         assertFalse(screen.contains("save(thenCheckout = false)\n                save("))
     }
 
