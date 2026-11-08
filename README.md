@@ -36,3 +36,10 @@ Current source includes authenticated Store Code/branch/employee/device entry, s
 - Native APK never grants additional server permissions. Authoritative checks must be applied server-side to tenant, branch, device, role, active shift, and package.
 - Preserve idempotency for payments/printing and leave uncertain-sale recovery available.
 - Do not publish a new Android release before CI, signature verification, and physical-device acceptance.
+
+## 8 November 2026 — Mobile dine-in kitchen and item detail QA
+
+A follow-up branch adds a per-product **รายละเอียด** action for free-text item notes in both takeaway and dine-in and a non-blocking central kitchen dispatch/repair check after an acknowledged dine-in order. This branch is **not yet a released APK**. See [dine-in kitchen and modifier QA matrix](docs/NATIVE_DINE_IN_KITCHEN_ITEM_DETAILS_QA_2026-11-08.md).
+
+**Known blockers:** Existing customized table bills remain locked against unsafe full-cart edits; raw recipe ingredient changes do not yet have a supported structured selection contract; physical KDS/printer evidence is pending. The central backend's `NATIVE_ATOMIC_MENU_SALES_ENABLED` release flag must be verified and approved before any customer rollout. The Native repo's separate signing workflow has missing secret configuration; use the central CpIPOS release authority for final signed builds.
+
