@@ -1742,7 +1742,9 @@ internal fun PreviewCartBottomSheet(
     allowDiscount: Boolean = true,
     lockedQuantities: Map<String, Int> = emptyMap(),
     discountAmount: Long = 0L,
-    onHoldBill: (() -> Unit)? = null
+    onHoldBill: (() -> Unit)? = null,
+    holdLabel: String = "พักบิล",
+    cartHint: String? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -1787,6 +1789,10 @@ internal fun PreviewCartBottomSheet(
                         color = saleMuted,
                         fontSize = 16.sp
                     )
+                    cartHint?.let { hint ->
+                        Text(hint, fontSize = 12.sp,
+                            color = Color(0xFFAD661B), fontWeight = FontWeight.SemiBold)
+                    }
                 }
                 Box(
                     modifier = Modifier
@@ -1952,7 +1958,7 @@ internal fun PreviewCartBottomSheet(
             Spacer(modifier = Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 if (!tableMode || onHoldBill != null) CartSecondaryButton(
-                    title = if (onHoldBill != null) "พักบิล" else "พิมพ์บิล",
+                    title = if (onHoldBill != null) holdLabel else "พิมพ์บิล",
                     modifier = Modifier.weight(1f),
                     onClick = { if (onHoldBill != null) onHoldBill() else onFeatureClick("พิมพ์บิล") }
                 )
