@@ -869,6 +869,8 @@ internal fun NativeDiningOrderScreen(
                 draft.configuredPrices.remove(id)
             }
         },
+        allowCancelBill = nativeCanModifyBills(session.role),
+        allowDiscount = canChangeExistingDiscount,
         onCancelBill = {
             cartOpen = false
             if (nativeCanModifyBills(session.role) &&
