@@ -289,6 +289,22 @@ internal fun parseTableOrderQr(data: JSONObject, expectedTableId: String, truste
     )
 }
 
+/**
+ * Only an explicitly customized persisted line blocks a legacy full-bill edit.
+ * "source" and "pos_edit_updated_at" are bookkeeping fields written by the
+ * central POS, not modifiers or custom prices. Unknown metadata and
+ * cancellation markers MUST remain protected to avoid losing stock changes.
+ */
+internal fun hasDiningCustomMetadata(metadata: JSONObject?): Boolean {
+    if (metadata == null) return false
+    val safeBookkeeping = setOf("source", "pos_edit_updated_at")
+    val keys = metadata.keys()
+    while (keys.hasNext()) {
+        if (keys.next() !in safeBookkeeping) return true
+    }
+    return false
+}
+
 data class WebTableBillSummary(val sessionId: String?, val orderNo: String?, val status: String?, val itemCount: Int)
 data class WebDiningLine(
     val productId: String, val name: String, val quantity: Int,
@@ -3781,9 +3797,16 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         val order = data.optJSONObject("order")
         val rows = data.optJSONArray("items") ?: JSONArray()
         val payments = data.optJSONArray("payments") ?: JSONArray()
-        val lines = (0 until rows.length()).map { i ->
+        // POS Web keeps cancelled/zero-quantity items for the audit trail.
+        // A Native editable table must not replay those historical lines into
+        // the next full-bill replacement or display them in the cashier cart.
+        val lines = (0 until rows.length()).mapNotNull { i ->
             val row = rows.getJSONObject(i)
             val details = row.optJSONObject("metadata")
+            if (row.optInt("quantity", 0) <= 0 ||
+                details?.optString("bill_line_state") == "cancelled") {
+                return@mapNotNull null
+            }
             val product = row.optJSONObject("products")
             WebDiningLine(
                 productId = row.optString("product_id"),
@@ -3791,7 +3814,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                 quantity = row.optInt("quantity"),
                 unitPrice = Satang.fromBaht(row.get("unit_price").toString()),
                 notes = row.optString("notes").takeIf { it.isNotBlank() && it != "null" },
-                hasCustomMetadata = details != null && details.length() > 0
+                hasCustomMetadata = hasDiningCustomMetadata(details)
             )
         }
         return WebDiningBill(
