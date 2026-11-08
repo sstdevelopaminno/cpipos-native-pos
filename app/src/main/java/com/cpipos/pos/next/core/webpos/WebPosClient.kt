@@ -3797,8 +3797,10 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
     suspend fun ensureDiningKitchenDispatch(session: WebPosSession, orderId: String): String? {
         requireSameLiveSession(session)
         require(UUID.fromString(orderId).toString() == orderId)
-        val policy = orderKitchenPolicy(session)
-        if (!policy.effectiveKitchenAutoSendEnabled) {
+        // Cashier roles can sell without settings:view; use the minimal
+        // branch-scoped sale:create policy endpoint, not Settings management.
+        val policy = call("GET", "/api/pos/native-mobile/kitchen-policy")
+        if (!policy.optBoolean("effective_kitchen_auto_send_enabled", false)) {
             return "บันทึกบิลแล้ว แต่ CpIPOS ส่วนกลางปิดส่งครัวอัตโนมัติในสาขานี้"
         }
         val data = call(
