@@ -57,6 +57,7 @@ internal class DiningDraft {
     var paymentRequestId by mutableStateOf<String?>(null)
     var paymentMethod by mutableStateOf<PreviewPayment?>(null)
     var cashInput by mutableStateOf("")
+    var pendingKitchenOrderId by mutableStateOf<String?>(null)
     var discount by mutableStateOf<PosDiscount?>(null)
 }
 private fun billQuantities(bill: WebDiningBill): Map<String, Int> =
@@ -103,7 +104,6 @@ internal fun NativeDiningOrderScreen(
     var optionsLoading by remember(session.id) { mutableStateOf(true) }
     var optionsError by remember(session.id) { mutableStateOf(false) }
     var editingProductId by remember(session.id, table.id) { mutableStateOf<String?>(null) }
-    var pendingKitchenOrderId by remember(session.id, table.id) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(client, session.id, products) {
         optionsLoading = true
@@ -250,7 +250,8 @@ internal fun NativeDiningOrderScreen(
     // server-owned price is safe. Only re-editing such an order is blocked.
     val canPayExisting = existing?.editable == true && existing.orderId != null &&
         existing.total > Satang.ZERO && !stale &&
-        !draft.busy && !draft.uncertain && !discountChanged && count == 0
+        !draft.busy && !draft.uncertain && !discountChanged && count == 0 &&
+        draft.pendingKitchenOrderId == null
     val canCheckout = canSubmit || canPayExisting
 
     fun addConfiguredChoice(choice: NativeMenuSelection) {
@@ -348,9 +349,10 @@ internal fun NativeDiningOrderScreen(
                 draft.uncertain = false
                 stale = false
                 feedback = "idle"
-                pendingKitchenOrderId = if (kitchenWarning == null) null else verified.orderId
+                draft.pendingKitchenOrderId = if (kitchenWarning == null) null else verified.orderId
                 error = kitchenWarning
-                if (thenCheckout) showMethods = true else if (kitchenWarning == null) onTables()
+                if (thenCheckout && kitchenWarning == null) showMethods = true
+                else if (!thenCheckout && kitchenWarning == null) onTables()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -649,8 +651,8 @@ internal fun NativeDiningOrderScreen(
                         count = combinedCount
                     ) { cartOpen = true }
                 }
-                if (error != null || custom || draft.uncertain || stale || pendingKitchenOrderId != null) {
-                    Text(error ?: if (pendingKitchenOrderId != null)
+                if (error != null || custom || draft.uncertain || stale || draft.pendingKitchenOrderId != null) {
+                    Text(error ?: if (draft.pendingKitchenOrderId != null)
                         "บันทึกบิลแล้ว แต่ยังไม่ยืนยันว่ารายการไปถึงห้องครัว"
                     else if (custom)
                         "รายการพิเศษ/ราคาไม่ตรง กรุณาแก้บิลนี้ใน POS Web"
@@ -663,7 +665,7 @@ internal fun NativeDiningOrderScreen(
                             else scope.launch { loading = true; refresh(true) }
                         }
                     ) { Text(if (draft.uncertain) "ตรวจบิลเดิม" else "รีเฟรชบิล", fontSize = 12.sp) }
-                    pendingKitchenOrderId?.let { pendingId ->
+                    draft.pendingKitchenOrderId?.let { pendingId ->
                         OutlinedButton(
                             enabled = !draft.busy && !draft.uncertain &&
                                 bill?.orderId == pendingId && bill?.paid != true,
@@ -672,7 +674,7 @@ internal fun NativeDiningOrderScreen(
                                 scope.launch {
                                     try {
                                         val warning = client.ensureDiningKitchenDispatch(session, pendingId)
-                                        pendingKitchenOrderId = if (warning == null) null else pendingId
+                                        draft.pendingKitchenOrderId = if (warning == null) null else pendingId
                                         error = warning
                                     } catch (failure: Exception) {
                                         error = "ยังยืนยันการส่งครัวไม่ได้ ตรวจบิลใน CpIPOS หลักก่อนส่งซ้ำ"
