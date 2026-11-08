@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.cpipos.pos.next.core.webpos.NativeMenuSelection
 import com.cpipos.pos.next.core.webpos.NativeModifierGroup
@@ -121,7 +122,7 @@ internal fun NativeMenuCustomizationDialog(
                     value = note,
                     onValueChange = { note = it.take(160) },
                     label = { Text("หมายเหตุ (ถ้ามี)") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().testTag("native-item-details-note")
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { if (quantity > 1) quantity -= 1 }) { Text("−") }
