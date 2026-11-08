@@ -52,6 +52,9 @@ internal fun NativeMenuCustomizationDialog(
         }.toSet())
     }
     var note by remember(product.id) { mutableStateOf("") }
+    // Recipe exclusions are kitchen instructions. They must not be confused
+    // with stock-changing modifier options, which are server-authoritative.
+    var excludedRecipeIds by remember(product.id) { mutableStateOf(emptySet<String>()) }
 
     fun toggle(group: NativeModifierGroup, optionId: String) {
         val sameGroup = group.options.map { it.id }.toSet()
@@ -66,8 +69,13 @@ internal fun NativeMenuCustomizationDialog(
         selected = next
     }
 
-    val draft = remember(product.id, quantity, useSpecialPrice, selected, note) {
-        NativeMenuSelection(product.id, quantity, useSpecialPrice, selected, note.trim())
+    val recipeInstructions = config.baseRecipe.filter { it.id in excludedRecipeIds }
+        .map { "ไม่ใส่" + it.name }
+    val fullNote = (recipeInstructions + listOf(note.trim()).filter { it.isNotBlank() })
+        .joinToString(" | ")
+    val noteTooLong = fullNote.length > 160
+    val draft = remember(product.id, quantity, useSpecialPrice, selected, fullNote) {
+        NativeMenuSelection(product.id, quantity, useSpecialPrice, selected, fullNote.take(160))
     }
     val price = draft.displayPrice(product, config)
     AlertDialog(
@@ -113,10 +121,32 @@ internal fun NativeMenuCustomizationDialog(
                     }
                 }
                 if (config.baseRecipe.isNotEmpty()) {
-                    Text("วัตถุดิบในสูตร")
-                    config.baseRecipe.forEach {
-                        Text("• " + it.name + " " + it.quantityPerItem.toString() + " " + it.unit)
+                    Text("วัตถุดิบตามสูตร · แตะเพื่อระบุสิ่งที่ไม่ใส่")
+                    config.baseRecipe.forEach { ingredient ->
+                        val include = ingredient.id !in excludedRecipeIds
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                excludedRecipeIds = if (include)
+                                    excludedRecipeIds + ingredient.id else excludedRecipeIds - ingredient.id
+                            },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = include,
+                                onCheckedChange = { checked ->
+                                    excludedRecipeIds = if (checked)
+                                        excludedRecipeIds - ingredient.id else excludedRecipeIds + ingredient.id
+                                }
+                            )
+                            Text(ingredient.name + " " + ingredient.quantityPerItem.toString() +
+                                " " + ingredient.unit + if (include) "" else " · ไม่ใส่")
+                        }
                     }
+                    Text(
+                        "การไม่ใส่วัตถุดิบเป็นหมายเหตุส่งครัว ไม่เปลี่ยนราคาหรือยอดตัดสต็อก " +
+                            "หากต้องการปรับสต็อก ให้ตั้งตัวเลือกวัตถุดิบใน POS หลัก",
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+                    )
                 }
                 OutlinedTextField(
                     value = note,
@@ -124,6 +154,10 @@ internal fun NativeMenuCustomizationDialog(
                     label = { Text("หมายเหตุ (ถ้ามี)") },
                     modifier = Modifier.fillMaxWidth().testTag("native-item-details-note")
                 )
+                if (noteTooLong) {
+                    Text("หมายเหตุรวมวัตถุดิบยาวเกิน 160 ตัวอักษร กรุณาลดรายการหรือข้อความ",
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { if (quantity > 1) quantity -= 1 }) { Text("−") }
                     Text("จำนวน " + quantity)
@@ -134,7 +168,7 @@ internal fun NativeMenuCustomizationDialog(
             }
         },
         confirmButton = {
-            Button(enabled = price != null, onClick = { onConfirm(draft) }) {
+            Button(enabled = price != null && !noteTooLong, onClick = { onConfirm(draft) }) {
                 Text("เพิ่มลงตะกร้า")
             }
         },
