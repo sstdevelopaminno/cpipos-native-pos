@@ -1,5 +1,6 @@
 package com.cpipos.pos.next.ui
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -142,6 +143,20 @@ internal fun NativeCatalogManagementScreen(
         if (safeFallback) saleProducts.map { it.category } else emptyList())
         .filter { it.isNotBlank() }.distinct().sorted()
     val pictures = if (safeFallback) saleProducts.associateBy { it.id } else emptyMap()
+    var mediaUrls by remember(session.id, selectedBranchId) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    LaunchedEffect(client, session.id, selectedBranchId, ingredients, loaded?.items, reload) {
+        if (ingredients || loaded?.branchId != selectedBranchId) {
+            mediaUrls = emptyMap()
+        } else {
+            mediaUrls = try {
+                client.catalogPhotoUrls(session, selectedBranchId, loaded?.items.orEmpty().map { it.id })
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                emptyMap()
+            }
+        }
+    }
 
     fun changeBranch(branchId: String) {
         if (branchId == selectedBranchId || saving) return
@@ -333,6 +348,7 @@ internal fun NativeCatalogManagementScreen(
                     ) {
                         items(rows, key = { it.id }) { item ->
                             val image = pictures[item.id]
+                            val imageUrl = mediaUrls[item.id] ?: image?.imageUrl
                             Column {
                                 Surface(
                                     color = if (item.active) Color.White else Color(0xFFEEF0F4),
@@ -364,12 +380,12 @@ internal fun NativeCatalogManagementScreen(
                                                 Modifier.size(53.dp).background(Color(0xFFF0F5FD), RoundedCornerShape(13.dp)),
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                if (image != null) {
+                                                if (imageUrl != null || image != null) {
                                                     ProductArtwork(
                                                         product = DemoMenuItem(
-                                                            image.id, image.name, image.category, image.price.value,
-                                                            image.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                                                            catalogBlue, image.imageUrl
+                                                            item.id, item.name, item.category, item.price.value,
+                                                            item.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                                                            catalogBlue, imageUrl
                                                         ),
                                                         markerFontSize = 20.sp,
                                                         modifier = Modifier.fillMaxSize()
@@ -540,7 +556,7 @@ internal fun NativeCatalogManagementScreen(
             branchName = selectedBranch.name,
             saving = saving,
             onDismiss = { if (!saving) editing = null },
-            onSave = { name, skuUnit, category, price, recommended, specialPrice ->
+            onSave = { name, skuUnit, category, price, recommended, specialPrice, photo ->
                 saving = true
                 operationError = null
                 scope.launch {
@@ -557,6 +573,14 @@ internal fun NativeCatalogManagementScreen(
                             recommended = recommended,
                             specialPriceText = specialPrice
                         )
+                        if (!ingredients && photo != null) {
+                            try {
+                                client.uploadCatalogProductPhoto(session, context, selectedBranchId, item.id, photo)
+                            } catch (failure: Exception) {
+                                operationError = "แก้ไขสินค้าแล้ว แต่บันทึกรูปไม่สำเร็จ: " +
+                                    ((failure as? WebPosApiException)?.code ?: "ตรวจสอบรูปและเครือข่าย")
+                            }
+                        }
                         editing = null
                         reload += 1
                     } catch (failure: Exception) {
@@ -693,6 +717,8 @@ private fun CreateProductDialog(
     onDismiss: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var selectedPhoto by remember { mutableStateOf<Uri?>(null) }
     var branchId by remember { mutableStateOf(initialBranchId) }
     var category by remember { mutableStateOf(categories.firstOrNull().orEmpty()) }
     var name by remember { mutableStateOf("") }
@@ -755,6 +781,10 @@ private fun CreateProductDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     enabled = !saving
+                )
+                NativeCatalogPhotoPicker(
+                    selected = selectedPhoto, enabled = !saving,
+                    onSelected = { selectedPhoto = it }
                 )
                 OutlinedTextField(
                     value = stock,
@@ -926,7 +956,7 @@ private fun CreateProductDialog(
                                     onSaving(true)
                                     scope.launch {
                                         try {
-                                            client.createCatalogProduct(
+                                            val createdId = client.createCatalogProduct(
                                                 session = session,
                                                 branchId = branchId,
                                                 name = name,
@@ -939,6 +969,14 @@ private fun CreateProductDialog(
                                                 useIngredientRecipe = useRecipe,
                                                 ingredientLines = selectedRecipes
                                             )
+                                            selectedPhoto?.let { photo ->
+                                                try {
+                                                    client.uploadCatalogProductPhoto(session, context, branchId, createdId, photo)
+                                                } catch (failure: Exception) {
+                                                    onError("สินค้าเพิ่มแล้ว แต่รูปยังไม่บันทึก: " +
+                                                        ((failure as? WebPosApiException)?.code ?: "ตรวจสอบรูปและเครือข่าย"))
+                                                }
+                                            }
                                             onSuccess(branchId)
                                         } catch (failure: Exception) {
                                             val code = (failure as? WebPosApiException)?.code ?: failure.message ?: "network_error"
@@ -1217,8 +1255,9 @@ private fun EditCatalogDialog(
     branchName: String,
     saving: Boolean,
     onDismiss: () -> Unit,
-    onSave: (String, String, String, String, Boolean, String) -> Unit
+    onSave: (String, String, String, String, Boolean, String, Uri?) -> Unit
 ) {
+    var selectedPhoto by remember(item.id) { mutableStateOf<Uri?>(null) }
     var name by remember(item.id) { mutableStateOf(item.name) }
     var skuUnit by remember(item.id) { mutableStateOf(if (ingredient) item.baseUnit else item.sku) }
     var category by remember(item.id) { mutableStateOf(item.category) }
@@ -1266,6 +1305,10 @@ private fun EditCatalogDialog(
                         prefix = { Text("฿") },
                         singleLine = true
                     )
+                    NativeCatalogPhotoPicker(
+                        selected = selectedPhoto, enabled = !saving,
+                        onSelected = { selectedPhoto = it }
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = recommended, onCheckedChange = { recommended = it })
                         Text("สินค้าแนะนำ", fontSize = 12.sp)
@@ -1293,7 +1336,7 @@ private fun EditCatalogDialog(
                 enabled = !saving && name.isNotBlank() && skuUnit.isNotBlank() &&
                     (ingredient || (category.isNotBlank() && price.toBigDecimalOrNull() != null &&
                         (specialPrice.isBlank() || specialPrice.toDoubleOrNull()?.let { it >= 0 && it <= 99999999 } == true))),
-                onClick = { onSave(name, skuUnit, category, price, recommended, specialPrice) }
+                onClick = { onSave(name, skuUnit, category, price, recommended, specialPrice, selectedPhoto) }
             ) { Text("บันทึก") }
         },
         dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("ยกเลิก") } }
