@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -151,6 +152,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             !developerGuardBlocked && !developerGuardPending
 
     fun tabPackageAllowed(tab: String, access: WebPosEntitlements? = entitlements): Boolean {
+        if (!nativeTabVisible(session?.role.orEmpty(), tab)) return false
         val snapshot = access ?: return true
         return when (tab) {
             "sale" -> snapshot.allows("core_pos_sales", "main.sales")
@@ -173,6 +175,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     }
 
     fun openTab(tab: String) {
+        if (!nativeTabVisible(session?.role.orEmpty(), tab)) return
         if (tab == "sale") {
             step = "mode"
         } else {
@@ -191,6 +194,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     }
 
     fun navigateTab(tab: String) {
+        if (!nativeTabVisible(session?.role.orEmpty(), tab)) return
         if (takeaway.saving.value || dineWorkspace.drafts.values.any { it.busy }) return
         if (tabPackageAllowed(tab)) {
             openTab(tab)
@@ -584,6 +588,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
+    CompositionLocalProvider(LocalNativePosRole provides session?.role.orEmpty()) {
     when (step) {
         "restoring" -> CpiposSessionRestoringScreen()
         "switching" -> CpiposSessionRestoringScreen(
