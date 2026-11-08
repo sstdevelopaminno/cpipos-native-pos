@@ -23,6 +23,16 @@ class NativeStaffRolePolicyTest {
         assertTrue(nativeTabVisible("staff", "history"))
     }
 
+    @Test fun staffShiftPageHidesSalesMetricsAndExistingBillControls() {
+        val more = java.io.File("src/main/java/com/cpipos/pos/next/ui/NativeMoreScreen.kt").readText()
+        val dining = java.io.File("src/main/java/com/cpipos/pos/next/ui/NativeDiningOrderScreen.kt").readText()
+        val sale = java.io.File("src/main/java/com/cpipos/pos/next/ui/MobilePosSalePreview.kt").readText()
+        assertTrue(more.contains("if (!isNativeStaff(liveSession.role)) {"))
+        assertTrue(dining.contains("allowCancelBill = nativeCanModifyBills(session.role)"))
+        assertTrue(dining.contains("canChangeExistingDiscount"))
+        assertTrue(sale.contains("if (allowCancelBill) CartSecondaryButton"))
+    }
+
     @Test fun ownerAndManagerRetainAuthorizedMenusAndBillOperations() {
         listOf("owner", "manager").forEach { role ->
             assertTrue(nativeMoreVisible(role, "summary"))
