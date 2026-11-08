@@ -10,8 +10,15 @@ import java.util.Locale
  */
 internal val LocalNativePosRole = compositionLocalOf { "" }
 
+private val privilegedNativeRoles = setOf("owner", "manager", "it_admin")
+
+/**
+ * Fail closed for employee-card roles (staff, cashier, waiter, kitchen), empty
+ * role claims and any unfamiliar role. New roles must be reviewed explicitly
+ * rather than silently gaining owner-only screens and bill actions.
+ */
 internal fun isNativeStaff(role: String): Boolean =
-    role.trim().lowercase(Locale.ROOT) == "staff"
+    role.trim().lowercase(Locale.ROOT) !in privilegedNativeRoles
 
 internal fun nativeTabVisible(role: String, tab: String): Boolean =
     !isNativeStaff(role) || tab !in setOf("settings", "report")
