@@ -3,8 +3,7 @@ package com.cpipos.pos.next.ui
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onNode
-import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.performClick
@@ -78,7 +77,7 @@ class NativeMenuCustomizationInstrumentedTest {
                 onDismiss = {}, onConfirm = { selected = it }
             )
         }
-        compose.onNode(hasSetTextAction()).performTextInput("ไม่ใส่น้ำตาล")
+        compose.onNodeWithTag("native-item-details-note").performTextInput("ไม่ใส่น้ำตาล")
         compose.onNodeWithText("เพิ่มลงตะกร้า").performClick()
         compose.runOnIdle {
             assertEquals("ไม่ใส่น้ำตาล", requireNotNull(selected).note)
