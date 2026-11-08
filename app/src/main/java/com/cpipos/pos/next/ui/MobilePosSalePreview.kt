@@ -1039,7 +1039,13 @@ internal fun MobilePosSalePreview(
             onDelete = { id ->
                 setCartItems(cart.toMutableMap().apply { remove(id) })
             },
-            onCancelBill = { showCart = false; showCancelBillConfirm = true },
+            onCancelBill = {
+                if (liveSession == null || nativeCanModifyBills(liveSession.role)) {
+                    showCart = false
+                    showCancelBillConfirm = true
+                }
+            },
+            allowCancelBill = liveSession == null || nativeCanModifyBills(liveSession.role),
             onCheckout = {
                 if (!heldIoBusy && quantity > 0 && total > 0L) {
                     selectedMethod = PreviewPayment.Cash
@@ -1220,7 +1226,8 @@ internal fun MobilePosSalePreview(
         )
     }
 
-    if (showCancelBillConfirm && liveSession != null && liveClient != null) {
+    if (showCancelBillConfirm && liveSession != null && liveClient != null &&
+        nativeCanModifyBills(liveSession.role)) {
         NativeCancelBillPinDialog(
             title = "อนุมัติยกเลิกบิลกลับบ้าน",
             busy = saving,
@@ -1685,6 +1692,8 @@ internal fun PreviewCartBottomSheet(
     checkoutLabel: String = "ชำระเงิน",
     tableMode: Boolean = false,
     checkoutEnabled: Boolean = true,
+    allowCancelBill: Boolean = true,
+    allowDiscount: Boolean = true,
     lockedQuantities: Map<String, Int> = emptyMap(),
     discountAmount: Long = 0L,
     onHoldBill: (() -> Unit)? = null
@@ -1852,7 +1861,7 @@ internal fun PreviewCartBottomSheet(
             }
 
             Spacer(modifier = Modifier.height(9.dp))
-            Row(
+            if (allowDiscount) Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(15.dp))
@@ -1901,7 +1910,7 @@ internal fun PreviewCartBottomSheet(
                     modifier = Modifier.weight(1f),
                     onClick = { if (onHoldBill != null) onHoldBill() else onFeatureClick("พิมพ์บิล") }
                 )
-                CartSecondaryButton(
+                if (allowCancelBill) CartSecondaryButton(
                     title = "ยกเลิกบิล",
                     modifier = Modifier.weight(1f),
                     onClick = onCancelBill,
