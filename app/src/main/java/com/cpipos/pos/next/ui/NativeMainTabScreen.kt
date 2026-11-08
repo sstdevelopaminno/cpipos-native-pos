@@ -50,6 +50,15 @@ internal fun NativeMainTabScreen(
     moreInitialPage: String = "hub",
     allowApkInstall: Boolean = false
 ) {
+    if (!nativeTabVisible(session.role, tab)) {
+        NativeMoreScreen(
+            client = client, session = session, products = products,
+            onTab = onTab, onSessionChanged = onSessionChanged,
+            entitlements = entitlements, initialPage = "hub",
+            allowApkInstall = allowApkInstall
+        )
+        return
+    }
     if (tab == "settings") {
         NativeSettingsHubScreen(
             client = client,
