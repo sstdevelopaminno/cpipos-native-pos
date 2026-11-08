@@ -2262,7 +2262,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         useIngredientRecipe: Boolean,
         ingredientLines: List<WebCatalogRecipeDraft>,
         specialPriceText: String? = null
-    ) {
+    ): String {
         requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
         require(name.isNotBlank() && category.isNotBlank())
