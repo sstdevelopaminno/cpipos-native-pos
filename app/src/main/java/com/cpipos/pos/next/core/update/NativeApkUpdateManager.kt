@@ -15,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -34,6 +36,7 @@ internal object NativeApkUpdateManager {
         "6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a"
     private const val CHECK_PATH = "/api/android-pos/native-update-policy"
     private val _state = MutableStateFlow(NativeApkUpdateState())
+    private val checkMutex = Mutex()
     val state = _state.asStateFlow()
 
     private data class Offer(
@@ -69,7 +72,8 @@ internal object NativeApkUpdateManager {
     private fun preferences(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    suspend fun checkAndStart(context: Context) = withContext(Dispatchers.IO) {
+    suspend fun checkAndStart(context: Context) = checkMutex.withLock {
+        withContext(Dispatchers.IO) {
         if (BuildConfig.DEBUG || context.packageName != "com.cpipos.pos.next") return@withContext
         val appContext = context.applicationContext
         runCatching {
@@ -133,6 +137,7 @@ internal object NativeApkUpdateManager {
                 connection.disconnect()
             }
         }.onFailure { _state.value = NativeApkUpdateState("idle") }
+        }
     }
 
     /** Poll only while in app foreground; DownloadManager continues after process death. */
