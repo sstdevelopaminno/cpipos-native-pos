@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -40,7 +41,8 @@ internal fun NativeCatalogPhotoPicker(
     onSelected: (Uri?) -> Unit
 ) {
     val context = LocalContext.current
-    var cameraTarget by remember { mutableStateOf<Uri?>(null) }
+    // Android may recreate the Activity while the external camera is open.
+    var cameraTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -54,7 +56,7 @@ internal fun NativeCatalogPhotoPicker(
         ActivityResultContracts.TakePicture()
     ) { accepted ->
         if (accepted) {
-            cameraTarget?.let(onSelected)
+            cameraTarget?.let { onSelected(Uri.parse(it)) }
             error = null
         } else {
             error = "ไม่ได้บันทึกรูปถ่าย"
@@ -99,7 +101,7 @@ internal fun NativeCatalogPhotoPicker(
                             val uri = FileProvider.getUriForFile(
                                 context, context.packageName + ".nativefileprovider", file
                             )
-                            cameraTarget = uri
+                            cameraTarget = uri.toString()
                             cameraPicker.launch(uri)
                         } catch (_: Exception) {
                             error = "เปิดกล้องไม่ได้ กรุณาตรวจสอบแอปกล้อง"

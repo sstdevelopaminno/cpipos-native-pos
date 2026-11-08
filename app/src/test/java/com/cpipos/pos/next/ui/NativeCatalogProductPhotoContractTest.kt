@@ -22,6 +22,16 @@ class NativeCatalogProductPhotoContractTest {
         assertTrue(picker.contains("ActivityResultContracts.GetContent()"))
     }
 
+    @Test fun allCatalogImagesLoadBeyondFirst50ProductsAndCameraSurvivesRotation() {
+        val client = backend()
+        val picker = ui("NativeCatalogPhotoPicker.kt")
+        assertTrue(client.contains("ids.chunked(50).forEach"))
+        assertTrue(client.contains("return images"))
+        assertTrue(picker.contains("rememberSaveable"))
+        assertTrue(picker.contains("cameraTarget = uri.toString()"))
+        assertTrue(picker.contains("Uri.parse(it)"))
+    }
+
     @Test fun imagesAreOptimizedAndCameraUsesScopedFileProvider() {
         val photo = File("src/main/java/com/cpipos/pos/next/core/webpos/NativeCatalogPhotoEncoder.kt").readText()
         val provider = File("src/main/res/xml/native_update_paths.xml").readText()

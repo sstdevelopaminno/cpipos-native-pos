@@ -2037,20 +2037,26 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         requireSameLiveSession(session, requireShift = false, requireSell = false)
         require(runCatching { UUID.fromString(branchId) }.isSuccess)
         if (productIds.isEmpty()) return emptyMap()
-        val ids = productIds.distinct().take(50)
+        val ids = productIds.distinct()
         require(ids.all { runCatching { UUID.fromString(it) }.isSuccess })
-        val data = call(
-            "GET", "/api/pos/product-media?branch_id=" + queryValue(branchId) +
-                "&product_ids=" + queryValue(ids.joinToString(","))
-        )
-        require(data.optString("branch_id") == branchId) { "product_media_branch_scope_mismatch" }
-        val imageMap = data.optJSONObject("images") ?: return emptyMap()
-        return ids.mapNotNull { id ->
-            val asset = imageMap.optJSONObject(id)
-            val url = asset?.optString("thumbnail_url")?.takeIf { it.startsWith("https://") }
-                ?: asset?.optString("image_url")?.takeIf { it.startsWith("https://") }
-            url?.let { id to it }
-        }.toMap()
+        // CpIPOS server limits media lookups to 50 IDs/request. Fetch EVERY page
+        // so restaurants with large catalogs do not lose images past item 50.
+        val images = mutableMapOf<String, String>()
+        ids.chunked(50).forEach { batch ->
+            val data = call(
+                "GET", "/api/pos/product-media?branch_id=" + queryValue(branchId) +
+                    "&product_ids=" + queryValue(batch.joinToString(","))
+            )
+            require(data.optString("branch_id") == branchId) { "product_media_branch_scope_mismatch" }
+            val imageMap = data.optJSONObject("images") ?: return@forEach
+            batch.forEach { id ->
+                val asset = imageMap.optJSONObject(id)
+                val url = asset?.optString("thumbnail_url")?.takeIf { it.startsWith("https://") }
+                    ?: asset?.optString("image_url")?.takeIf { it.startsWith("https://") }
+                if (url != null) images[id] = url
+            }
+        }
+        return images
     }
 
     suspend fun uploadCatalogProductPhoto(
