@@ -1015,6 +1015,15 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                     products = catalog,
                     entitlements = entitlements,
                     moreInitialPage = moreInitialPage,
+                    allowApkInstall = !busy && !mdmLocked &&
+                        !developerGuardBlocked && !developerGuardPending &&
+                        unresolvedSaleCount == 0 && !takeaway.saving.value &&
+                        takeaway.cart.isEmpty() &&
+                        dineWorkspace.drafts.values.none {
+                            it.busy || it.uncertain || it.items.isNotEmpty() ||
+                                it.configuredSelections.isNotEmpty() ||
+                                it.pendingQuantities.isNotEmpty()
+                        },
                     onSessionChanged = { updated ->
                         val previousShiftId = session?.shiftId
                         session = updated
@@ -1347,8 +1356,12 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     NativeStableUpdateOverlay(
         allowPrompt = !busy &&
             step in setOf("store", "branch", "shift", "mode") &&
-            !takeaway.saving.value &&
-            dineWorkspace.drafts.values.none { it.busy || it.uncertain } &&
+            !takeaway.saving.value && takeaway.cart.isEmpty() &&
+            dineWorkspace.drafts.values.none {
+                it.busy || it.uncertain || it.items.isNotEmpty() ||
+                    it.configuredSelections.isNotEmpty() ||
+                    it.pendingQuantities.isNotEmpty()
+            } &&
             !showLogoutConfirm && unresolvedSaleCount != null &&
             (unresolvedSaleCount ?: 0) == 0
     )
