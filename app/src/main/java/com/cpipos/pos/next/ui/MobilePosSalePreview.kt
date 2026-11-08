@@ -202,6 +202,7 @@ internal fun MobilePosSalePreview(
     val scope = rememberCoroutineScope()
     val demoLedger = remember(context.applicationContext) { DemoSaleLedger(context.applicationContext) }
     var receipt by remember { mutableStateOf<DemoSaleReceipt?>(null) }
+    var receiptFromHistory by remember { mutableStateOf(false) }
     var dailyReceipts by remember { mutableStateOf<List<DemoSaleReceipt>>(emptyList()) }
     var showHistory by remember { mutableStateOf(false) }
     var showLiveHistory by remember { mutableStateOf(false) }
@@ -583,6 +584,7 @@ internal fun MobilePosSalePreview(
                             payment = null
                             cashInput = ""
                             receipt = saved
+                            receiptFromHistory = false
                             if (!saved.isDemo) NativePrintRuntime.wake()
                             notice = if (saved.isDemo) "บันทึกบิลทดลองในเครื่องแล้ว: ${saved.billNo}" else "บันทึกยอดขายจริงแล้ว: ${saved.billNo}"
                         } catch (error: Exception) {
@@ -712,6 +714,7 @@ internal fun MobilePosSalePreview(
                             showMethods = false
                             payment = null
                             receipt = paid.receipt
+                            receiptFromHistory = false
                             NativePrintRuntime.wake()
                             notice = "บันทึกเงินโอนที่ตรวจสอบแล้ว: ${paid.receipt.billNo}"
                         } catch (failure: Exception) {
@@ -1400,7 +1403,7 @@ internal fun MobilePosSalePreview(
     if (showHistory) {
         DemoDailySalesSheet(
             receipts = dailyReceipts,
-            onOpenReceipt = { selected -> showHistory = false; receipt = selected },
+            onOpenReceipt = { selected -> showHistory = false; receipt = selected; receiptFromHistory = true },
             onDismiss = { showHistory = false }
         )
     }
@@ -1416,6 +1419,7 @@ internal fun MobilePosSalePreview(
             onOpen = { selected ->
                 showLiveHistory = false
                 receipt = selected.receipt
+                receiptFromHistory = true
             },
             onDismiss = { showLiveHistory = false }
         )
@@ -1423,11 +1427,12 @@ internal fun MobilePosSalePreview(
     receipt?.let { saved ->
         SavedDemoReceiptSheet(
             receipt = saved,
+            historyMode = receiptFromHistory,
             onPrint = {
                 runCatching { DemoReceiptPrinter.print(context, saved) }
                     .onFailure { notice = "เปิดระบบพิมพ์ไม่ได้ กรุณาติดตั้งบริการเครื่องพิมพ์ Android" }
             },
-            onDone = { receipt = null }
+            onDone = { receipt = null; receiptFromHistory = false }
         )
     }
 

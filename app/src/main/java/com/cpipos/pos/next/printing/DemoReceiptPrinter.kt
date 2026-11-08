@@ -16,6 +16,7 @@ import android.print.PrintDocumentInfo
 import android.print.PrintManager
 import com.cpipos.pos.next.R
 import com.cpipos.pos.next.core.offline.DemoSaleReceipt
+import com.cpipos.pos.next.core.print.printableReceiptItemNotes
 import com.cpipos.pos.next.core.pos.Satang
 import java.io.FileOutputStream
 import java.text.DecimalFormat
@@ -42,7 +43,9 @@ object DemoReceiptPrinter {
         val manager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
         val scale = paperWidthMm.toFloat() / 80f
         val pageHeight = (410 + receipt.lines.sumOf {
-            22 + ((it.name.length / 18) + 1) * 13
+            val note = printableReceiptItemNotes(it.notes)
+            22 + ((it.name.length / 18) + 1) * 13 +
+                (if (note.isNullOrBlank()) 0 else 18 + note.length / 18 * 12)
         } + (if (receipt.storeAddress.isNullOrBlank()) 0 else 30) +
             (if (receipt.storePhone.isNullOrBlank()) 0 else 15) +
             (if (receipt.isDemo) 20 else 0)).coerceAtLeast(490)
@@ -229,7 +232,14 @@ object DemoReceiptPrinter {
                 y += 12f
             }
             txt("× " + baht(item.unitPrice), 10f, y, small)
-            y += 19f
+            y += 13f
+            printableReceiptItemNotes(item.notes)?.lineSequence()?.forEach { note ->
+                lines(note, 198f, small).forEach { segment ->
+                    txt(segment, 12f, y, small)
+                    y += 11f
+                }
+            }
+            y += 6f
         }
         hr(y)
         y += 15f
