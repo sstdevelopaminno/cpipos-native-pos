@@ -1,3 +1,11 @@
+## Update 2026-11-08 — current P0 gates (not completed)
+
+1. Native plain-item notes and configured modifier popup UI are proposed for Android; still require server gate and real device acceptance.
+2. Native dine-in kitchen acknowledgement + idempotent repair path proposed; validate every KDS zone, alert and round against the CpIPOS Web/IT backend with test data.
+3. Existing custom table lines require immutable selected-option snapshots, not flattening by product ID. Keep edit fail-closed until that parity is complete.
+4. Signed APK release must use central CpIPOS release authority and undergo physical printer/MDM/billing tests.
+5. See [QA evidence matrix](NATIVE_DINE_IN_KITCHEN_ITEM_DETAILS_QA_2026-11-08.md). Historical checkboxes above are not production acceptance indicators.
+
 # CpIPOS Native 2.0 Roadmap
 
 ## Phase 0 - Foundation
