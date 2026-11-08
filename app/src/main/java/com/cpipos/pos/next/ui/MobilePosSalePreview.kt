@@ -967,6 +967,17 @@ internal fun MobilePosSalePreview(
                             DemoProductCard(
                                 product = product,
                                 quantity = cart[product.id] ?: 0,
+                                onDetails = {
+                                    if (liveSession == null) {
+                                        notice = "รายละเอียดสินค้าใช้งานได้เมื่อเข้าสู่ระบบร้านค้า"
+                                    } else if (optionsLoading) {
+                                        notice = "กำลังโหลดตัวเลือกสินค้า"
+                                    } else if (optionLoadError || optionConfigs[product.id] == null) {
+                                        notice = "ตรวจสอบข้อมูลวัตถุดิบจาก CpIPOS หลักไม่ได้ กรุณาลองใหม่"
+                                    } else {
+                                        editingProductId = product.id
+                                    }
+                                },
                                 onAdd = {
                                     if (liveSession == null) {
                                         add(product.id)
@@ -1568,7 +1579,8 @@ private fun PaymentMethodTile(
 internal fun DemoProductCard(
     product: DemoMenuItem,
     quantity: Int,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
+    onDetails: (() -> Unit)? = null
 ) {
     Card(
         modifier = Modifier
@@ -1595,6 +1607,15 @@ internal fun DemoProductCard(
                     markerFontSize = 48.sp,
                     modifier = Modifier.fillMaxSize()
                 )
+                onDetails?.let { showDetails ->
+                    TextButton(
+                        onClick = showDetails,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp)
+                            .background(Color.White.copy(alpha = 0.94f), RoundedCornerShape(12.dp))
+                    ) {
+                        Text("รายละเอียด", fontSize = 11.sp, color = saleBlue)
+                    }
+                }
                 if (quantity > 0) {
                     Box(
                         modifier = Modifier
