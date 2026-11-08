@@ -37,10 +37,10 @@ Status: **code proposed; not physical-device accepted; no new customer APK publi
 | Thai / English / Lao and Android 8.1 / 15 | Visible/usable labels; notes input accepts Thai and Lao; no layout overlap |
 
 ## Security and release blockers
-1. **Backend gate:** Verify effective production `NATIVE_ATOMIC_MENU_SALES_ENABLED` and SQL contract in the actual deployed version. Never turn it on without positive transaction, stock and kitchen integration tests.
+1. **Backend gate:** Vercel `cp-ipos-web` production variable inventory was inspected on 2026-11-08 and `NATIVE_ATOMIC_MENU_SALES_ENABLED` was **not configured**, so configured selections are expected to fail closed until reviewed activation. SQL migrations and kitchen triggers were observed in production; this is not a substitute for sale/stock/kitchen integration testing.
 2. **Existing customized table bills:** Android currently blocks full-cart edits when the server already has custom metadata or special prices. Its legacy flattened snapshot cannot safely replay `native_selection` on each persisted line. Keep fail-closed until line-by-line round-trip is implemented and accepted.
 3. **Base ingredient changes:** The Native UI currently **lists** `baseRecipe` but only modifier groups are selectable. Do not simulate adding/removing recipe ingredients via a free-text note because this would corrupt stock deductions. Build a structured backend contract first if ingredient delta controls are required.
-4. **Settings permission:** `GET /api/pos/settings/order-kitchen` currently requires `settings:view`. Test that cashier roles can read effective kitchen policy; otherwise use a scoped read-only API rather than weakening security.
+4. **Settings permission:** The existing `/api/pos/settings/order-kitchen` requires `settings:view`. The related proposed CpIPOS backend branch adds `/api/pos/native-mobile/kitchen-policy` (sale:create, branch scoped; effective auto-send boolean only). Deploy the reviewed backend endpoint before installing this Native candidate.
 5. **Release authority:** Use the existing `CpIPOS/.github/workflows/build-native-mobile-release.yml` with explicit reviewed source SHA and existing signing certificate. The separate Native repo release workflow lacks its own four secrets. No production APK is approved on this branch.
 6. **Physical acceptance:** Use Android 8.1/15, staff and manager test accounts, a registered device, real 58/80mm printers and QA-only data. Attach redacted evidence and complete issue #20 before marking green.
 7. **Printing:** Validate the 2026-11-07 canonical receipt HTML patch on a real printer and against CpIPOS Web/Windows.
@@ -49,6 +49,7 @@ Status: **code proposed; not physical-device accepted; no new customer APK publi
 ## Release checklist
 - [ ] Native Foundation Build CI green
 - [ ] Android API 27 and 35 Compose instrumented smoke CI green
+- [ ] Scoped kitchen policy endpoint deployed to CpIPOS Web before Native candidate
 - [ ] Native selection backend integration + modifier stock test green
 - [ ] Dine-in new/add/notes to kitchen receipt KDS physically observed
 - [ ] All Issue #20 acceptance evidence collected
