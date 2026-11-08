@@ -13,7 +13,7 @@ class NativeSelfUpdateContractTest {
         val screen = source("ui/NativeManualUpdateScreen.kt")
         val manager = source("core/update/NativeApkUpdateManager.kt")
         assertTrue(menu.contains("MoreMenu(\"updates\""))
-        assertTrue(menu.contains("allowApkInstall = allowApkInstall"))
+        assertTrue(menu.contains("allowInstall = allowApkInstall"))
         assertTrue(screen.contains("NativeApkUpdateManager.checkAndStart"))
         assertTrue(screen.contains("enabled = allowInstall"))
         assertTrue(screen.contains("NativeApkUpdateManager.openSystemInstaller(context)"))
