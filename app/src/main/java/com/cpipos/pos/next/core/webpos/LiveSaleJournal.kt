@@ -102,10 +102,10 @@ class LiveSaleJournal(context: Context) : SQLiteOpenHelper(
                 "id", "order_id", "order_no", "stage", "payload_json",
                 "total_satang", "received_satang", "created_at_ms", "payment_method"
             ),
-            "tenant_id=? AND branch_id=? AND device_code=? AND stage NOT IN (?,?)",
+            "tenant_id=? AND branch_id=? AND device_code=? AND stage NOT IN (?,?,?)",
             arrayOf(
                 session.tenantId, session.branchId, session.deviceCode,
-                "confirmed", "resolved_cancelled"
+                "confirmed", "resolved_cancelled", "rejected_before_write"
             ),
             null,
             null,
@@ -243,6 +243,28 @@ class LiveSaleJournal(context: Context) : SQLiteOpenHelper(
 
     fun review(session: WebPosSession, billId: String) {
         transition(session, billId, "requires_review")
+    }
+
+    /**
+     * Only call for the explicit Native atomic release gate response. That
+     * check returns before any order, payment or stock transaction executes.
+     * A locally prepared but never submitted bill can then be edited safely,
+     * without leaving a perpetual unresolved-sale block.
+     */
+    fun rejectedBeforeWrite(session: WebPosSession, billId: String) {
+        require(UUID.fromString(billId).toString() == billId)
+        val values = ContentValues().apply {
+            put("stage", "rejected_before_write")
+            put("updated_at_ms", System.currentTimeMillis())
+        }
+        check(
+            writableDatabase.update(
+                "live_attempts", values,
+                "id=? AND tenant_id=? AND branch_id=? AND device_code=? " +
+                    "AND stage='prepared' AND order_id IS NULL",
+                arrayOf(billId, session.tenantId, session.branchId, session.deviceCode)
+            ) == 1
+        ) { "sale_gate_rejection_requires_manual_review" }
     }
 
     private fun transition(session: WebPosSession, billId: String, stage: String) {
