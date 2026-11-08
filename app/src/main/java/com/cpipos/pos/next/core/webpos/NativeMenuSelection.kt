@@ -55,6 +55,22 @@ internal data class NativeMenuSelection(
     }
 }
 
+/**
+ * Recipe checkbox exclusions are explicit kitchen instructions only. They
+ * DO NOT change canonical product recipes, modifiers, prices or stock. Stock
+ * deltas must be configured via CpIPOS's server-owned modifier options.
+ */
+internal fun composeNativeRecipeKitchenNote(
+    config: NativeProductOptionConfig,
+    excludedIngredientIds: Set<String>,
+    manualNote: String
+): String {
+    require(excludedIngredientIds.all { id -> config.baseRecipe.any { it.id == id } })
+    return (config.baseRecipe.filter { it.id in excludedIngredientIds }
+        .map { "ไม่ใส่" + it.name } + listOf(manualNote.trim()).filter { it.isNotBlank() })
+        .joinToString(" | ")
+}
+
 /** Prevents merging different options or special and normal prices into one POS line. */
 internal fun consolidateNativeSelections(lines: List<NativeMenuSelection>): List<NativeMenuSelection> {
     val byKey = linkedMapOf<String, NativeMenuSelection>()

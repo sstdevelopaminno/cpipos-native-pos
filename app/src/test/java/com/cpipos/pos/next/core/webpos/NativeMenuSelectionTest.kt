@@ -22,6 +22,25 @@ class NativeMenuSelectionTest {
         assertEquals(2, cart.single { it.cartLineId == a.cartLineId }.quantity)
     }
 
+    @Test fun recipeExclusionsBecomeKitchenNoteWithoutMutatingRecipeDefinitions() {
+        val config = NativeProductOptionConfig(
+            "noodle", emptyList(),
+            listOf(
+                NativeRecipeIngredient("instant", "มาม่า", "gram", 1.0),
+                NativeRecipeIngredient("egg", "ไข่", "gram", 1.0)
+            )
+        )
+        val note = composeNativeRecipeKitchenNote(config, setOf("egg"), "ไม่เผ็ด")
+        assertEquals("ไม่ใส่ไข่ | ไม่เผ็ด", note)
+        assertEquals(2, config.baseRecipe.size)
+        val selection = NativeMenuSelection("noodle", 1, false, emptySet(), note)
+        assertEquals(note, selection.note)
+        assertNotEquals(
+            selection.cartLineId,
+            NativeMenuSelection("noodle", 1, false, emptySet(), "").cartLineId
+        )
+    }
+
     @Test fun missingConfiguredSpecialPriceCannotPriceLine() {
         val product = WebPosProduct("coffee", "Coffee", "", "Drinks", Satang.of(5000))
         val config = NativeProductOptionConfig("coffee", emptyList(), emptyList())

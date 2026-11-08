@@ -266,6 +266,14 @@ internal fun NativeDiningOrderScreen(
             error = "เลือกวัตถุดิบไม่ครบหรือราคาสินค้าเปลี่ยน"
             return
         }
+        if (!choice.useSpecialPrice && choice.selectedOptionIds.isEmpty() &&
+            choice.note.isBlank() && config.groups.isEmpty()) {
+            // Ordinary recipe sales must keep working through the existing
+            // POS table endpoint outside the atomic menu pilot.
+            draft.items[product.id] = (draft.items[product.id] ?: 0) + choice.quantity
+            editingProductId = null
+            return
+        }
         val key = choice.cartLineId
         draft.configuredSelections[key] = choice.copy(quantity = 1)
         draft.configuredPrices[key] = price.value
@@ -361,18 +369,31 @@ internal fun NativeDiningOrderScreen(
                 throw cancelled
             } catch (failure: Exception) {
                 val api = failure as? WebPosApiException
-                if (api != null && api.status in 400..499 &&
+                if (api?.code == "native_atomic_menu_release_gate_not_enabled" &&
+                    api.status == 503 &&
                     runCatching { mutationJournal.confirmed(session, table.id, requestId) }.isSuccess) {
+                    // This explicit release gate rejects BEFORE any order/stock
+                    // mutation. No sale was submitted, so do not mark the
+                    // customer's unsaved cart permanently uncertain.
                     draft.requestId = null
                     draft.pendingQuantities = emptyMap()
-                    stale = true
+                    draft.uncertain = false
+                    error = "ระบบส่วนกลางยังไม่ได้เปิดการขายแบบเลือกตัวเลือกสินค้า " +
+                        "รายการยังอยู่ในตะกร้า กรุณาแจ้งผู้ดูแลระบบ (ไม่ต้องส่งบิลซ้ำ)"
                 } else {
-                    // Network may have dropped after server committed. Never
-                    // resend a different request or change the original order.
-                    draft.uncertain = true
+                    if (api != null && api.status in 400..499 &&
+                        runCatching { mutationJournal.confirmed(session, table.id, requestId) }.isSuccess) {
+                        draft.requestId = null
+                        draft.pendingQuantities = emptyMap()
+                        stale = true
+                    } else {
+                        // Network may have dropped after server committed. Never
+                        // resend a different request or change the original order.
+                        draft.uncertain = true
+                    }
+                    error = "ผลการบันทึกบิลยังไม่แน่นอน โปรดตรวจบิลเดิม: " +
+                        (api?.code ?: "network_or_response_lost")
                 }
-                error = "ผลการบันทึกบิลยังไม่แน่นอน โปรดตรวจบิลเดิม: " +
-                    (api?.code ?: "network_or_response_lost")
             } finally {
                 feedback = "idle"
                 draft.busy = false
@@ -747,11 +768,9 @@ internal fun NativeDiningOrderScreen(
                                     if (optionsLoading) error = "กำลังโหลดตัวเลือกสินค้า"
                                     else if (optionsError || original == null || configured == null) {
                                         error = "โหลดตัวเลือกสินค้าจาก CpIPOS หลักไม่ได้"
-                                    } else if (configured.groups.isNotEmpty() ||
-                                        configured.baseRecipe.isNotEmpty() || original.specialPrice != null) {
-                                        editingProductId = product.id
                                     } else {
-                                        draft.items[product.id] = (draft.items[product.id] ?: 0) + 1
+                                        // Product card always opens one editable dialog.
+                                        editingProductId = product.id
                                     }
                                 }
                             })
@@ -853,7 +872,7 @@ internal fun NativeDiningOrderScreen(
             }
         },
         onRemove = {
-            if (!draft.uncertain && !draft.busy && !stale && !custom) {
+            if (!draft.uncertain && !draft.busy) {
                 val value = (draft.items[it] ?: 0) - 1
                 if (value <= 0) {
                     draft.items.remove(it)
@@ -863,7 +882,7 @@ internal fun NativeDiningOrderScreen(
             }
         },
         onDelete = { id ->
-            if (!draft.uncertain && !draft.busy && !stale && !custom) {
+            if (!draft.uncertain && !draft.busy) {
                 draft.items.remove(id)
                 draft.configuredSelections.remove(id)
                 draft.configuredPrices.remove(id)
