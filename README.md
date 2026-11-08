@@ -2,9 +2,9 @@
 
 Native Android POS application by **CUTTING POINT INNOVATION CO., LTD. / บริษัท คัตติ้ง พอยท์ อินโนเวชั่น จำกัด**.
 
-## Distribution and source of truth (27 October 2026)
+## Distribution and source of truth (verified 8 November 2026)
 
-- **Native Mobile Android 2.0.0**: a signed APK is published by the existing CpIPOS release authority in [CpIPOS Releases](https://github.com/sstdevelopaminno/CpIPOS/releases/tag/native-mobile-v2.0.0). Its pinned source revision is `09c095232c9b2082fde73728f2fb34647788f09d` from this repository. Android 8.0+ (API 26).
+- **Native Mobile Android 2.1.0**: latest confirmed signed Stable APK, published 5 November 2026 by the [CpIPOS release authority](https://github.com/sstdevelopaminno/CpIPOS/releases/tag/native-mobile-v2.1.0). It includes automatic verified Stable APK download and Android user-confirmed installer; Android 8.0+ (API 26). **This version does not include the 8 November kitchen/item-details fixes.**
 - **Android Tablet / legacy POS 1.0.25**: distributed separately from [CpIPOS Releases](https://github.com/sstdevelopaminno/CpIPOS/releases/tag/android-runtime-modern-1.0.25-print-health-auto-update). Do not confuse this with the Native Mobile APK.
 - [Company download center](https://www.cuttingpointinnovation.com/downloads) lists both Android variants; publish new URLs only after verifying the release assets and installer signatures.
 - **Development baseline:** `main`; use feature branches and CI to introduce changes. Older `feature/native-auth-phase1` is historical and is not the current release source.
@@ -43,3 +43,7 @@ A follow-up branch adds a per-product **รายละเอียด** action 
 
 **Known blockers:** Existing customized table bills remain locked against unsafe full-cart edits; raw recipe ingredient changes do not yet have a supported structured selection contract; physical KDS/printer evidence is pending. The central backend's `NATIVE_ATOMIC_MENU_SALES_ENABLED` release flag must be verified and approved before any customer rollout. The Native repo's separate signing workflow has missing secret configuration; use the central CpIPOS release authority for final signed builds.
 
+
+### Customer self-update (candidate, 8 November 2026)
+
+The next Native candidate adds **เพิ่มเติม → อัปเดตแอป CpiPOS** so an employee can explicitly check Stable releases, watch download status and start the Android installer only when there are no unresolved sales or local drafts. The automatic 6-hour Stable check remains available. Updates require the same package name and exact Android signing certificate; **never uninstall or clear app data**. Android must obtain user confirmation to install a sideloaded APK. Do not distribute this unreleased branch to customers.
