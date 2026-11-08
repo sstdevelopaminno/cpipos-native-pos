@@ -303,6 +303,11 @@ private fun MoreShiftManagementScreen(
     }
 
     LaunchedEffect(client, liveSession.id, days, selectedBranchId, refresh) {
+        if (isNativeStaff(liveSession.role)) {
+            snapshot = null
+            loading = false
+            return@LaunchedEffect
+        }
         loading = true
         try {
             snapshot = client.shiftHistory(
@@ -434,6 +439,7 @@ private fun MoreShiftManagementScreen(
             item { ErrorBlock(error.orEmpty()) }
         }
 
+        if (!isNativeStaff(liveSession.role)) {
         item {
             Surface(
                 color = Color.White,
@@ -554,9 +560,10 @@ private fun MoreShiftManagementScreen(
                 }
             }
         }
+        }
     }
 
-    if (filterDialog) {
+    if (filterDialog && !isNativeStaff(liveSession.role)) {
         AlertDialog(
             onDismissRequest = {
                 branchMenuOpen = false
@@ -675,7 +682,7 @@ private fun MoreShiftManagementScreen(
         )
     }
 
-    if (summaryDialog) {
+    if (summaryDialog && !isNativeStaff(liveSession.role)) {
         AlertDialog(
             onDismissRequest = { summaryDialog = false },
             title = { Text("สรุปกะ", fontWeight = FontWeight.ExtraBold) },
