@@ -103,6 +103,7 @@ internal fun NativeDiningOrderScreen(
     var optionsLoading by remember(session.id) { mutableStateOf(true) }
     var optionsError by remember(session.id) { mutableStateOf(false) }
     var editingProductId by remember(session.id, table.id) { mutableStateOf<String?>(null) }
+    var pendingKitchenOrderId by remember(session.id, table.id) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(client, session.id, products) {
         optionsLoading = true
@@ -347,6 +348,7 @@ internal fun NativeDiningOrderScreen(
                 draft.uncertain = false
                 stale = false
                 feedback = "idle"
+                pendingKitchenOrderId = if (kitchenWarning == null) null else verified.orderId
                 error = kitchenWarning
                 if (thenCheckout) showMethods = true else if (kitchenWarning == null) onTables()
             } catch (cancelled: CancellationException) {
@@ -647,8 +649,10 @@ internal fun NativeDiningOrderScreen(
                         count = combinedCount
                     ) { cartOpen = true }
                 }
-                if (error != null || custom || draft.uncertain || stale) {
-                    Text(error ?: if (custom)
+                if (error != null || custom || draft.uncertain || stale || pendingKitchenOrderId != null) {
+                    Text(error ?: if (pendingKitchenOrderId != null)
+                        "บันทึกบิลแล้ว แต่ยังไม่ยืนยันว่ารายการไปถึงห้องครัว"
+                    else if (custom)
                         "รายการพิเศษ/ราคาไม่ตรง กรุณาแก้บิลนี้ใน POS Web"
                     else "บิลถูกเปลี่ยนแปลง ต้องรีเฟรช", color = Color(0xFFAE454A),
                         fontSize = 12.sp)
@@ -659,6 +663,24 @@ internal fun NativeDiningOrderScreen(
                             else scope.launch { loading = true; refresh(true) }
                         }
                     ) { Text(if (draft.uncertain) "ตรวจบิลเดิม" else "รีเฟรชบิล", fontSize = 12.sp) }
+                    pendingKitchenOrderId?.let { pendingId ->
+                        OutlinedButton(
+                            enabled = !draft.busy && !draft.uncertain &&
+                                bill?.orderId == pendingId && bill?.paid != true,
+                            onClick = {
+                                draft.busy = true
+                                scope.launch {
+                                    try {
+                                        val warning = client.ensureDiningKitchenDispatch(session, pendingId)
+                                        pendingKitchenOrderId = if (warning == null) null else pendingId
+                                        error = warning
+                                    } catch (failure: Exception) {
+                                        error = "ยังยืนยันการส่งครัวไม่ได้ ตรวจบิลใน CpIPOS หลักก่อนส่งซ้ำ"
+                                    } finally { draft.busy = false }
+                                }
+                            }
+                        ) { Text("ตรวจและส่งครัวอีกครั้ง", fontSize = 12.sp) }
+                    }
                 }
                 OutlinedTextField(
                     value = search, onValueChange = { search = it }, singleLine = true,
