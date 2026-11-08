@@ -67,6 +67,7 @@ internal fun NativeSalesListScreen(
     selectedBottomTab: String = "report"
 ) {
     val context = LocalContext.current
+    val canModifyBills = nativeCanModifyBills(session.role)
     val deleteJournal = remember(context.applicationContext) {
         SalesDeleteJournal(context.applicationContext)
     }
@@ -278,7 +279,7 @@ internal fun NativeSalesListScreen(
                                                 .pointerInput(record.orderId) {
                                                     detectHorizontalDragGestures(
                                                         onDragEnd = {
-                                                            if (drag < -50f) visibleDeleteId = record.orderId
+                                                            if (canModifyBills && drag < -50f) visibleDeleteId = record.orderId
                                                             if (drag > 50f) visibleDeleteId = null
                                                             drag = 0f
                                                         },
@@ -311,7 +312,7 @@ internal fun NativeSalesListScreen(
                                             SalesCell("฿" + salesMoneyText(record.receipt.total.value),
                                                 .95f, false, true)
                                         }
-                                        if (isOpen) {
+                                        if (isOpen && canModifyBills) {
                                             TextButton(
                                                 onClick = {
                                                     visibleDeleteId = null
@@ -392,7 +393,7 @@ internal fun NativeSalesListScreen(
             TextButton(onClick = { rangeDialog = false }) { Text("ยกเลิก") }
         }
     )
-    deleteTarget?.let { row ->
+    deleteTarget?.takeIf { canModifyBills }?.let { row ->
         NativeCancelBillPinDialog(
             title = "ลบบิล ${row.orderNo}",
             busy = deleteBusy,
