@@ -232,9 +232,11 @@ internal fun NativeDiningOrderScreen(
     }
     val combinedCount = combinedCart.values.sum()
     val gross = diningDiscountBase(existing, subtotal)
-    val targetDiscount = draft.discount?.amount(gross)
+    val canChangeExistingDiscount = !isNativeStaff(session.role) || existing?.orderId == null
+    val targetDiscount = if (canChangeExistingDiscount) draft.discount?.amount(gross)
         ?: (existing?.discount?.value ?: 0L)
-    val discountChanged = draft.discount != null &&
+    else existing.discount.value
+    val discountChanged = canChangeExistingDiscount && draft.discount != null &&
         targetDiscount != (existing?.discount?.value ?: 0L)
     val discountValid = targetDiscount >= 0L && targetDiscount < gross
     val combinedTotal = (gross - targetDiscount).coerceAtLeast(0L)
@@ -436,6 +438,7 @@ internal fun NativeDiningOrderScreen(
     }
 
     fun cancelBillWithPin(pin: String) {
+        if (!nativeCanModifyBills(session.role)) return
         val base = bill ?: return
         if (draft.busy || draft.uncertain || !base.editable || base.paid ||
             base.sessionId == null ||
@@ -609,7 +612,7 @@ internal fun NativeDiningOrderScreen(
                     DiningTopAction(R.drawable.ic_nav_qr_table, "QR โต๊ะ", !draft.busy) {
                         showTableQr = true
                     }
-                    DiningTopAction(R.drawable.ic_nav_move_table, "ย้ายโต๊ะ",
+                    if (nativeCanModifyBills(session.role)) DiningTopAction(R.drawable.ic_nav_move_table, "ย้ายโต๊ะ",
                         !draft.busy && session.canManageTables) {
                         showMoveTable = true
                     }
@@ -806,7 +809,7 @@ internal fun NativeDiningOrderScreen(
         PaymentFeedbackOverlay(feedback)
         return
     }
-    if (showDiscount) NativeDiscountDialog(
+    if (showDiscount && canChangeExistingDiscount) NativeDiscountDialog(
         subtotal = gross,
         current = draft.discount ?: PosDiscount(
             "amount", existing?.discount?.bahtText().orEmpty()
@@ -866,7 +869,8 @@ internal fun NativeDiningOrderScreen(
         },
         onCancelBill = {
             cartOpen = false
-            if (bill?.sessionId != null && bill?.editable == true &&
+            if (nativeCanModifyBills(session.role) &&
+                bill?.sessionId != null && bill?.editable == true &&
                 !draft.busy && !draft.uncertain &&
                 (if (bill?.orderId != null) session.canSell else session.canManageTables)) {
                 cancelPinError = null
@@ -882,7 +886,7 @@ internal fun NativeDiningOrderScreen(
                 else showMethods = true
             }
         },
-        onFeatureClick = { if (it == "ส่วนลด") showDiscount = true },
+        onFeatureClick = { if (it == "ส่วนลด" && canChangeExistingDiscount) showDiscount = true },
         onHoldBill = {
             cartOpen = false
             if (canSubmit) save(thenCheckout = false)
@@ -894,7 +898,7 @@ internal fun NativeDiningOrderScreen(
         checkoutEnabled = canCheckout,
         lockedQuantities = storedQuantities
     )
-    if (showCancelPin) NativeCancelBillPinDialog(
+    if (showCancelPin && nativeCanModifyBills(session.role)) NativeCancelBillPinDialog(
         title = "ยกเลิกบิลโต๊ะ " + table.name,
         busy = draft.busy,
         error = cancelPinError,
@@ -906,7 +910,7 @@ internal fun NativeDiningOrderScreen(
         },
         onApprove = { pin -> cancelBillWithPin(pin) }
     )
-    if (showMoveTable) {
+    if (showMoveTable && nativeCanModifyBills(session.role)) {
         NativeTableMoveDialog(
             client = client,
             session = session,
