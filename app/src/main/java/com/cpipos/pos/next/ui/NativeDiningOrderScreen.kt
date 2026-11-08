@@ -293,7 +293,7 @@ internal fun NativeDiningOrderScreen(
         error = null
         scope.launch {
             try {
-                if (draft.configuredSelections.isNotEmpty()) {
+                val savedOrderId = if (draft.configuredSelections.isNotEmpty()) {
                     // Variant lines retain configured prices and option IDs;
                     // ordinary lines are still validated against server catalog.
                     val existingLines = initial.lines.map { row ->
@@ -325,10 +325,17 @@ internal fun NativeDiningOrderScreen(
                 val verified = client.diningBill(session, table.id)
                 if (billQuantities(verified) != desired ||
                     verified.discount.value != requestedDiscount ||
-                    verified.orderId.isNullOrBlank())
+                    verified.orderId.isNullOrBlank() || verified.orderId != savedOrderId)
                     throw IllegalStateException("table_order_acknowledgement_not_confirmed")
                 mutationJournal.confirmed(session, table.id, requestId)
                 bill = verified
+                // Kitchen dispatch failure is independent of the committed sale.
+                // Never resubmit the bill or claim that the sale failed if KDS is offline.
+                val kitchenWarning = try {
+                    client.ensureDiningKitchenDispatch(session, requireNotNull(verified.orderId))
+                } catch (failure: Exception) {
+                    "บันทึกบิลโต๊ะแล้ว แต่ยืนยันการส่งครัวไม่ได้ กรุณาตรวจครัวใน CpIPOS หลัก"
+                }
                 // Items are saved, but the table has NOT been paid.
                 // Show the green success check only after actual settlement.
                 draft.items.clear()
@@ -340,7 +347,8 @@ internal fun NativeDiningOrderScreen(
                 draft.uncertain = false
                 stale = false
                 feedback = "idle"
-                if (thenCheckout) showMethods = true else onTables()
+                error = kitchenWarning
+                if (thenCheckout) showMethods = true else if (kitchenWarning == null) onTables()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
