@@ -6,6 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiningLineMetadataTest {
+    @Test fun historicalCancelledItemsStayOutOfTheCurrentMobileBill() {
+        val source = java.io.File("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt").readText()
+        assertTrue(source.contains("val lines = (0 until rows.length()).mapNotNull"))
+        assertTrue(source.contains("row.optInt(\"quantity\", 0) <= 0"))
+        assertTrue(source.contains("details?.optString(\"bill_line_state\") == \"cancelled\""))
+    }
+
     @Test fun plainLinesWithCentralPosBookkeepingAreEditable() {
         assertFalse(hasDiningCustomMetadata(null))
         assertFalse(hasDiningCustomMetadata(JSONObject()))
