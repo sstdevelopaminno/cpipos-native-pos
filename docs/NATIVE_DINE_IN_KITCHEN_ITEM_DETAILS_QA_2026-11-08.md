@@ -54,5 +54,11 @@ Status: **code proposed; not physical-device accepted; no new customer APK publi
 - [ ] Dine-in new/add/notes to kitchen receipt KDS physically observed
 - [ ] All Issue #20 acceptance evidence collected
 - [ ] All Issue #30 contracts supported with no silent omission
+- [ ] Customer updater tested from signed Stable 2.1.0 to a strictly higher versionCode on a physical handset without uninstall/data loss
+- [ ] Manual update from More safely blocks unresolved sales/unsaved cart drafts and requires Android installer confirmation
 - [ ] Stable signing cert, APK SHA-256, package, versionCode verified
 - [ ] Owner approval, central signed release workflow, website link update
+
+## Update distribution (confirmed 8 Nov)
+
+Existing production Stable is **2.1.0** (5 Nov), published at `sstdevelopaminno/CpIPOS` Releases. Customer update handling already exists in the signed 2.1.0 source: verify server Stable manifest, checksum, exact signing certificate, package/version and prompt Android's installer. This pending branch adds the manual check/update center, conservative safe-to-install guard and a serialized download check. No newer Stable APK has been published as part of this work.
