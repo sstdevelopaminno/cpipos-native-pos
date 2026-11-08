@@ -62,3 +62,17 @@ Status: **code proposed; not physical-device accepted; no new customer APK publi
 ## Update distribution (confirmed 8 Nov)
 
 Existing production Stable is **2.1.0** (5 Nov), published at `sstdevelopaminno/CpIPOS` Releases. Customer update handling already exists in the signed 2.1.0 source: verify server Stable manifest, checksum, exact signing certificate, package/version and prompt Android's installer. This pending branch adds the manual check/update center, conservative safe-to-install guard and a serialized download check. No newer Stable APK has been published as part of this work.
+
+
+## Employee role and product photos (added 2026-11-08)
+
+- [ ] Manager/owner adds product from Android with camera photo; verify returned catalog UUID, optimized image, thumbnail, media quota and cross-client display in CpIPOS Web and Android.
+- [ ] Manager/owner edits a product and replaces its photo; verify same product ID and that failed upload never duplicates product or overwrites sale prices.
+- [ ] Android gallery picker handles denied/invalid content, rotated JPEG, PNG and photo capture with no camera permission. Check small-screen photo preview and no storage permissions beyond the Android file picker.
+- [ ] Staff/employee login shows only **เปิด/ปิดกะ** in More; no sales summary, receipts history, table management, product sales, billing, update or other More menus.
+- [ ] Staff/employee main navigation hides **รายงาน** and **ตั้งค่า**; callback/deep route guards also reject the screens. Stock catalog remains read-only unless backend grants management rights (which it currently reserves for owner/manager).
+- [ ] Staff cannot edit/delete/void historical bills, swipe to delete or open the manager PIN approval dialog. Test backend `/api/pos/sales-list` PATCH/DELETE returns forbidden for staff even when they know an approval/PIN.
+- [ ] Manager and owner retain menus and bill operations subject to existing POS permissions and subscription features.
+- [ ] Staff still can open/close assigned shift, sell, take dine-in orders and view kitchen events as authorized. Staff may receive a safe automatic APK update prompt, but the manual More update menu is hidden.
+
+These product-photo and employee restriction patches are **not** in Stable Native 2.1.0.
