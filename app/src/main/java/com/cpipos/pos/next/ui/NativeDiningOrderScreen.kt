@@ -233,9 +233,11 @@ internal fun NativeDiningOrderScreen(
     val combinedCount = combinedCart.values.sum()
     val gross = diningDiscountBase(existing, subtotal)
     val canChangeExistingDiscount = !isNativeStaff(session.role) || existing?.orderId == null
-    val targetDiscount = if (canChangeExistingDiscount) draft.discount?.amount(gross)
-        ?: (existing?.discount?.value ?: 0L)
-    else existing.discount.value
+    val targetDiscount = if (canChangeExistingDiscount) {
+        draft.discount?.amount(gross) ?: (existing?.discount?.value ?: 0L)
+    } else {
+        existing?.discount?.value ?: 0L
+    }
     val discountChanged = canChangeExistingDiscount && draft.discount != null &&
         targetDiscount != (existing?.discount?.value ?: 0L)
     val discountValid = targetDiscount >= 0L && targetDiscount < gross
