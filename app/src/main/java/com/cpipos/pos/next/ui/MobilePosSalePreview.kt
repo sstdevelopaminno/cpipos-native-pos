@@ -987,10 +987,11 @@ internal fun MobilePosSalePreview(
                                         if (optionsLoading) notice = "กำลังโหลดตัวเลือกสินค้า"
                                         else if (optionLoadError || config == null || canonical == null) {
                                             notice = "ตรวจสอบตัวเลือกสินค้าจาก CpIPOS หลักไม่ได้ กรุณาลองอีกครั้ง"
-                                        } else if (config.groups.isNotEmpty() ||
-                                            config.baseRecipe.isNotEmpty() || canonical.specialPrice != null) {
+                                        } else {
+                                            // One consistent product-card interaction: configure
+                                            // quantity, price and kitchen notes in the same dialog.
                                             editingProductId = product.id
-                                        } else add(product.id)
+                                        }
                                     }
                                 }
                             )
@@ -1614,15 +1615,7 @@ internal fun DemoProductCard(
                     markerFontSize = 48.sp,
                     modifier = Modifier.fillMaxSize()
                 )
-                onDetails?.let { showDetails ->
-                    TextButton(
-                        onClick = showDetails,
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp)
-                            .background(Color.White.copy(alpha = 0.94f), RoundedCornerShape(12.dp))
-                    ) {
-                        Text("รายละเอียด", fontSize = 11.sp, color = saleBlue)
-                    }
-                }
+                // The whole card opens the product editor; no overlaid details chip.
                 if (quantity > 0) {
                     Box(
                         modifier = Modifier
