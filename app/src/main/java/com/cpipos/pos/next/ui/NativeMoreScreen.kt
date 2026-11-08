@@ -99,12 +99,21 @@ internal fun NativeMoreScreen(
     onTab: (String) -> Unit,
     onSessionChanged: (WebPosSession) -> Unit = {},
     entitlements: WebPosEntitlements? = null,
-    initialPage: String = "hub"
+    initialPage: String = "hub",
+    allowApkInstall: Boolean = false
 ) {
     var page by remember(session.id, initialPage) { mutableStateOf(initialPage) }
     var packageLockTarget by remember(session.id) { mutableStateOf<String?>(null) }
 
     when (page) {
+        "updates" -> {
+            NativeManualUpdateScreen(
+                allowInstall = allowApkInstall,
+                onBack = { page = "hub" },
+                onTab = onTab
+            )
+            return
+        }
         "shift" -> {
             MoreShiftManagementScreen(
                 client = client,
@@ -164,7 +173,8 @@ internal fun NativeMoreScreen(
         MoreMenu("best", R.drawable.ic_nav_stock, nativeUiText("more.best","สินค้าขายดี"), "อันดับสินค้าขายดีจากข้อมูลสรุปยอดขาย CpIPOS", "advanced_sales_reports", "more.sales_summary", "/preview/pos/sales-summary"),
         MoreMenu("members", R.drawable.ic_store_front, nativeUiText("more.members","สมาชิก"), "ข้อมูลสมาชิก คะแนน และแต้มสะสม", "core_pos_sales", "more.members"),
         MoreMenu("tax", R.drawable.ic_pos_terminal, nativeUiText("more.tax","ออกใบกำกับภาษี"), "บิลที่ชำระแล้วและสถานะใบกำกับภาษี", "core_pos_sales", "more.tax_invoices"),
-        MoreMenu("billing", R.drawable.ic_package_payment, nativeUiText("more.billing","ชำระแพ็กเกจ"), "ดูแพ็กเกจ ต่ออายุ แจ้งชำระด้วยสลิป และติดตามสถานะจาก CpIPOS / IT", null, "more.subscription_billing")
+        MoreMenu("billing", R.drawable.ic_package_payment, nativeUiText("more.billing","ชำระแพ็กเกจ"), "ดูแพ็กเกจ ต่ออายุ แจ้งชำระด้วยสลิป และติดตามสถานะจาก CpIPOS / IT", null, "more.subscription_billing"),
+        MoreMenu("updates", R.drawable.ic_package_payment, "อัปเดตแอป CpiPOS", "ตรวจสอบ APK รุ่นล่าสุดและกดยืนยันติดตั้งผ่าน Android ด้วยตนเอง", null, "more.updates")
     )
     Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F9FF)) {
         Column(Modifier.fillMaxSize()) {
@@ -184,7 +194,7 @@ internal fun NativeMoreScreen(
                 items(menus, key = { it.key }) { menu ->
                     // Billing must stay reachable even when a package/menu entitlement
                     // is locked, otherwise a customer could be blocked from renewing service.
-                    val allowed = if (menu.key == "billing") true else entitlements?.allows(
+                    val allowed = if (menu.key == "billing" || menu.key == "updates") true else entitlements?.allows(
                         featureCode = menu.featureCode,
                         menuKey = menu.menuKey,
                         parentMenuKey = if (menu.menuKey.startsWith("more.")) "main.more" else null,
