@@ -377,6 +377,7 @@ internal fun NativeDiningTableScreen(
     }
     if (managePinOpen) NativeCancelBillPinDialog(
         title = "ยืนยัน PIN เพื่อยกเลิกบิล",
+        autoSubmit = true,
         busy = working,
         error = managementError,
         onDismiss = {

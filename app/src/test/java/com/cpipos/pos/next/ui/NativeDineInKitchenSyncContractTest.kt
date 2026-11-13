@@ -14,15 +14,18 @@ class NativeDineInKitchenSyncContractTest {
     private fun sheet() = File("src/main/java/com/cpipos/pos/next/ui/MobilePosSalePreview.kt").readText()
     private fun client() = File("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt").readText()
 
-    @Test fun dineInCartExplainsThatItemsMustBeCommittedBeforeOtherDevicesCanReadThem() {
+    @Test fun dineInCartRequiresExplicitSaveBeforeKitchenDispatch() {
         val screen = screen()
         val sheet = sheet()
-        assertTrue(screen.contains("ยังไม่ส่งไป POS หลักหรือห้องครัว"))
-        assertTrue(screen.contains("holdLabel = if (count > 0) \"บันทึก/ส่งครัว\""))
+        assertFalse(screen.contains("ยังไม่ส่งไป POS หลักหรือห้องครัว"))
+        assertTrue(screen.contains("menu.cart_prompt"))
+        assertTrue(screen.contains("pendingCartProductName = original.name"))
         assertTrue(screen.contains("onHoldBill = {"))
         assertTrue(screen.contains("if (canSubmit) save(thenCheckout = false)"))
+        assertTrue(screen.contains("emphasizeHoldBill = count > 0"))
+        assertTrue(screen.contains("holdEnabled = canSubmit"))
         assertTrue(sheet.contains("holdLabel: String = \"พักบิล\""))
-        assertTrue(sheet.contains("title = if (onHoldBill != null) holdLabel"))
+        assertTrue(sheet.contains("if (emphasizeHoldBill && onHoldBill != null)"))
     }
 
     @Test fun saveConfirmsCentralBillThenKitchenWithoutResubmittingTheOrder() {

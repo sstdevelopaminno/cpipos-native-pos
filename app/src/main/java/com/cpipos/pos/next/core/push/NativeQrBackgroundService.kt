@@ -63,6 +63,10 @@ class NativeQrBackgroundService : Service() {
         var session = runCatching { client.synchronizedShiftSession() }.getOrNull()
         var sessionRefreshAt = System.currentTimeMillis()
         var policyRefreshAt = 0L
+        var newsRefreshAt = 0L
+        // FCM delivers news promptly. Keep polling as a recovery path without
+        // sending one news request every 30 seconds from every device.
+        val newsRefreshIntervalMs = if (NativeFcmRegistration.hasFirebase(this)) 600_000L else 60_000L
         var delayMs = 4_000L
 
         while (scope.isActive) {
@@ -100,6 +104,13 @@ class NativeQrBackgroundService : Service() {
                 if (policy == null || (policy && NativeAndroidDeveloperGuard.inspect(this).detected)) {
                     delay(5_000L)
                     continue
+                }
+                if (System.currentTimeMillis() - newsRefreshAt >= newsRefreshIntervalMs) {
+                    newsRefreshAt = System.currentTimeMillis()
+                    try {
+                        NativeNewsNotificationPublisher.publishFeed(this, active, client.news(active))
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { /* QR alerts remain independent of news. */ }
                 }
                 val key = "cursor:" + active.tenantId + ":" + active.branchId + ":" + active.deviceCode
                 var cursor = prefs.getString(key, null)

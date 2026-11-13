@@ -434,11 +434,12 @@ internal fun LiveShiftScreen(
     busy: Boolean,
     error: String?,
     onOpen: (Satang) -> Unit,
+    onRetry: () -> Unit,
     onBrowseWithoutShift: () -> Unit,
     onBack: () -> Unit
 ) {
     var enteringFloat by remember(session.id) { mutableStateOf(false) }
-    var openingCash by remember(session.id) { mutableStateOf("0") }
+    var openingCash by remember(session.id) { mutableStateOf("") }
     val validInput = openingCash.matches(Regex("\\d{1,7}(\\.\\d{1,2})?"))
     val amount = if (validInput) runCatching { Satang.fromBaht(openingCash) }.getOrNull() else null
     val canSubmit = amount != null && amount >= Satang.ZERO
@@ -456,7 +457,12 @@ internal fun LiveShiftScreen(
             color = Color(0xFF627791), fontSize = 12.sp
         )
         Spacer(modifier = Modifier.height(15.dp))
-        if (!enteringFloat) {
+        if (session.shiftId != null) {
+            Text("กะขายเปิดอยู่แล้ว โหลดข้อมูลสินค้าอีกครั้งเพื่อเข้าหน้าขาย",
+                color = Color(0xFF627791), fontSize = 12.sp)
+            Spacer(modifier = Modifier.height(13.dp))
+            LiveAction("โหลดสินค้าและเข้าหน้าขาย", enabled = !busy, onClick = onRetry)
+        } else if (!enteringFloat) {
             Text(
                 "กะขายเชื่อมกับ CpIPOS หลักของสาขาและเครื่องขายเดียวกัน " +
                     "เปิดหรือปิดกะบนฝั่งใด อีกฝั่งจะใช้สถานะเดียวกัน",

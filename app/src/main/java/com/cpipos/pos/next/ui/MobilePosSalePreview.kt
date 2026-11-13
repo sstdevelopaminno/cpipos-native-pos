@@ -1282,6 +1282,7 @@ internal fun MobilePosSalePreview(
         nativeCanModifyBills(liveSession.role)) {
         NativeCancelBillPinDialog(
             title = "อนุมัติยกเลิกบิลกลับบ้าน",
+            autoSubmit = true,
             busy = saving,
             error = saveError,
             onDismiss = { if (!saving) { showCancelBillConfirm = false; showCart = true } },
@@ -1744,7 +1745,9 @@ internal fun PreviewCartBottomSheet(
     discountAmount: Long = 0L,
     onHoldBill: (() -> Unit)? = null,
     holdLabel: String = "พักบิล",
-    cartHint: String? = null
+    cartHint: String? = null,
+    emphasizeHoldBill: Boolean = false,
+    holdEnabled: Boolean = true
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -1956,30 +1959,52 @@ internal fun PreviewCartBottomSheet(
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                if (!tableMode || onHoldBill != null) CartSecondaryButton(
-                    title = if (onHoldBill != null) holdLabel else "พิมพ์บิล",
-                    modifier = Modifier.weight(1f),
-                    onClick = { if (onHoldBill != null) onHoldBill() else onFeatureClick("พิมพ์บิล") }
-                )
-                if (allowCancelBill) CartSecondaryButton(
-                    title = "ยกเลิกบิล",
-                    modifier = Modifier.weight(1f),
-                    onClick = onCancelBill,
-                    destructive = true
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            Button(
-                onClick = onCheckout,
-                enabled = quantity > 0 && checkoutEnabled,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                shape = RoundedCornerShape(17.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = saleBlue)
-            ) {
-                Text("▣  " + checkoutLabel, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+            if (emphasizeHoldBill && onHoldBill != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    if (allowCancelBill) CartSecondaryButton(
+                        title = "ยกเลิกบิล", modifier = Modifier.weight(1f),
+                        onClick = onCancelBill, destructive = true
+                    )
+                    OutlinedButton(
+                        onClick = onCheckout,
+                        enabled = quantity > 0 && checkoutEnabled,
+                        modifier = Modifier.weight(1f).height(47.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, Color(0xFFB9D7FA))
+                    ) { Text(checkoutLabel, color = saleBlue, fontWeight = FontWeight.SemiBold) }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Button(
+                    onClick = onHoldBill,
+                    enabled = holdEnabled,
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    shape = RoundedCornerShape(17.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = saleBlue)
+                ) { Text(holdLabel, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    if (!tableMode || onHoldBill != null) CartSecondaryButton(
+                        title = if (onHoldBill != null) holdLabel else "พิมพ์บิล",
+                        modifier = Modifier.weight(1f),
+                        onClick = { if (onHoldBill != null) onHoldBill() else onFeatureClick("พิมพ์บิล") }
+                    )
+                    if (allowCancelBill) CartSecondaryButton(
+                        title = "ยกเลิกบิล",
+                        modifier = Modifier.weight(1f),
+                        onClick = onCancelBill,
+                        destructive = true
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Button(
+                    onClick = onCheckout,
+                    enabled = quantity > 0 && checkoutEnabled,
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    shape = RoundedCornerShape(17.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = saleBlue)
+                ) {
+                    Text("▣  " + checkoutLabel, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                }
             }
             Spacer(modifier = Modifier.height(12.dp))
         }

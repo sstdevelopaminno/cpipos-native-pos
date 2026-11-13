@@ -94,7 +94,7 @@ internal fun NativeSettingsHubScreen(
             return
         }
         "language" -> {
-            NativeLanguageSettingsScreen(session, { page = "hub" }, ::routeBottom)
+            NativeLanguageSettingsScreen(client, session, { page = "hub" }, ::routeBottom)
             return
         }
         "order_kitchen" -> {
@@ -138,7 +138,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "🏪",
                     title = nativeUiText("settings.store","ตั้งชื่อร้านค้า / บริษัท"),
-                    subtitle = "ชื่อร้าน โลโก้ ที่อยู่ และเบอร์ติดต่อ · ใช้ร่วมกับ CpIPOS และใบเสร็จ",
+                    subtitle = nativeUiText("settings.store.subtitle","ชื่อร้าน โลโก้ ที่อยู่ และเบอร์ติดต่อ · ใช้ร่วมกับ CpIPOS และใบเสร็จ"),
                     locked = !storeAllowed,
                     onClick = {
                         if (storeAllowed) page = "store"
@@ -150,7 +150,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "🏬",
                     title = nativeUiText("settings.branches","เพิ่มสาขา"),
-                    subtitle = "เพิ่ม แก้ไข และปิดใช้งานสาขา · ใช้ข้อมูลชุดเดียวกับ CpIPOS",
+                    subtitle = nativeUiText("settings.branches.subtitle","เพิ่ม แก้ไข และปิดใช้งานสาขา · ใช้ข้อมูลชุดเดียวกับ CpIPOS"),
                     locked = !branchesAllowed,
                     onClick = { if (branchesAllowed) page = "branches" else packageLockTarget = "เพิ่มสาขา" }
                 )
@@ -159,7 +159,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "🧾",
                     title = nativeUiText("settings.devices","เพิ่มเครื่องแคชเชียร์"),
-                    subtitle = "ผูกเครื่อง POS กับสาขา รหัสเครื่อง Counter สถานะ และนโยบายล็อกอิน",
+                    subtitle = nativeUiText("settings.devices.subtitle","ผูกเครื่อง POS กับสาขา รหัสเครื่อง Counter สถานะ และนโยบายล็อกอิน"),
                     locked = !devicesAllowed,
                     onClick = { if (devicesAllowed) page = "devices" else packageLockTarget = "เพิ่มเครื่องแคชเชียร์" }
                 )
@@ -168,7 +168,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "👥",
                     title = nativeUiText("settings.users","ผู้ใช้งาน POS"),
-                    subtitle = "พนักงาน บทบาท รหัสพนักงาน PIN Permission Role และขอบเขตเครื่อง",
+                    subtitle = nativeUiText("settings.users.subtitle","พนักงาน บทบาท รหัสพนักงาน PIN Permission Role และขอบเขตเครื่อง"),
                     locked = !usersAllowed,
                     onClick = { if (usersAllowed) page = "users" else packageLockTarget = "ผู้ใช้งาน POS" }
                 )
@@ -179,7 +179,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "▦",
                     title = nativeUiText("settings.table_qr","ตั้งค่า QR โต๊ะ"),
-                    subtitle = "กำหนดอายุ QR แบบตามเวลา/ชั่วโมง หรือใช้งานจนปิดบิล",
+                    subtitle = nativeUiText("settings.table_qr.subtitle","กำหนดอายุ QR แบบตามเวลา/ชั่วโมง หรือใช้งานจนปิดบิล"),
                     locked = !tableQrAllowed,
                     onClick = { if (tableQrAllowed) page = "table_qr" else packageLockTarget = "ตั้งค่า QR โต๊ะ" }
                 )
@@ -188,7 +188,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "％",
                     title = nativeUiText("settings.taxes","ตั้งค่าภาษี"),
-                    subtitle = "VAT และภาษีหัก ณ ที่จ่าย · คำนวณจากยอดหลังส่วนลดเหมือน CpIPOS",
+                    subtitle = nativeUiText("settings.taxes.subtitle","VAT และภาษีหัก ณ ที่จ่าย · คำนวณจากยอดหลังส่วนลดเหมือน CpIPOS"),
                     locked = !taxesAllowed,
                     onClick = { if (taxesAllowed) page = "taxes" else packageLockTarget = "ตั้งค่าภาษี" }
                 )
@@ -197,7 +197,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "🌐",
                     title = nativeUiText("settings.language","เปลี่ยนภาษา"),
-                    subtitle = "ไทย / English / ລາວ ตามตัวเลือกของ CpIPOS",
+                    subtitle = nativeUiText("settings.language.subtitle","ไทย / English / ລາວ ตามตัวเลือกของ CpIPOS"),
                     locked = !languageAllowed,
                     onClick = { if (languageAllowed) page = "language" else packageLockTarget = "เปลี่ยนภาษา" }
                 )
@@ -208,7 +208,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "🍳",
                     title = nativeUiText("settings.order_kitchen","การแจ้งเตือนออเดอร์และครัว"),
-                    subtitle = "POP UP, ส่งเข้าครัวอัตโนมัติ และพิมพ์ครัวอัตโนมัติ พร้อม IT override",
+                    subtitle = nativeUiText("settings.order_kitchen.subtitle","POP UP, ส่งเข้าครัวอัตโนมัติ และพิมพ์ครัวอัตโนมัติ พร้อม IT override"),
                     locked = !orderKitchenAllowed,
                     onClick = { if (orderKitchenAllowed) page = "order_kitchen" else packageLockTarget = "การแจ้งเตือนออเดอร์และครัว" }
                 )
@@ -217,7 +217,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "🎧",
                     title = nativeUiText("settings.support","ศูนย์ช่วยเหลือ"),
-                    subtitle = "CpIPOS Support Center · LINE และช่องทางติดต่อบริษัท",
+                    subtitle = nativeUiText("settings.support.subtitle","CpIPOS Support Center · LINE และช่องทางติดต่อบริษัท"),
                     locked = !supportAllowed,
                     onClick = { if (supportAllowed) page = "support" else packageLockTarget = "ศูนย์ช่วยเหลือ" }
                 )
@@ -226,7 +226,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "🔔",
                     title = nativeUiText("settings.notifications","ตั้งค่าการแจ้งเตือน"),
-                    subtitle = "POP UP, เสียง, ระดับเสียง และสถานะ Android Notification",
+                    subtitle = nativeUiText("settings.notifications.subtitle","POP UP, เสียง, ระดับเสียง และสถานะ Android Notification"),
                     locked = !notificationsAllowed,
                     onClick = {
                         if (notificationsAllowed) page = "notifications"
@@ -238,7 +238,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "💳",
                     title = nativeUiText("settings.payments","ตั้งค่าชำระเงิน"),
-                    subtitle = "บัญชีรับโอน PromptPay และ QR · ใช้ร่วมกับ CpIPOS และหน้าชำระเงิน",
+                    subtitle = nativeUiText("settings.payments.subtitle","บัญชีรับโอน PromptPay และ QR · ใช้ร่วมกับ CpIPOS และหน้าชำระเงิน"),
                     locked = !paymentsAllowed,
                     onClick = {
                         if (paymentsAllowed) page = "payments"
@@ -250,7 +250,7 @@ internal fun NativeSettingsHubScreen(
                 SettingsHubCard(
                     icon = "🖨️",
                     title = nativeUiText("settings.printers","ตั้งค่า เครื่องปริ้นใบเสร็จ"),
-                    subtitle = "ค้นหาและเชื่อมต่อ LAN / USB / Bluetooth พร้อมกำหนดเส้นทางพิมพ์",
+                    subtitle = nativeUiText("settings.printers.subtitle","ค้นหาและเชื่อมต่อ LAN / USB / Bluetooth พร้อมกำหนดเส้นทางพิมพ์"),
                     locked = !printerAllowed,
                     onClick = {
                         if (printerAllowed) page = "printer"

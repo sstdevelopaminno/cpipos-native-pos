@@ -22,7 +22,7 @@ class NativeMenuSelectionTest {
         assertEquals(2, cart.single { it.cartLineId == a.cartLineId }.quantity)
     }
 
-    @Test fun recipeExclusionsBecomeKitchenNoteWithoutMutatingRecipeDefinitions() {
+    @Test fun onlyCheckedRecipeIngredientsBecomeKitchenInstructions() {
         val config = NativeProductOptionConfig(
             "noodle", emptyList(),
             listOf(
@@ -30,8 +30,11 @@ class NativeMenuSelectionTest {
                 NativeRecipeIngredient("egg", "ไข่", "gram", 1.0)
             )
         )
+        assertEquals("", composeNativeRecipeKitchenNote(config, emptySet(), ""))
         val note = composeNativeRecipeKitchenNote(config, setOf("egg"), "ไม่เผ็ด")
-        assertEquals("ไม่ใส่ไข่ | ไม่เผ็ด", note)
+        assertEquals("ใส่ไข่ | หมายเหตุ: ไม่เผ็ด", note)
+        assertEquals("หมายเหตุ: ไข่， ไม่เผ็ด",
+            composeNativeRecipeKitchenNote(config, emptySet(), "ไข่, ไม่เผ็ด"))
         assertEquals(2, config.baseRecipe.size)
         val selection = NativeMenuSelection("noodle", 1, false, emptySet(), note)
         assertEquals(note, selection.note)

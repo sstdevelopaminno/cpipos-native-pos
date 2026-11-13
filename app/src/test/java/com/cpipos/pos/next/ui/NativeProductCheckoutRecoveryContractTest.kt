@@ -23,11 +23,11 @@ class NativeProductCheckoutRecoveryContractTest {
     @Test fun ingredientCheckboxesSendInstructionsButCannotClaimStockChange() {
         val editor = ui("NativeMenuCustomizationDialog.kt")
         val model = core("NativeMenuSelection.kt")
-        assertTrue(editor.contains("excludedRecipeIds"))
+        assertTrue(editor.contains("selectedRecipeIds"))
         assertTrue(editor.contains("Checkbox("))
         assertTrue(editor.contains("composeNativeRecipeKitchenNote"))
         assertTrue(editor.contains("!noteTooLong"))
-        assertTrue(model.contains("ไม่ใส่"))
+        assertTrue(model.contains("ใส่"))
         assertTrue(model.contains("DO NOT change canonical product recipes"))
     }
 

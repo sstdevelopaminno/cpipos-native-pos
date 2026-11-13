@@ -19,6 +19,17 @@ class NativeQrFirebaseService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
+        if (data["type"] == "native_news_event") {
+            NativeNewsNotificationPublisher.show(
+                this,
+                data["tenant_id"] ?: return,
+                data["user_id"] ?: return,
+                data["news_id"] ?: return,
+                data["title"].orEmpty(),
+                data["body"].orEmpty()
+            )
+            return
+        }
         if (data["type"] != "native_qr_event") return
         if ((application as? NativePosApplication)?.isForeground == true) return
 

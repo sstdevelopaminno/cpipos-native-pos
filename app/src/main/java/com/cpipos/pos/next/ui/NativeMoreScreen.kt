@@ -294,7 +294,7 @@ private fun MoreShiftManagementScreen(
     var summaryDialog by remember { mutableStateOf(false) }
     var openDialog by remember { mutableStateOf(false) }
     var closeDialog by remember { mutableStateOf(false) }
-    var openingCash by remember { mutableStateOf("0") }
+    var openingCash by remember { mutableStateOf("") }
     var closingCash by remember { mutableStateOf("") }
     var actionBusy by remember { mutableStateOf(false) }
 

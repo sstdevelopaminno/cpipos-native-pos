@@ -605,10 +605,42 @@ internal fun NativeTaxSettingsScreen(
 
 @Composable
 internal fun NativeLanguageSettingsScreen(
-    session: WebPosSession, onBack: () -> Unit, onTab: (String) -> Unit
+    client: WebPosClient, session: WebPosSession, onBack: () -> Unit, onTab: (String) -> Unit
 ){
     val context=LocalContext.current
     val language by NativeUiLanguage.state(context)
+    val scope=rememberCoroutineScope()
+    var saving by remember(session.id){mutableStateOf(false)}
+    var saveError by remember(session.id){mutableStateOf<String?>(null)}
+    LaunchedEffect(session.id) {
+        try {
+            val remote=client.preferredLanguage(session)
+            if (NativeUiLanguage.pending(context,session.tenantId,session.employeeId)==null && !saving)
+                NativeUiLanguage.applyRemote(context,session.tenantId,session.employeeId,remote)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Keep the last language on this device until the server is reachable.
+        }
+    }
+    fun choose(code: String) {
+        if (saving || code == language) return
+        saving=true
+        saveError=null
+        NativeUiLanguage.markPending(context,session.tenantId,session.employeeId,code)
+        scope.launch {
+            try {
+                val saved=client.savePreferredLanguage(session,code)
+                NativeUiLanguage.clearPending(context,session.tenantId,session.employeeId,code)
+                if (NativeUiLanguage.pending(context,session.tenantId,session.employeeId)==null)
+                    NativeUiLanguage.applyRemote(context,session.tenantId,session.employeeId,saved)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                saveError=(e as? WebPosApiException)?.code ?: e.message ?: "language_save_failed"
+            } finally { saving=false }
+        }
+    }
     SettingsManagementShell(
         nativeUiText("language.title","เปลี่ยนภาษา"),
         nativeUiText("language.subtitle","เลือกภาษาสำหรับเมนู Native POS · ไทย / English / ລາວ"),
@@ -618,16 +650,18 @@ internal fun NativeLanguageSettingsScreen(
             Surface(
                 color=Color.White,
                 shape=androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                modifier=Modifier.fillMaxWidth().clickable{NativeUiLanguage.set(context,code)}
+                modifier=Modifier.fillMaxWidth().clickable{choose(code)}
             ){
                 Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){
-                    RadioButton(language==code,{NativeUiLanguage.set(context,code)})
+                    RadioButton(language==code,{choose(code)},enabled=!saving)
                     Text(label,fontWeight=FontWeight.Bold)
                 }
             }
         }
+        if (saving) CircularProgressIndicator(color=managementBlue)
+        saveError?.let { Text("บันทึกภาษาไม่สำเร็จ: $it",color=Color(0xFFB42318)) }
         Text(
-            nativeUiText("language.saved","เมื่อเลือกภาษา เมนูหลัก ตั้งค่า และเพิ่มเติมจะเปลี่ยนทันทีและจำค่าไว้ในเครื่อง"),
+            nativeUiText("language.saved","ระบบจำภาษาของพนักงานรหัสนี้และซิงก์ไปทุกเครื่อง"),
             fontSize=10.sp,color=managementMuted
         )
     }

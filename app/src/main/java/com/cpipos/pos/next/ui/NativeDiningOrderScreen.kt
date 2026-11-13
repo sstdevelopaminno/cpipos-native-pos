@@ -87,6 +87,7 @@ internal fun NativeDiningOrderScreen(
     var error by remember(session.id, table.id) { mutableStateOf<String?>(null) }
     var stale by remember(session.id, table.id) { mutableStateOf(false) }
     var cartOpen by remember(session.id, table.id) { mutableStateOf(false) }
+    var pendingCartProductName by remember(session.id, table.id) { mutableStateOf<String?>(null) }
     var showCancelPin by remember(session.id, table.id) { mutableStateOf(false) }
     var cancelPinError by remember(session.id, table.id) { mutableStateOf<String?>(null) }
     var showMethods by remember(session.id, table.id) { mutableStateOf(false) }
@@ -208,6 +209,7 @@ internal fun NativeDiningOrderScreen(
     BackHandler(enabled = !draft.busy && !showTableQr && !showMoveTable) {
         when {
             draft.paymentMethod != null -> draft.paymentMethod = null
+            pendingCartProductName != null -> pendingCartProductName = null
             cartOpen -> cartOpen = false
             showCancelPin -> showCancelPin = false
             else -> onTables()
@@ -274,27 +276,29 @@ internal fun NativeDiningOrderScreen(
         draft.pendingKitchenOrderId == null
     val canCheckout = canSubmit || canPayExisting
 
-    fun addConfiguredChoice(choice: NativeMenuSelection) {
-        val product = products.firstOrNull { it.id == choice.productId } ?: return
-        val config = optionConfigs[choice.productId] ?: return
+    fun addConfiguredChoice(choice: NativeMenuSelection): Boolean {
+        val product = products.firstOrNull { it.id == choice.productId } ?: return false
+        val config = optionConfigs[choice.productId] ?: return false
         val price = choice.displayPrice(product, config)
         if (price == null) {
             error = "เลือกวัตถุดิบไม่ครบหรือราคาสินค้าเปลี่ยน"
-            return
+            return false
         }
+        error = null
         if (!choice.useSpecialPrice && choice.selectedOptionIds.isEmpty() &&
             choice.note.isBlank() && config.groups.isEmpty()) {
             // Ordinary recipe sales must keep working through the existing
             // POS table endpoint outside the atomic menu pilot.
             draft.items[product.id] = (draft.items[product.id] ?: 0) + choice.quantity
             editingProductId = null
-            return
+            return true
         }
         val key = choice.cartLineId
         draft.configuredSelections[key] = choice.copy(quantity = 1)
         draft.configuredPrices[key] = price.value
         draft.items[key] = (draft.items[key] ?: 0) + choice.quantity
         editingProductId = null
+        return true
     }
 
     fun save(thenCheckout: Boolean = true) {
@@ -698,14 +702,6 @@ internal fun NativeDiningOrderScreen(
                         count = combinedCount
                     ) { cartOpen = true }
                 }
-                if (draft.items.isNotEmpty() && !draft.uncertain && !draft.busy) {
-                    Text(
-                        "มีสินค้าในเครื่อง ${draft.items.values.sum()} รายการ ยังไม่ส่งไป POS หลักหรือห้องครัว " +
-                            "กรุณากด «บันทึก/ส่งครัว» ในตะกร้า",
-                        color = Color(0xFF9F5C10), fontSize = 12.sp,
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    )
-                }
                 if (error != null || custom || draft.uncertain || stale || draft.pendingKitchenOrderId != null) {
                     Text(error ?: if (draft.pendingKitchenOrderId != null)
                         "บันทึกบิลแล้ว แต่ยังไม่ยืนยันว่ารายการไปถึงห้องครัว"
@@ -878,9 +874,41 @@ internal fun NativeDiningOrderScreen(
                 product = original,
                 config = config,
                 onDismiss = { editingProductId = null },
-                onConfirm = { choice -> addConfiguredChoice(choice) }
+                onConfirm = { choice ->
+                    if (addConfiguredChoice(choice) && !cartOpen) {
+                        pendingCartProductName = original.name
+                    }
+                }
             )
         }
+    }
+    pendingCartProductName?.let { productName ->
+        AlertDialog(
+            onDismissRequest = { pendingCartProductName = null },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(24.dp),
+            title = { Text(nativeUiText("menu.cart_added", "เพิ่มในตะกร้าแล้ว"),
+                color = dineInk, fontWeight = FontWeight.Bold) },
+            text = {
+                Text("$productName " + nativeUiText("menu.cart_prompt",
+                    "อยู่ในตะกร้า ต้องการเปิดตะกร้าเพื่อบันทึกและส่งครัวหรือไม่? " +
+                        "รายการจะยังไม่ส่งจนกว่าคุณจะกด บันทึก/ส่งครัว"),
+                    color = Color(0xFF566A83))
+            },
+            confirmButton = {
+                Button(onClick = {
+                    pendingCartProductName = null
+                    cartOpen = true
+                }, colors = ButtonDefaults.buttonColors(containerColor = dineBlue)) {
+                    Text(nativeUiText("menu.open_cart", "เปิดตะกร้า"))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingCartProductName = null }) {
+                    Text(nativeUiText("menu.keep_shopping", "เลือกสินค้าต่อ"), color = dineBlue)
+                }
+            }
+        )
     }
     if (cartOpen) PreviewCartBottomSheet(
         products = cartEntries, cart = combinedCart,
@@ -946,16 +974,19 @@ internal fun NativeDiningOrderScreen(
             else error = "ไม่สามารถพักบิลที่ยังตรวจสอบสถานะไม่สำเร็จ"
         },
         discountAmount = targetDiscount,
-        cartHint = if (count > 0) "ยังไม่ส่ง POS หลัก/ครัว · กดบันทึก/ส่งครัว"
-            else if (existing?.orderId != null) "บิลนี้บันทึกอยู่ใน POS หลักแล้ว"
-            else null,
-        holdLabel = if (count > 0) "บันทึก/ส่งครัว" else "พักบิล",
-        checkoutLabel = "ชำระเงิน", tableMode = true,
+        cartHint = null,
+        holdLabel = if (count > 0)
+            nativeUiText("menu.save_send_kitchen", "บันทึก/ส่งครัว") else
+            nativeUiText("menu.hold", "พักบิล"),
+        checkoutLabel = nativeUiText("menu.pay", "ชำระเงิน"), tableMode = true,
         checkoutEnabled = canCheckout,
+        emphasizeHoldBill = count > 0,
+        holdEnabled = canSubmit,
         lockedQuantities = storedQuantities
     )
     if (showCancelPin && nativeCanModifyBills(session.role)) NativeCancelBillPinDialog(
         title = "ยกเลิกบิลโต๊ะ " + table.name,
+        autoSubmit = true,
         busy = draft.busy,
         error = cancelPinError,
         onDismiss = {
