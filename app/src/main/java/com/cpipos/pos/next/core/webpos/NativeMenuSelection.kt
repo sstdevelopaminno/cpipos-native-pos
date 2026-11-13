@@ -56,18 +56,24 @@ internal data class NativeMenuSelection(
 }
 
 /**
- * Recipe checkbox exclusions are explicit kitchen instructions only. They
+ * Recipe checkbox selections are explicit kitchen instructions only. They
  * DO NOT change canonical product recipes, modifiers, prices or stock. Stock
  * deltas must be configured via CpIPOS's server-owned modifier options.
  */
 internal fun composeNativeRecipeKitchenNote(
     config: NativeProductOptionConfig,
-    excludedIngredientIds: Set<String>,
+    selectedIngredientIds: Set<String>,
     manualNote: String
 ): String {
-    require(excludedIngredientIds.all { id -> config.baseRecipe.any { it.id == id } })
-    return (config.baseRecipe.filter { it.id in excludedIngredientIds }
-        .map { "ไม่ใส่" + it.name } + listOf(manualNote.trim()).filter { it.isNotBlank() })
+    require(selectedIngredientIds.all { id -> config.baseRecipe.any { it.id == id } })
+    // Prefix the selected names and free text so the central POS never mistakes
+    // a kitchen instruction for an extra ingredient to deduct from stock.
+    // The Web parser splits on ASCII commas; preserve commas visually with the
+    // full-width form so a later phrase cannot become a bare ingredient name.
+    return (config.baseRecipe.filter { it.id in selectedIngredientIds }
+        .map { "ใส่" + it.name.trim().replace(',', '，') } +
+        listOf(manualNote.trim()).filter { it.isNotBlank() }
+            .map { "หมายเหตุ: " + it.replace(',', '，') })
         .joinToString(" | ")
 }
 

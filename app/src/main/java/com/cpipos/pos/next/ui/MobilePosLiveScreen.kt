@@ -60,6 +60,7 @@ import com.cpipos.pos.next.core.webpos.WebStore
 import com.cpipos.pos.next.core.webpos.WebPosApiException
 import com.cpipos.pos.next.printing.DemoReceiptPrinter
 import com.cpipos.pos.next.core.push.NativeFcmRegistration
+import com.cpipos.pos.next.core.push.NativeNewsNotificationPublisher
 import com.cpipos.pos.next.core.push.NativeQrBackgroundService
 import com.cpipos.pos.next.core.print.NativePrintRuntime
 import com.cpipos.pos.next.core.security.NativeAndroidDeveloperGuard
@@ -119,6 +120,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var unresolvedSaleCount by remember(session?.id) { mutableStateOf<Int?>(null) }
     var logoutPendingCount by remember(session?.id) { mutableStateOf<Int?>(null) }
     var catalog by remember { mutableStateOf<List<WebPosProduct>>(emptyList()) }
+    var mediaPending by remember { mutableStateOf<List<WebPosProduct>?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var unresolved by remember { mutableStateOf("") }
@@ -134,6 +136,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     var selectedDiningTable by remember(session?.id) { mutableStateOf<com.cpipos.pos.next.core.webpos.WebDiningTable?>(null) }
     var mainTab by remember { mutableStateOf("history") }
     var moreInitialPage by remember { mutableStateOf("hub") }
+    var unreadNewsCount by remember(session?.id) { mutableStateOf(0) }
     var tabRevision by remember { mutableStateOf(0) }
     val fcmNavigationRevision = NativeFcmRegistration.navigationRevision.intValue
     val mdmLocked by NativeDeviceManagementRuntime.deviceLocked.collectAsState()
@@ -193,6 +196,37 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         step = "tab"
     }
 
+    fun openHomeMore(page: String) {
+        if (page != "shift" && session?.role?.trim()?.lowercase() !in setOf("owner", "manager")) return
+        val current = session ?: return
+        val gate = when (page) {
+            "receipts" -> Triple("receipt_reprint_history", "more.receipts", "ใบเสร็จย้อนหลัง")
+            "summary" -> Triple("advanced_sales_reports", "more.sales_summary", "สรุปยอดขาย")
+            else -> null
+        }
+        fun enter() {
+            moreInitialPage = page
+            mainTab = "history"
+            tabRevision += 1
+            step = "tab"
+        }
+        if (gate == null || entitlements?.allows(gate.first, gate.second, "main.more") != false) {
+            enter()
+        } else if (!entitlementCheckBusy) scope.launch {
+            entitlementCheckBusy = true
+            try {
+                val latest = client.posEntitlements(current, forceFresh = true)
+                if (session?.id == current.id) {
+                    entitlements = latest
+                    if (latest.allows(gate.first, gate.second, "main.more")) enter()
+                    else packageLockTarget = gate.third
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { packageLockTarget = gate.third }
+            finally { entitlementCheckBusy = false }
+        }
+    }
+
     fun navigateTab(tab: String) {
         if (!nativeTabVisible(session?.role.orEmpty(), tab)) return
         if (takeaway.saving.value || dineWorkspace.drafts.values.any { it.busy }) return
@@ -234,6 +268,7 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
     }
 
     fun goToStore() {
+        NativeUiLanguage.deactivate()
         NativePrintRuntime.stop()
         NativeDeviceManagementRuntime.stop()
         NativeQrBackgroundService.stop(ctx)
@@ -283,36 +318,41 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                         } else {
                             val loadedProducts = client.products(current)
                             catalog = loadedProducts
+                            mediaPending = loadedProducts
                             step = "mode"
-                            // Images come from the same authenticated POS Web media API.
-                            // Optional media must never delay cashier entry or a sale.
-                            scope.launch {
-                                try {
-                                    val withImages = client.productsWithMedia(loadedProducts)
-                                    if (session?.id == current.id &&
-                                        session?.branchId == current.branchId &&
-                                        (step == "mode" || step == "sale")
-                                    ) {
-                                        catalog = withImages
-                                    }
-                                } catch (cancelled: CancellationException) {
-                                    throw cancelled
-                                } catch (failure: Exception) {
-                                    Log.w(
-                                        "CpIPOSMedia",
-                                        "Product media unavailable (" + failure.javaClass.simpleName + "); keeping sale catalog"
-                                    )
-                                }
-                            }
                         }
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 error = "ตรวจสอบกะหรือสินค้าไม่สำเร็จ: ${e.message?.take(80)}"
                 step = "shift"
             } finally {
                 busy = false
             }
+    }
+
+    // Product media is optional. Start it from the active composition after
+    // the shift screen has navigated, so opening a shift cannot fail because
+    // the previous screen's coroutine scope was disposed.
+    LaunchedEffect(client, session?.id, mediaPending) {
+        val pending = mediaPending ?: return@LaunchedEffect
+        val active = session ?: return@LaunchedEffect
+        try {
+            val withImages = client.productsWithMedia(pending)
+            if (session?.id == active.id && session?.branchId == active.branchId &&
+                (step == "mode" || step == "sale")) {
+                catalog = withImages
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Log.w("CpIPOSMedia", "Product media unavailable (" +
+                failure.javaClass.simpleName + "); keeping sale catalog")
+        } finally {
+            if (mediaPending === pending) mediaPending = null
+        }
     }
 
     // IT Admin controls packages and menu policies through the shared CpiPOS-001
@@ -488,6 +528,30 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
+    LaunchedEffect(session?.id, fcmNavigationRevision, step) {
+        val active = session ?: return@LaunchedEffect
+        if (NativeFcmRegistration.pendingNews(ctx, active) == null) return@LaunchedEffect
+        if (step == "mode" || step == "tab") {
+            NativeFcmRegistration.clearPendingNews(ctx)
+            step = "news"
+        }
+    }
+
+    LaunchedEffect(client, session?.id) {
+        val active = session ?: return@LaunchedEffect
+        while (session?.id == active.id) {
+            try {
+                val feed = client.news(active)
+                if (session?.id == active.id) {
+                    unreadNewsCount = feed.unreadCount
+                    NativeNewsNotificationPublisher.publishFeed(ctx, active, feed)
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Retry when the network returns. */ }
+            kotlinx.coroutines.delay(60_000L)
+        }
+    }
+
     // OS notification opens the existing POS with a scoped, verified table ID.
     // Never discard an unresolved sale or draft while navigating from FCM.
     LaunchedEffect(client, session?.id, fcmNavigationRevision, step) {
@@ -523,6 +587,30 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
         }
     }
 
+    LaunchedEffect(client, session?.id) {
+        val current = session ?: return@LaunchedEffect
+        while (session?.id == current.id) {
+            try {
+                val pending = NativeUiLanguage.pending(ctx, current.tenantId, current.employeeId)
+                if (pending != null) {
+                    val saved = client.savePreferredLanguage(current, pending)
+                    NativeUiLanguage.clearPending(ctx, current.tenantId, current.employeeId, pending)
+                    if (NativeUiLanguage.pending(ctx, current.tenantId, current.employeeId) == null)
+                        NativeUiLanguage.applyRemote(ctx, current.tenantId, current.employeeId, saved)
+                } else {
+                    val remote = client.preferredLanguage(current)
+                    if (NativeUiLanguage.pending(ctx, current.tenantId, current.employeeId) == null)
+                        NativeUiLanguage.applyRemote(ctx, current.tenantId, current.employeeId, remote)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep the employee's last choice until the server is reachable.
+            }
+            kotlinx.coroutines.delay(60_000L)
+        }
+    }
+
     // Resume the same backend-issued POS identity after process restart.
     // Server still validates tenant, branch, device, employee and session lease.
     LaunchedEffect(client) {
@@ -530,14 +618,18 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             step = "restoring"
             try {
                 val restored = client.synchronizedShiftSession()
+                NativeUiLanguage.activate(ctx, restored.tenantId, restored.employeeId)
+                NativeFcmRegistration.bindSession(ctx, restored)
                 session = restored
                 refreshCatalog(restored)
             } catch (failure: WebPosApiException) {
                 if (failure.status == 401 || failure.status == 403) client.clearStoredPosSession()
+                NativeUiLanguage.deactivate()
                 session = null
                 error = null
                 step = "store"
             } catch (_: Exception) {
+                NativeUiLanguage.deactivate()
                 session = null
                 step = "store"
             }
@@ -764,6 +856,8 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                                 employeeId = who.id,
                                 selected = chosen
                             )
+                            NativeUiLanguage.activate(ctx, verified.tenantId, verified.employeeId)
+                            NativeFcmRegistration.bindSession(ctx, verified)
                             session = verified
                             refreshCatalog(verified)
                         } catch (e: WebPosApiException) {
@@ -839,6 +933,9 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                             busy = false
                         }
                     }
+                },
+                onRetry = {
+                    if (!busy) scope.launch { refreshCatalog(verified) }
                 },
                 onBrowseWithoutShift = {
                     if (!busy) {
@@ -974,9 +1071,22 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
                 }
             },
             allowDineIn = true,
+            takeawayAvailable = entitlements?.takeawayAllowed() ?: true,
+            dineInAvailable = entitlements?.dineInAllowed() ?: true,
+            unreadNewsCount = unreadNewsCount,
+            onCloseShift = { if (!busy) openHomeMore("shift") },
+            onNews = { if (!busy) step = "news" },
+            showManagerShortcuts = session?.role?.trim()?.lowercase() in setOf("owner", "manager"),
+            onReceiptHistory = { if (!busy) openHomeMore("receipts") },
+            onSalesSummary = { if (!busy) openHomeMore("summary") },
+            onManageProducts = { if (!busy) navigateTab("stock") },
             onLogout = { if (!busy) showLogoutConfirm = true },
             onMainMenu = { tab -> navigateTab(tab) }
         )
+        "news" -> session?.let { verified ->
+            NativeNewsScreen(client, verified, onBack = { step = "mode" },
+                onTab = { navigateTab(it) }, onUnreadCount = { unreadNewsCount = it })
+        }
         "dine" -> session?.let { verified ->
             NativeDiningTableScreen(
                 client = client,

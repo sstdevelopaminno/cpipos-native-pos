@@ -28,6 +28,12 @@ import java.util.UUID
 data class WebBranch(val id: String, val name: String, val code: String)
 data class WebStore(val tenantId: String, val name: String, val branches: List<WebBranch>)
 data class WebEmployee(val id: String, val name: String, val code: String)
+data class WebNewsItem(
+    val id: String, val title: String, val body: String,
+    val publishedAt: String, val imageUrl: String?, val linkUrl: String?,
+    val isLatest: Boolean, val isRead: Boolean
+)
+data class WebNewsFeed(val items: List<WebNewsItem>, val unreadCount: Int)
 data class WebCashierDevice(
     val id: String,
     val code: String,
@@ -1621,6 +1627,42 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         }
     }
 
+
+    suspend fun preferredLanguage(session: WebPosSession): String {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        return call("GET", "/api/pos/settings/language").optString("language", "th")
+            .takeIf { it in setOf("th", "en", "lo") } ?: "th"
+    }
+
+    suspend fun news(session: WebPosSession): WebNewsFeed {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        val data = call("GET", "/api/pos/news")
+        val rows = data.optJSONArray("items") ?: JSONArray()
+        val items = (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            val id = row.optString("id").takeIf { runCatching { UUID.fromString(it) }.isSuccess }
+                ?: return@mapNotNull null
+            WebNewsItem(id, row.optString("title"), row.optString("body"),
+                row.optString("published_at"), row.optString("image_url").takeIf { it.isNotBlank() },
+                row.optString("link_url").takeIf { it.isNotBlank() },
+                row.optBoolean("is_latest"), row.optBoolean("is_read"))
+        }
+        return WebNewsFeed(items, data.optInt("unread_count", items.count { !it.isRead }))
+    }
+
+    suspend fun markNewsRead(session: WebPosSession, newsId: String) {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(runCatching { UUID.fromString(newsId) }.isSuccess)
+        call("POST", "/api/pos/news/$newsId", JSONObject())
+    }
+
+    suspend fun savePreferredLanguage(session: WebPosSession, language: String): String {
+        requireSameLiveSession(session, requireShift = false, requireSell = false)
+        require(language in setOf("th", "en", "lo"))
+        val data = call("POST", "/api/pos/settings/language", JSONObject().put("language", language))
+        return data.optString("language").takeIf { it in setOf("th", "en", "lo") }
+            ?: error("Invalid language response")
+    }
 
     suspend fun salesSummary(
         session: WebPosSession,

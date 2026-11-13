@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -906,9 +908,18 @@ internal fun HomeModeScreen(
     onSelectMode: (MockSaleMode) -> Unit,
     allowDineIn: Boolean = true,
     onLogout: (() -> Unit)? = null,
-    onMainMenu: (String) -> Unit = {}
+    onMainMenu: (String) -> Unit = {},
+    onCloseShift: (() -> Unit)? = null,
+    onNews: (() -> Unit)? = null,
+    unreadNewsCount: Int = 0,
+    showManagerShortcuts: Boolean = false,
+    onReceiptHistory: (() -> Unit)? = null,
+    onSalesSummary: (() -> Unit)? = null,
+    onManageProducts: (() -> Unit)? = null,
+    takeawayAvailable: Boolean = true,
+    dineInAvailable: Boolean = true
 ) {
-    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFFAFCFF)) {
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFFEAF4FF)) {
         Box(modifier = Modifier.fillMaxSize()) {
             HomeBlueWaveBackground(
                 modifier = Modifier
@@ -921,79 +932,134 @@ internal fun HomeModeScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
-                    .padding(horizontal = 18.dp)
-                    .padding(top = 10.dp, bottom = 112.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 10.dp, bottom = 124.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                if (onLogout != null) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Image(
-                            painter = painterResource(R.drawable.cpipos_logo_symbol),
-                            contentDescription = null,
-                            modifier = Modifier.size(30.dp)
-                        )
-                        Spacer(Modifier.width(7.dp))
-                        Text("CpIPOS", color = Color(0xFF152544), fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-                        Box(
-                            modifier = Modifier.size(46.dp)
-                                .shadow(2.dp, CircleShape).clip(CircleShape)
-                                .background(Color.White)
-                                .clickable(onClickLabel = "ออกจากระบบ") { onLogout() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Image(
-                                painter = painterResource(R.drawable.ic_nav_logout),
-                                contentDescription = "ออกจากระบบ",
-                                modifier = Modifier.size(25.dp)
-                            )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Image(painterResource(R.drawable.cpipos_logo_symbol), null, Modifier.size(32.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("CpIPOS", color = Color(0xFF152544), fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                    onCloseShift?.let { HomeHeaderAction(R.drawable.ic_nav_cash_drawer,
+                        nativeUiText("home.close_shift", "ปิดกะ"), it) }
+                    onNews?.let {
+                        Spacer(Modifier.width(8.dp))
+                        Box {
+                            HomeHeaderAction(R.drawable.ic_nav_news,
+                                nativeUiText("home.news", "ข่าวสาร"), it)
+                            if (unreadNewsCount > 0) {
+                                Text(unreadNewsCount.coerceAtMost(99).toString(),
+                                    modifier = Modifier.align(Alignment.TopEnd)
+                                        .background(Color(0xFFED6A33), CircleShape)
+                                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                                    color = Color.White, fontSize = 9.sp)
+                            }
                         }
                     }
-                } else {
-                    Spacer(modifier = Modifier.height(14.dp))
+                    onLogout?.let {
+                        Spacer(Modifier.width(8.dp))
+                        HomeHeaderAction(R.drawable.ic_nav_logout,
+                            nativeUiText("home.logout", "ออกจากระบบ"), it)
+                    }
                 }
-                Image(
-                    painter = painterResource(R.drawable.cpipos_logo_symbol),
-                    contentDescription = stringResource(R.string.pos_logo_content_description),
-                    modifier = Modifier.size(176.dp)
-                )
-                Text(
-                    text = stringResource(R.string.pos_home_title),
-                    fontSize = 22.sp,
-                    lineHeight = 27.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF14213D)
-                )
-                Text(
-                    text = stringResource(R.string.pos_home_subtitle),
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                    color = Color(0xFF8894A7)
-                )
-                Spacer(modifier = Modifier.height(22.dp))
-
-                ModeCard(
-                    iconRes = R.drawable.ic_mode_takeaway,
-                    title = stringResource(R.string.pos_mode_takeaway),
-                    subtitle = stringResource(R.string.pos_mode_takeaway_subtitle),
-                    onClick = { onSelectMode(MockSaleMode.Takeaway) }
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                ModeCard(
-                    iconRes = R.drawable.ic_mode_table,
-                    title = stringResource(R.string.pos_mode_table),
-                    subtitle = if (allowDineIn) stringResource(R.string.pos_mode_table_subtitle)
-                    else "รอเชื่อมระบบโต๊ะและบิลจริง",
-                    onClick = { onSelectMode(MockSaleMode.DineIn) },
-                    enabled = allowDineIn
-                )
+                HomeBrandBanner()
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    HomeModeChoiceCard(R.drawable.ic_mode_takeaway,
+                        nativeUiText("home.takeaway", "โหมดกลับบ้าน"),
+                        nativeUiText("home.takeaway.subtitle", "สำหรับลูกค้าที่ซื้อกลับ"),
+                        available = takeawayAvailable,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onSelectMode(MockSaleMode.Takeaway) })
+                    HomeModeChoiceCard(R.drawable.ic_mode_table,
+                        nativeUiText("home.dine", "โหมดนั่งโต๊ะ"),
+                        nativeUiText("home.dine.subtitle", "สำหรับบริการที่ร้าน"),
+                        available = allowDineIn && dineInAvailable,
+                        modifier = Modifier.weight(1f),
+                        onClick = { if (allowDineIn) onSelectMode(MockSaleMode.DineIn) })
+                }
+                if (showManagerShortcuts) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        HomeShortcut(R.drawable.ic_receipt_bill,
+                            nativeUiText("home.receipts", "ใบเสร็จย้อนหลัง"),
+                            Modifier.weight(1f), onReceiptHistory)
+                        HomeShortcut(R.drawable.ic_nav_report,
+                            nativeUiText("home.summary", "สรุปยอดขาย"),
+                            Modifier.weight(1f), onSalesSummary)
+                        HomeShortcut(R.drawable.ic_nav_stock,
+                            nativeUiText("home.products", "จัดการสินค้า"),
+                            Modifier.weight(1f), onManageProducts)
+                    }
+                }
             }
 
             HomeBottomMenu(modifier = Modifier.align(Alignment.BottomCenter), onMenuClick = onMainMenu)
         }
+    }
+}
+
+@Composable
+private fun HomeHeaderAction(iconRes: Int, label: String, onClick: () -> Unit) {
+    Box(Modifier.size(42.dp).shadow(2.dp, CircleShape).clip(CircleShape)
+        .background(Color.White).clickable(onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center) {
+        Image(painterResource(iconRes), label, Modifier.size(24.dp))
+    }
+}
+
+@Composable
+private fun HomeBrandBanner() {
+    Box(Modifier.fillMaxWidth().height(138.dp).clip(RoundedCornerShape(22.dp))
+        .background(Brush.linearGradient(listOf(Color(0xFF0750B4), Color(0xFF008DF1), Color(0xFF064CC3))))) {
+        Column(Modifier.align(Alignment.CenterStart).padding(start = 18.dp).width(170.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text("CpIPOS", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+            Text(nativeUiText("home.banner.title", "ระบบจัดการร้านค้า (POS)"),
+                color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(nativeUiText("home.banner.subtitle", "ขายง่าย จัดการครบ เชื่อมทุกอุปกรณ์"),
+                color = Color(0xFFD7EBFF), fontSize = 10.sp)
+        }
+        Image(painterResource(R.drawable.ic_home_pos_devices), null,
+            Modifier.align(Alignment.BottomEnd).padding(end = 6.dp, bottom = 8.dp)
+                .width(148.dp).height(102.dp))
+    }
+}
+
+@Composable
+private fun HomeModeChoiceCard(iconRes: Int, title: String, subtitle: String,
+    available: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Column(modifier.height(180.dp).shadow(3.dp, RoundedCornerShape(20.dp))
+        .clip(RoundedCornerShape(20.dp)).background(Color.White)
+        .clickable(onClick = onClick).padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center) {
+        Box(Modifier.size(75.dp).clip(CircleShape).background(Color(0xFFE8F4FF)),
+            contentAlignment = Alignment.Center) {
+            Image(painterResource(iconRes), null, Modifier.size(66.dp))
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(title, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold,
+            color = Color(0xFF152544), maxLines = 1)
+        Text(if (available) subtitle else nativeUiText("home.package_locked", "แพ็กเกจยังไม่เปิดใช้"),
+            fontSize = 10.sp, color = Color(0xFF788AA3), maxLines = 1)
+        Text(if (available) "›" else "🔒", fontSize = 21.sp, color = Color(0xFF0879DD))
+    }
+}
+
+@Composable
+private fun HomeShortcut(iconRes: Int, title: String, modifier: Modifier, onClick: (() -> Unit)?) {
+    Column(modifier.height(98.dp).shadow(2.dp, RoundedCornerShape(17.dp))
+        .clip(RoundedCornerShape(17.dp)).background(Color.White)
+        .clickable(enabled = onClick != null) { onClick?.invoke() }.padding(7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center) {
+        Image(painterResource(iconRes), null, Modifier.size(35.dp))
+        Spacer(Modifier.height(5.dp))
+        Text(title, fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold,
+            color = Color(0xFF152544), maxLines = 2,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 

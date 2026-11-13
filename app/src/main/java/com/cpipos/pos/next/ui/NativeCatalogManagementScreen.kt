@@ -183,11 +183,11 @@ internal fun NativeCatalogManagementScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("คลังสินค้า", fontSize = 23.sp, fontWeight = FontWeight.ExtraBold, color = catalogInk)
+                        Text(nativeUiText("stock.title", "คลังสินค้า"), fontSize = 23.sp, fontWeight = FontWeight.ExtraBold, color = catalogInk)
                         Text(selectedBranch.name + " · CpIPOS", fontSize = 11.sp, color = catalogMuted)
                     }
                     TextButton(onClick = { reload += 1 }, enabled = !loading && !saving) {
-                        Text("↻ รีเฟรช", color = catalogBlue)
+                        Text("↻ " + nativeUiText("common.refresh", "รีเฟรช"), color = catalogBlue)
                     }
                 }
 
@@ -224,10 +224,11 @@ internal fun NativeCatalogManagementScreen(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    listOf(false to "สินค้า", true to "วัตถุดิบ").forEach { choice ->
+                    listOf(false to nativeUiText("stock.products", "สินค้า"),
+                        true to nativeUiText("stock.ingredients", "วัตถุดิบ")).forEach { choice ->
                         val active = ingredients == choice.first
                         Surface(
-                            modifier = Modifier.weight(1f).clickable(enabled = !saving) {
+                            modifier = Modifier.weight(1f).height(44.dp).clickable(enabled = !saving) {
                                 ingredients = choice.first
                                 page = 1
                                 filterCategory = ""
@@ -240,33 +241,36 @@ internal fun NativeCatalogManagementScreen(
                             Text(
                                 choice.second,
                                 modifier = Modifier.padding(vertical = 12.dp),
-                                fontSize = 13.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 color = if (active) Color.White else catalogInk
                             )
                         }
                     }
-                }
-
-                Button(
-                    onClick = {
-                        operationError = null
-                        if (ingredients) ingredientCreateOpen = true else productCreateOpen = true
-                    },
-                    enabled = editable && !saving,
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = catalogBlue)
-                ) {
-                    Text(if (ingredients) "+ เพิ่มวัตถุดิบ / รับเข้า" else "+ เพิ่มสินค้า", fontWeight = FontWeight.Bold)
+                    Button(
+                        onClick = {
+                            operationError = null
+                            if (ingredients) ingredientCreateOpen = true else productCreateOpen = true
+                        },
+                        enabled = editable && !saving,
+                        modifier = Modifier.weight(1.15f).height(44.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = catalogBlue)
+                    ) {
+                        Text(if (ingredients) nativeUiText("stock.receive", "+ รับเข้า")
+                            else nativeUiText("stock.add", "+ เพิ่มสินค้า"),
+                            fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
                 }
 
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = searchInput,
                     onValueChange = { searchInput = it.take(60) },
-                    label = { Text(if (ingredients) "ค้นหาวัตถุดิบ" else "ค้นหาชื่อสินค้า / SKU") },
+                    label = { Text(if (ingredients) nativeUiText("stock.ingredient_search", "ค้นหาวัตถุดิบ")
+                        else nativeUiText("stock.search", "ค้นหาชื่อสินค้า / SKU")) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     trailingIcon = {
@@ -1265,23 +1269,37 @@ private fun EditCatalogDialog(
     var price by remember(item.id) { mutableStateOf(if (ingredient) "" else item.price.bahtText()) }
     var specialPrice by remember(item.id) { mutableStateOf(item.specialPrice?.bahtText().orEmpty()) }
     var recommended by remember(item.id) { mutableStateOf(item.recommended) }
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = catalogBlue, focusedLabelColor = catalogBlue, cursorColor = catalogBlue
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (ingredient) "แก้ไขวัตถุดิบ" else "แก้ไขสินค้า") },
+        containerColor = Color.White,
+        titleContentColor = catalogInk,
+        textContentColor = catalogInk,
+        shape = RoundedCornerShape(24.dp),
+        title = { Text(if (ingredient) nativeUiText("stock.edit_ingredient", "แก้ไขวัตถุดิบ")
+            else nativeUiText("stock.edit", "แก้ไขสินค้า"),
+            fontWeight = FontWeight.ExtraBold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("สาขา $branchName", fontSize = 10.sp, color = catalogMuted)
+            Column(Modifier.fillMaxWidth().heightIn(max = 530.dp)
+                .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(nativeUiText("stock.branch", "สาขา") + " $branchName", fontSize = 10.sp, color = catalogMuted)
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.take(120) },
-                    label = { Text(if (ingredient) "ชื่อวัตถุดิบ" else "ชื่อสินค้า") },
+                    label = { Text(if (ingredient) nativeUiText("stock.ingredient_name", "ชื่อวัตถุดิบ")
+                        else nativeUiText("stock.product_name", "ชื่อสินค้า")) },
+                    colors = fieldColors,
                     singleLine = true
                 )
                 OutlinedTextField(
                     value = skuUnit,
                     onValueChange = { skuUnit = it.take(60) },
-                    label = { Text(if (ingredient) "หน่วยหลัก" else "SKU") },
+                    label = { Text(if (ingredient) nativeUiText("stock.main_unit", "หน่วยหลัก") else "SKU") },
+                    colors = fieldColors,
                     readOnly = ingredient,
                     singleLine = true
                 )
@@ -1289,21 +1307,24 @@ private fun EditCatalogDialog(
                     OutlinedTextField(
                         value = category,
                         onValueChange = { category = it.take(80) },
-                        label = { Text("หมวดหมู่") },
+                        label = { Text(nativeUiText("stock.category", "หมวดหมู่")) },
+                        colors = fieldColors,
                         singleLine = true
                     )
                     OutlinedTextField(
                         value = price,
                         onValueChange = { price = it.take(20) },
-                        label = { Text("ราคาหน้าร้าน") },
+                        label = { Text(nativeUiText("stock.retail_price", "ราคาหน้าร้าน")) },
                         prefix = { Text("฿") },
+                        colors = fieldColors,
                         singleLine = true
                     )
                     OutlinedTextField(
                         value = specialPrice,
                         onValueChange = { specialPrice = it.filter { ch -> ch.isDigit() || ch == '.' }.take(16) },
-                        label = { Text("ราคาพิเศษ (เว้นว่างเพื่อยกเลิก)") },
+                        label = { Text(nativeUiText("stock.special_price", "ราคาพิเศษ (เว้นว่างเพื่อยกเลิก)")) },
                         prefix = { Text("฿") },
+                        colors = fieldColors,
                         singleLine = true
                     )
                     NativeCatalogPhotoPicker(
@@ -1311,8 +1332,9 @@ private fun EditCatalogDialog(
                         onSelected = { selectedPhoto = it }
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = recommended, onCheckedChange = { recommended = it })
-                        Text("สินค้าแนะนำ", fontSize = 12.sp)
+                        Checkbox(checked = recommended, onCheckedChange = { recommended = it },
+                            colors = CheckboxDefaults.colors(checkedColor = catalogBlue))
+                        Text(nativeUiText("stock.featured", "สินค้าแนะนำ"), fontSize = 12.sp)
                     }
                 }
                 Text(
@@ -1337,10 +1359,13 @@ private fun EditCatalogDialog(
                 enabled = !saving && name.isNotBlank() && skuUnit.isNotBlank() &&
                     (ingredient || (category.isNotBlank() && price.toBigDecimalOrNull() != null &&
                         (specialPrice.isBlank() || specialPrice.toDoubleOrNull()?.let { it >= 0 && it <= 99999999 } == true))),
-                onClick = { onSave(name, skuUnit, category, price, recommended, specialPrice, selectedPhoto) }
-            ) { Text("บันทึก") }
+                onClick = { onSave(name, skuUnit, category, price, recommended, specialPrice, selectedPhoto) },
+                colors = ButtonDefaults.buttonColors(containerColor = catalogBlue)
+            ) { Text(nativeUiText("common.save", "บันทึก")) }
         },
-        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("ยกเลิก") } }
+        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) {
+            Text(nativeUiText("common.cancel", "ยกเลิก"), color = catalogBlue)
+        } }
     )
 }
 

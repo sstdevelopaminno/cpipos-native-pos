@@ -36,7 +36,15 @@ object NativeFcmRegistration {
     fun hasFirebase(context: Context): Boolean =
         runCatching { FirebaseApp.getApps(context).isNotEmpty() }.getOrDefault(false)
 
+    fun bindSession(context: Context, session: WebPosSession) {
+        check(prefs(context).edit()
+            .putString("bound_tenant", session.tenantId)
+            .putString("bound_branch", session.branchId)
+            .putString("bound_user", session.employeeId).commit())
+    }
+
     suspend fun register(context: Context, client: WebPosClient, session: WebPosSession): Boolean {
+        bindSession(context, session)
         if (!hasFirebase(context)) return false
         val fcmToken = suspendCancellableCoroutine<String> { cont ->
             val task = FirebaseMessaging.getInstance().token
@@ -45,8 +53,6 @@ object NativeFcmRegistration {
         }
         client.registerNativeQrPush(session, installationId(context), fcmToken, BuildConfig.APPLICATION_ID)
         check(prefs(context).edit()
-            .putString("bound_tenant", session.tenantId)
-            .putString("bound_branch", session.branchId)
             .putString("current_token", fcmToken).commit())
         return true
     }
@@ -70,8 +76,15 @@ object NativeFcmRegistration {
             p.getString("bound_branch", null) == branch
     }
 
+    fun sameBoundUser(context: Context, tenant: String, user: String): Boolean {
+        val p = prefs(context)
+        return p.getString("bound_tenant", null) == tenant &&
+            p.getString("bound_user", null) == user
+    }
+
     fun clearScope(context: Context) {
-        prefs(context).edit().remove("bound_tenant").remove("bound_branch").apply()
+        prefs(context).edit().remove("bound_tenant").remove("bound_branch")
+            .remove("bound_user").remove("pending_news_id").apply()
     }
 
     fun markReceived(context: Context, eventId: String): Boolean {
@@ -84,6 +97,17 @@ object NativeFcmRegistration {
     }
 
     fun captureNotificationIntent(context: Context, intent: Intent?) {
+        val newsId = intent?.getStringExtra("cpipos_news_id")
+        val newsTenant = intent?.getStringExtra("cpipos_news_tenant_id")
+        val newsUser = intent?.getStringExtra("cpipos_news_user_id")
+        if (newsId != null && newsTenant != null && newsUser != null &&
+            runCatching { UUID.fromString(newsId) }.isSuccess &&
+            sameBoundUser(context, newsTenant, newsUser)) {
+            if (prefs(context).edit().putString("pending_news_id", newsId).commit()) {
+                navigationRevision.intValue += 1
+            }
+            return
+        }
         val id = intent?.getStringExtra("cpipos_qr_table_id") ?: return
         val tenant = intent.getStringExtra("cpipos_qr_tenant_id") ?: return
         val branch = intent.getStringExtra("cpipos_qr_branch_id") ?: return
@@ -101,5 +125,14 @@ object NativeFcmRegistration {
 
     fun clearPendingTable(context: Context) {
         prefs(context).edit().remove("pending_table_id").apply()
+    }
+
+    fun pendingNews(context: Context, session: WebPosSession): String? {
+        if (!sameBoundUser(context, session.tenantId, session.employeeId)) return null
+        return prefs(context).getString("pending_news_id", null)
+    }
+
+    fun clearPendingNews(context: Context) {
+        prefs(context).edit().remove("pending_news_id").apply()
     }
 }

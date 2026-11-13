@@ -22,6 +22,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.delay
 
 /**
  * Shared masked PIN entry for table cancellations and sales-list voids.
@@ -49,9 +51,18 @@ internal fun NativeCancelBillPinDialog(
     onDismiss: () -> Unit,
     onApprove: (String) -> Unit,
     actionLabel: String = "ยืนยันการยกเลิก",
-    actionNote: String = "ระบบจะตรวจสิทธิ์จากเซิร์ฟเวอร์ก่อนเปลี่ยนสถานะบิล"
+    actionNote: String = "ระบบจะตรวจสิทธิ์จากเซิร์ฟเวอร์ก่อนเปลี่ยนสถานะบิล",
+    autoSubmit: Boolean = false
 ) {
     var pin by remember(title) { mutableStateOf("") }
+    LaunchedEffect(pin, busy, autoSubmit) {
+        if (autoSubmit && !busy && pin.length in 4..12) {
+            delay(2_000L)
+            val submitted = pin
+            pin = ""
+            onApprove(submitted)
+        }
+    }
     val ink = Color(0xFF172749)
     val blue = Color(0xFF176DED)
     Dialog(
@@ -146,24 +157,27 @@ internal fun NativeCancelBillPinDialog(
                     fontSize = 11.sp, color = Color(0xFF8091A6),
                     textAlign = TextAlign.Center
                 )
-                Button(
-                    onClick = {
-                        if (!busy && pin.length in 4..12) {
-                            val submitted = pin
-                            pin = ""
-                            onApprove(submitted)
-                        }
-                    },
-                    enabled = !busy && pin.length in 4..12,
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    shape = RoundedCornerShape(15.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = blue)
-                ) {
-                    if (busy) CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp), color = Color.White
+                if (autoSubmit && busy) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = blue)
+                } else if (autoSubmit) {
+                    Text(
+                        "หยุดพิมพ์ 2 วินาทีเพื่อ${actionLabel}อัตโนมัติ",
+                        fontSize = 12.sp, color = blue, textAlign = TextAlign.Center
                     )
-                    else Text(actionLabel, fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold)
+                } else {
+                    Button(
+                        onClick = {
+                            if (!busy && pin.length in 4..12) {
+                                val submitted = pin
+                                pin = ""
+                                onApprove(submitted)
+                            }
+                        },
+                        enabled = !busy && pin.length in 4..12,
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        shape = RoundedCornerShape(15.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = blue)
+                    ) { Text(actionLabel, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
                 }
                 TextButton(onClick = onDismiss, enabled = !busy) {
                     Text("กลับ", color = Color(0xFF6E809A))
