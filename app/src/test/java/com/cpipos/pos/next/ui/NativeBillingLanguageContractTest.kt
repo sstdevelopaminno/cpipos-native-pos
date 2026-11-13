@@ -101,4 +101,22 @@ class NativeBillingLanguageContractTest {
         assertFalse(hub.contains("bottom = 212.dp"))
         assertFalse(screens.contains("bottom = 156.dp"))
     }
+    @Test
+    fun approvedTenantDiscountIsVisibleWithoutChangingInvoiceAmount() {
+        val client = source("src/main/java/com/cpipos/pos/next/core/webpos/WebPosClient.kt")
+        val screen = source("src/main/java/com/cpipos/pos/next/ui/NativeSubscriptionBillingScreen.kt")
+        assertTrue(client.contains("data class WebSubscriptionPromotion"))
+        assertTrue(client.contains("data.optJSONObject(\"promotion\")"))
+        assertTrue(client.contains("reflected_in_current_due"))
+        assertTrue(client.contains("valid_from"))
+        assertTrue(client.contains("valid_until"))
+        assertTrue(screen.contains("data.promotion?.let"))
+        assertTrue(screen.contains("promo.discountedAmount"))
+        assertTrue(screen.contains("promo.regularAmount"))
+        assertTrue(screen.contains("promo.appliesToCurrentDue"))
+        assertTrue(screen.contains("promo.reflectedInCurrentDue"))
+        assertTrue(screen.contains("กรุณาติดต่อฝ่ายบริการก่อนชำระ"))
+        assertTrue(screen.contains("ยอดที่ต้องชำระ"))
+    }
+
 }

@@ -191,6 +191,69 @@ internal fun NativeSubscriptionBillingScreen(
                     val selected = data.packages.firstOrNull { it.id == selectedPackageId }
                     val owner = session.role == "owner"
 
+                    data.promotion?.let { promo ->
+                        item {
+                            Surface(color = Color(0xFFE7F8EF), shape = RoundedCornerShape(18.dp)) {
+                                Column(
+                                    Modifier.fillMaxWidth().padding(15.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        tr(
+                                            "🎁 คุณได้รับสิทธิส่วนลดแพ็กเกจ " + billingMoney.format(promo.percent) + "%",
+                                            "🎁 Your package discount: " + billingMoney.format(promo.percent) + "%",
+                                            "🎁 ທ່ານໄດ້ຮັບສ່ວນຫຼຸດແພັກເກດ " + billingMoney.format(promo.percent) + "%"
+                                        ),
+                                        fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF126142)
+                                    )
+                                    Text(promo.title, fontWeight = FontWeight.Bold, color = billingInk)
+                                    Text(
+                                        promo.validFrom + " → " + promo.validUntil,
+                                        fontSize = 11.sp, color = billingMuted
+                                    )
+                                    BillingMetric(
+                                        tr("ราคาเต็ม", "Regular price", "ລາຄາປົກກະຕິ"),
+                                        moneyText(promo.regularAmount, data.currency)
+                                    )
+                                    BillingMetric(
+                                        tr("ราคาหลังส่วนลด", "Discounted price", "ລາຄາຫຼັງຫຼຸດ"),
+                                        moneyText(promo.discountedAmount, data.currency)
+                                    )
+                                    Text(
+                                        tr("ประหยัด ", "You save ", "ປະຫຍັດ ") +
+                                            moneyText(promo.discountAmount, data.currency),
+                                        fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF047857)
+                                    )
+                                    if (promo.appliesToCurrentDue && !promo.reflectedInCurrentDue) {
+                                        Text(
+                                            tr(
+                                                "ยอดในรอบบิลปัจจุบันยังไม่ปรับส่วนลด กรุณาติดต่อฝ่ายบริการก่อนชำระ",
+                                                "The current bill has not been discounted. Contact support before paying.",
+                                                "ຍອດບິນປະຈຸບັນຍັງບໍ່ໄດ້ຫຼຸດ ກະລຸນາຕິດຕໍ່ຝ່າຍບໍລິການກ່ອນຊຳລະ"
+                                            ),
+                                            fontSize = 11.sp, color = Color(0xFF9A5B0C)
+                                        )
+                                    } else if (!promo.appliesToCurrentDue) {
+                                        Text(
+                                            tr(
+                                                "ส่วนลดเริ่มในรอบบิลที่เข้าเงื่อนไข ยอดรอบปัจจุบันอ้างอิงตามระบบ",
+                                                "Discount begins on eligible billing cycles; current due remains authoritative.",
+                                                "ສ່ວນຫຼຸດເລີ່ມໃນຮອບບິນທີ່ມີສິດ ຍອດປັດຈຸບັນອີງຕາມລະບົບ"
+                                            ),
+                                            fontSize = 11.sp, color = billingMuted
+                                        )
+                                    } else {
+                                        Text(
+                                            tr("✓ ยอดรอบบิลรวมส่วนลดแล้ว", "✓ Current bill includes your discount", "✓ ຍອດບິນໄດ້ລວມສ່ວນຫຼຸດແລ້ວ"),
+                                            fontSize = 11.sp, color = Color(0xFF047857)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     item {
                         Surface(color = Color.White, shape = RoundedCornerShape(18.dp), shadowElevation = 1.dp) {
                             Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

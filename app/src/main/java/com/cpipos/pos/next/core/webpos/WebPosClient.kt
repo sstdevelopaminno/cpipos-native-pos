@@ -444,6 +444,18 @@ data class WebSubscriptionDue(
     val openRequestId: String?,
     val accessLocked: Boolean
 )
+data class WebSubscriptionPromotion(
+    val id: String,
+    val title: String,
+    val percent: Double,
+    val validFrom: String,
+    val validUntil: String,
+    val regularAmount: Double,
+    val discountedAmount: Double,
+    val discountAmount: Double,
+    val appliesToCurrentDue: Boolean,
+    val reflectedInCurrentDue: Boolean
+)
 data class WebSubscriptionIssuer(
     val name: String,
     val bankName: String,
@@ -469,6 +481,7 @@ data class WebSubscriptionOverview(
     val due: WebSubscriptionDue?,
     val issuer: WebSubscriptionIssuer,
     val receipts: List<WebSubscriptionReceipt>,
+    val promotion: WebSubscriptionPromotion?,
     val itConnected: Boolean
 )
 data class WebSubscriptionSlip(
@@ -3240,6 +3253,7 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
         val dueRow = data.optJSONObject("billing_due")
         val documentRows = data.optJSONArray("documents") ?: JSONArray()
         val control = data.optJSONObject("control_plane")
+        val promoRow = data.optJSONObject("promotion")
         fun nullableDouble(row: JSONObject, key: String): Double? =
             if (row.isNull(key)) null else row.optDouble(key).takeIf { it.isFinite() }
         fun nullableInt(row: JSONObject, key: String): Int? =
@@ -3324,6 +3338,27 @@ class WebPosClient(baseUrl: String, context: Context? = null) {
                     currency = row.optString("currency").ifBlank { "THB" },
                     packageName = row.optString("package_name"),
                     billingInterval = row.optString("billing_interval").ifBlank { "monthly" }
+                )
+            },
+            promotion = promoRow?.let { row ->
+                val id = row.optString("id")
+                val percent = row.optDouble("percent", Double.NaN)
+                val regular = row.optDouble("regular_amount", Double.NaN)
+                val discounted = row.optDouble("discounted_amount", Double.NaN)
+                val savings = row.optDouble("discount_amount", Double.NaN)
+                if (id.isBlank() || !percent.isFinite() || !regular.isFinite() ||
+                    !discounted.isFinite() || !savings.isFinite()) null
+                else WebSubscriptionPromotion(
+                    id = id,
+                    title = row.optString("title"),
+                    percent = percent,
+                    validFrom = row.optString("valid_from"),
+                    validUntil = row.optString("valid_until"),
+                    regularAmount = regular,
+                    discountedAmount = discounted,
+                    discountAmount = savings,
+                    appliesToCurrentDue = row.optBoolean("applies_to_current_due", false),
+                    reflectedInCurrentDue = row.optBoolean("reflected_in_current_due", false)
                 )
             },
             itConnected = control?.optBoolean("connected", false) ?: false
