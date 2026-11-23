@@ -686,7 +686,17 @@ internal fun MobilePosLiveScreen(client: WebPosClient) {
             selectedLanguage = language,
             busy = busy,
             error = error,
-            onLanguageSelected = { language = it },
+            onLanguageSelected = {
+                language = it
+                NativeUiLanguage.set(
+                    ctx,
+                    when (it) {
+                        LoginLanguage.English -> "en"
+                        LoginLanguage.Lao -> "lo"
+                        LoginLanguage.Thai -> "th"
+                    }
+                )
+            },
             onEmployeeCode = {
                 employeeCode = it.filter(Char::isDigit).take(32)
                 error = null
